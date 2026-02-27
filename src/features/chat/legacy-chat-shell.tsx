@@ -9,7 +9,6 @@ import { MODELS, ModelSelector } from "@/components/model-selector"
 import { SettingsDialog } from "@/components/settings-dialog"
 import { VoiceMode } from "@/components/voice-mode"
 import { WelcomeScreen } from "@/components/welcome-screen"
-import { ScrollArea } from "@/components/ui/scroll-area"
 
 function newConversationId(): string {
   return `conv_${crypto.randomUUID()}`
@@ -51,7 +50,8 @@ export function LegacyChatShell({ runtime }: { runtime: AppRuntime }) {
 
   const abortRef = useRef<AbortController | null>(null)
   const activeConversationIdRef = useRef<string | null>(null)
-  const bottomRef = useRef<HTMLDivElement | null>(null)
+  const messagesScrollRef = useRef<HTMLDivElement | null>(null)
+  const shouldAutoScrollRef = useRef(true)
 
   useEffect(() => {
     activeConversationIdRef.current = activeConversationId
@@ -154,8 +154,24 @@ export function LegacyChatShell({ runtime }: { runtime: AppRuntime }) {
   }, [loadMessages, refreshConversations])
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" })
+    if (!shouldAutoScrollRef.current) {
+      return
+    }
+    const node = messagesScrollRef.current
+    if (!node) {
+      return
+    }
+    node.scrollTop = node.scrollHeight
   }, [visibleMessages, isStreaming])
+
+  const handleMessagesScroll = useCallback(() => {
+    const node = messagesScrollRef.current
+    if (!node) {
+      return
+    }
+    const distanceToBottom = node.scrollHeight - node.scrollTop - node.clientHeight
+    shouldAutoScrollRef.current = distanceToBottom < 80
+  }, [])
 
   const handleSendMessage = useCallback(
     async (text: string): Promise<void> => {
@@ -253,7 +269,7 @@ export function LegacyChatShell({ runtime }: { runtime: AppRuntime }) {
   }, [createConversation, isStreaming])
 
   return (
-    <main className="flex h-dvh overflow-hidden bg-background">
+    <main className="flex h-dvh min-h-0 overflow-hidden bg-background">
       <ChatSidebar
         conversations={sidebarConversations}
         activeId={activeConversationId}
@@ -264,13 +280,13 @@ export function LegacyChatShell({ runtime }: { runtime: AppRuntime }) {
         onToggleCollapse={() => setSidebarCollapsed((prev) => !prev)}
       />
 
-      <div className="flex flex-1 flex-col overflow-hidden">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <header className="flex items-center justify-between border-b border-border px-4 py-2.5">
           <ModelSelector selectedModel={selectedModel} onModelChange={setSelectedModel} />
           {lastError ? <span className="text-xs text-destructive">{lastError}</span> : <div />}
         </header>
 
-        <ScrollArea className="flex-1">
+        <div ref={messagesScrollRef} onScroll={handleMessagesScroll} className="flex-1 min-h-0 overflow-y-auto">
           {visibleMessages.length === 0 ? (
             <WelcomeScreen />
           ) : (
@@ -279,10 +295,10 @@ export function LegacyChatShell({ runtime }: { runtime: AppRuntime }) {
                 <ChatMessage key={message.id} message={message} />
               ))}
               {isStreaming && !streamingAssistantText ? <TypingIndicator /> : null}
-              <div ref={bottomRef} className="h-4" />
+              <div className="h-4" />
             </div>
           )}
-        </ScrollArea>
+        </div>
 
         <ChatInput
           onSendMessage={(text) => {
