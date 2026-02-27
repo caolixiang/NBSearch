@@ -7,6 +7,8 @@ export interface AppConfig {
   apiKey: string
   defaultModel: string
   voiceEnabled: boolean
+  anthropicApiKey?: string
+  anthropicBaseUrl?: string
 }
 
 export interface AppServices {

@@ -12,6 +12,8 @@
     "tauri:build": "tauri build"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^3.0.48",
+    "@ai-sdk/openai": "^3.0.36",
     "@ai-sdk/react": "^3.0.0",
     "@tauri-apps/api": "^2.0.0",
     "@tauri-apps/plugin-sql": "^2.0.0",

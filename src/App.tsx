@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react"
-import { loadAppConfig } from "./app/config"
 import { getRuntimeInfo, hasTauriRuntime, type RuntimeInfo } from "./app/runtime-info"
-import { getAppRepository } from "./infrastructure/storage/factory"
+import { getAppRuntime } from "./app/runtime"
 
 const initialRuntime: RuntimeInfo = {
   isTauri: false,
@@ -12,8 +11,9 @@ const initialRuntime: RuntimeInfo = {
 }
 
 export function App() {
-  const config = useMemo(() => loadAppConfig(), [])
-  const [runtime, setRuntime] = useState<RuntimeInfo>(initialRuntime)
+  const appRuntime = useMemo(() => getAppRuntime(), [])
+  const config = appRuntime.config
+  const [runtimeInfo, setRuntimeInfo] = useState<RuntimeInfo>(initialRuntime)
   const [storageBackend, setStorageBackend] = useState<"sqlite" | "memory">("memory")
   const [conversationCount, setConversationCount] = useState<number>(0)
 
@@ -22,12 +22,12 @@ export function App() {
     getRuntimeInfo()
       .then((info) => {
         if (mounted) {
-          setRuntime(info)
+          setRuntimeInfo(info)
         }
       })
       .catch(() => {
         if (mounted) {
-          setRuntime({
+          setRuntimeInfo({
             isTauri: false,
             appVersion: "unknown",
             platform: "unknown",
@@ -37,8 +37,7 @@ export function App() {
         }
       })
 
-    const repository = getAppRepository()
-    repository
+    appRuntime.services.repository
       .listConversations()
       .then((list) => {
         if (mounted) {
@@ -60,7 +59,7 @@ export function App() {
     return () => {
       mounted = false
     }
-  }, [])
+  }, [appRuntime])
 
   return (
     <main
@@ -99,19 +98,19 @@ export function App() {
           }}
         >
           <div>
-            <strong>Runtime:</strong> {runtime.isTauri ? "tauri" : "web"}
+            <strong>Runtime:</strong> {runtimeInfo.isTauri ? "tauri" : "web"}
           </div>
           <div>
-            <strong>App Version:</strong> {runtime.appVersion}
+            <strong>App Version:</strong> {runtimeInfo.appVersion}
           </div>
           <div>
-            <strong>Platform:</strong> {runtime.platform}
+            <strong>Platform:</strong> {runtimeInfo.platform}
           </div>
           <div>
-            <strong>App Data Dir:</strong> {runtime.appDataDir || "(not available in web mode)"}
+            <strong>App Data Dir:</strong> {runtimeInfo.appDataDir || "(not available in web mode)"}
           </div>
           <div>
-            <strong>App Log Dir:</strong> {runtime.appLogDir || "(not available in web mode)"}
+            <strong>App Log Dir:</strong> {runtimeInfo.appLogDir || "(not available in web mode)"}
           </div>
         </div>
 
@@ -137,6 +136,9 @@ export function App() {
           </div>
           <div>
             <strong>API Key Configured:</strong> {config.apiKey ? "yes" : "no"}
+          </div>
+          <div>
+            <strong>Anthropic Key Configured:</strong> {config.anthropicApiKey ? "yes" : "no"}
           </div>
           <div>
             <strong>Storage Backend:</strong> {storageBackend}
