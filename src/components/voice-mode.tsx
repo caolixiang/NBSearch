@@ -109,8 +109,8 @@ export function VoiceMode({ isOpen, onClose }: VoiceModeProps) {
           {/* Outer ring animation when AI speaking */}
           {isAiSpeaking && (
             <>
-              <div className="absolute -inset-6 rounded-full border border-[var(--color-claude-sienna)]/10 animate-[ping_2s_ease-in-out_infinite]" />
-              <div className="absolute -inset-4 rounded-full border border-[var(--color-claude-sienna)]/20 animate-[ping_1.5s_ease-in-out_infinite_0.3s]" />
+              <div className="absolute -inset-6 rounded-full border border-black/10 animate-[ping_2s_ease-in-out_infinite]" />
+              <div className="absolute -inset-4 rounded-full border border-black/20 animate-[ping_1.5s_ease-in-out_infinite_0.3s]" />
             </>
           )}
 
@@ -118,8 +118,8 @@ export function VoiceMode({ isOpen, onClose }: VoiceModeProps) {
             className={cn(
               "relative flex size-28 items-center justify-center rounded-full transition-all duration-500",
               isAiSpeaking
-                ? "bg-[var(--color-claude-sienna)] shadow-[0_0_60px_rgba(196,149,106,0.35)]"
-                : "bg-[var(--color-claude-sienna)]/80"
+                ? "bg-black shadow-[0_0_60px_rgba(0,0,0,0.28)]"
+                : "bg-black/90"
             )}
           >
             <GrokLogo className="size-14 text-white" />
