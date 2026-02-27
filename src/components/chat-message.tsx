@@ -32,7 +32,7 @@ export function ChatMessage({ message }: { message: RenderChatMessage }) {
         )}
       </div>
       {isUser && (
-        <div className="flex size-6 shrink-0 items-center justify-center rounded-full bg-foreground text-background">
+        <div className="flex size-6 shrink-0 items-center justify-center rounded-full border border-black bg-white text-black">
           <User className="size-3.5" />
         </div>
       )}
