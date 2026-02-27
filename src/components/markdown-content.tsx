@@ -368,7 +368,7 @@ function ThinkBlock({ content, open, thinking }: { content: string; open: boolea
         <span
           className={cn(
             "inline-flex h-4 w-4 rounded-full bg-[conic-gradient(from_180deg,#f59e0b,#f97316,#22c55e,#0ea5e9,#f59e0b)]",
-            thinking ? "think-summary-glow" : ""
+            thinking ? "think-summary-active" : ""
           )}
         />
         <span>{thinking ? "思考中" : "思考"}</span>
