@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test"
-import { ProviderRouter } from "./provider-router"
+import { normalizeGatewayBaseUrl, ProviderRouter } from "./provider-router"
 
 const router = new ProviderRouter({
   apiBaseUrl: "http://localhost:8787",
@@ -10,6 +10,18 @@ const router = new ProviderRouter({
 })
 
 describe("ProviderRouter", () => {
+  it("normalizes bare host to /v1", () => {
+    expect(normalizeGatewayBaseUrl("http://127.0.0.1:8787")).toBe("http://127.0.0.1:8787/v1")
+  })
+
+  it("keeps /v1 as is", () => {
+    expect(normalizeGatewayBaseUrl("http://127.0.0.1:8787/v1")).toBe("http://127.0.0.1:8787/v1")
+  })
+
+  it("accepts full responses endpoint", () => {
+    expect(normalizeGatewayBaseUrl("http://127.0.0.1:8787/v1/responses")).toBe("http://127.0.0.1:8787/v1")
+  })
+
   it("routes anthropic/* models to anthropic provider", () => {
     const resolved = router.resolve("anthropic/claude-sonnet-4-5")
     expect(resolved.provider).toBe("anthropic")
