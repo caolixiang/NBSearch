@@ -1,117 +1,83 @@
 "use client"
 
 import { useMemo } from "react"
+import ReactMarkdown from "react-markdown"
+import remarkGfm from "remark-gfm"
 
-function parseInlineMarkdown(text: string): React.ReactNode[] {
-  const parts: React.ReactNode[] = []
-  const regex = /(\*\*(.+?)\*\*)|(`(.+?)`)|(\[(.+?)\]\((.+?)\))/g
-  let lastIndex = 0
-  let match
+function normalizeAssistantMarkdown(content: string): string {
+  if (!content) {
+    return ""
+  }
 
-  while ((match = regex.exec(text)) !== null) {
-    if (match.index > lastIndex) {
-      parts.push(text.slice(lastIndex, match.index))
-    }
-    if (match[1]) {
-      parts.push(<strong key={match.index} className="font-semibold">{match[2]}</strong>)
-    } else if (match[3]) {
-      parts.push(
-        <code key={match.index} className="rounded bg-secondary px-1.5 py-0.5 font-mono text-sm text-foreground">
-          {match[4]}
-        </code>
-      )
-    } else if (match[5]) {
-      parts.push(
-        <a key={match.index} href={match[7]} className="text-claude-sienna underline" target="_blank" rel="noopener noreferrer">
-          {match[6]}
-        </a>
-      )
-    }
-    lastIndex = match.index + match[0].length
-  }
-  if (lastIndex < text.length) {
-    parts.push(text.slice(lastIndex))
-  }
-  return parts
+  let normalized = content.replace(/\r\n?/g, "\n")
+  normalized = normalized.replace(/([^\n])(?=#{1,6}\s?)/g, "$1\n")
+  normalized = normalized.replace(/(^|\n)(#{1,6})([^\s#])/g, "$1$2 $3")
+  normalized = normalized.replace(/(^|\n)(#{1,6}\s[^\n-]+)-\s?/g, "$1$2\n- ")
+  normalized = normalized.replace(/([\u4E00-\u9FFF）)])-(?=[\u4E00-\u9FFF0-9A-Za-z])/g, "$1\n- ")
+  normalized = normalized.replace(/([^\n])(?=\d+\.\s)/g, "$1\n")
+  normalized = normalized.replace(/\n{3,}/g, "\n\n")
+  return normalized.trim()
 }
 
 export function MarkdownContent({ content }: { content: string }) {
-  const rendered = useMemo(() => {
-    const lines = content.split("\n")
-    const elements: React.ReactNode[] = []
-    let inCodeBlock = false
-    let codeLines: string[] = []
-    let codeLang = ""
-
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i]
-
-      if (line.startsWith("```")) {
-        if (!inCodeBlock) {
-          inCodeBlock = true
-          codeLang = line.slice(3).trim()
-          codeLines = []
-        } else {
-          inCodeBlock = false
-          elements.push(
-            <div key={`code-${i}`} className="my-3 overflow-hidden rounded-lg border border-border">
-              {codeLang && (
-                <div className="border-b border-border bg-secondary px-3 py-1.5 text-xs text-muted-foreground font-mono">
-                  {codeLang}
-                </div>
-              )}
-              <pre className="overflow-x-auto bg-secondary/50 p-3">
-                <code className="text-sm font-mono text-foreground">{codeLines.join("\n")}</code>
-              </pre>
-            </div>
-          )
-        }
-        continue
-      }
-
-      if (inCodeBlock) {
-        codeLines.push(line)
-        continue
-      }
-
-      if (line.startsWith("### ")) {
-        elements.push(<h3 key={i} className="mt-4 mb-2 text-base font-semibold text-foreground">{parseInlineMarkdown(line.slice(4))}</h3>)
-      } else if (line.startsWith("## ")) {
-        elements.push(<h2 key={i} className="mt-4 mb-2 text-lg font-semibold text-foreground">{parseInlineMarkdown(line.slice(3))}</h2>)
-      } else if (line.startsWith("# ")) {
-        elements.push(<h1 key={i} className="mt-4 mb-2 text-xl font-bold text-foreground">{parseInlineMarkdown(line.slice(2))}</h1>)
-      } else if (line.startsWith("- ") || line.startsWith("* ")) {
-        elements.push(
-          <li key={i} className="ml-4 list-disc text-foreground leading-relaxed">
-            {parseInlineMarkdown(line.slice(2))}
-          </li>
-        )
-      } else if (/^\d+\.\s/.test(line)) {
-        const text = line.replace(/^\d+\.\s/, "")
-        elements.push(
-          <li key={i} className="ml-4 list-decimal text-foreground leading-relaxed">
-            {parseInlineMarkdown(text)}
-          </li>
-        )
-      } else if (line.startsWith("> ")) {
-        elements.push(
-          <blockquote key={i} className="my-2 border-l-3 border-claude-sienna pl-3 text-muted-foreground italic">
-            {parseInlineMarkdown(line.slice(2))}
-          </blockquote>
-        )
-      } else if (line.trim() === "") {
-        elements.push(<div key={i} className="h-2" />)
-      } else {
-        elements.push(
-          <p key={i} className="text-foreground leading-relaxed">
-            {parseInlineMarkdown(line)}
-          </p>
-        )
-      }
-    }
-
-    return elements
+  const normalized = useMemo(() => {
+    return normalizeAssistantMarkdown(content)
   }, [content])
 
-  return <div className="prose-claude space-y-0.5">{rendered}</div>
+  return (
+    <div className="space-y-0.5 text-foreground">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          h1: ({ children }) => <h1 className="mb-3 mt-5 text-xl font-bold">{children}</h1>,
+          h2: ({ children }) => <h2 className="mb-2 mt-4 text-lg font-semibold">{children}</h2>,
+          h3: ({ children }) => <h3 className="mb-2 mt-4 text-base font-semibold">{children}</h3>,
+          p: ({ children }) => <p className="leading-7">{children}</p>,
+          ul: ({ children }) => <ul className="my-2 list-disc space-y-1 pl-6">{children}</ul>,
+          ol: ({ children }) => <ol className="my-2 list-decimal space-y-1 pl-6">{children}</ol>,
+          li: ({ children }) => <li className="leading-7">{children}</li>,
+          a: ({ href, children }) => (
+            <a
+              href={href}
+              className="text-claude-sienna underline decoration-claude-sienna/50 underline-offset-2"
+              target="_blank"
+              rel="noreferrer noopener"
+            >
+              {children}
+            </a>
+          ),
+          blockquote: ({ children }) => (
+            <blockquote className="my-3 border-l-2 border-claude-sienna pl-3 text-muted-foreground italic">
+              {children}
+            </blockquote>
+          ),
+          pre: ({ children }) => (
+            <pre className="my-3 overflow-x-auto rounded-lg border border-border bg-secondary/40 p-3">{children}</pre>
+          ),
+          code: ({ className, children }) => {
+            const isBlock = Boolean(className)
+            if (isBlock) {
+              return <code className="font-mono text-sm">{children}</code>
+            }
+            return (
+              <code className="rounded bg-secondary px-1.5 py-0.5 font-mono text-sm text-foreground">
+                {children}
+              </code>
+            )
+          },
+          hr: () => <hr className="my-3 border-border" />,
+          table: ({ children }) => (
+            <div className="my-3 overflow-x-auto">
+              <table className="min-w-full border-collapse text-sm">{children}</table>
+            </div>
+          ),
+          thead: ({ children }) => <thead className="bg-secondary/60">{children}</thead>,
+          th: ({ children }) => <th className="border border-border px-3 py-2 text-left font-semibold">{children}</th>,
+          td: ({ children }) => <td className="border border-border px-3 py-2 align-top">{children}</td>,
+        }}
+      >
+        {normalized}
+      </ReactMarkdown>
+    </div>
+  )
 }
