@@ -12,4 +12,5 @@ dist/
 .env*.local
 .DS_Store
 src-tauri/target/
+src-tauri/gen/
 *.tsbuildinfo
