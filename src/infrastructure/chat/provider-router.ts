@@ -50,6 +50,16 @@ function readSessionIdFromMetadata(payload: Record<string, unknown>): string {
   return typeof raw === "string" ? raw.trim() : ""
 }
 
+function cleanupInternalMetadata(payload: Record<string, unknown>): void {
+  if (!isRecord(payload.metadata)) {
+    return
+  }
+  delete payload.metadata[GATEWAY_SESSION_ID_METADATA_KEY]
+  if (Object.keys(payload.metadata).length === 0) {
+    delete payload.metadata
+  }
+}
+
 export function injectGatewaySessionId(rawBody: string): string {
   try {
     const payload = JSON.parse(rawBody)
@@ -67,6 +77,7 @@ export function injectGatewaySessionId(rawBody: string): string {
     }
 
     payload.session_id = sessionId
+    cleanupInternalMetadata(payload)
     return JSON.stringify(payload)
   } catch {
     return rawBody

@@ -33,10 +33,15 @@ describe("ProviderRouter", () => {
       input: "hello",
       metadata: {
         [GATEWAY_SESSION_ID_METADATA_KEY]: "sess_123",
+        tag: "x",
       },
     })
-    const payload = JSON.parse(injectGatewaySessionId(raw)) as { session_id?: string }
+    const payload = JSON.parse(injectGatewaySessionId(raw)) as {
+      session_id?: string
+      metadata?: Record<string, unknown>
+    }
     expect(payload.session_id).toBe("sess_123")
+    expect(payload.metadata).toEqual({ tag: "x" })
   })
 
   it("keeps existing session_id untouched", () => {

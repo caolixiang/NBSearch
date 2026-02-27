@@ -152,7 +152,6 @@ export class AiSdkChatService implements ChatService {
           resolved.provider === "gateway"
             ? {
                 openai: {
-                  previousResponseId: input.anchors.lastResponseId || undefined,
                   metadata: {
                     [GATEWAY_SESSION_ID_METADATA_KEY]: sessionId,
                   },
