@@ -57,12 +57,21 @@ function mergeConsecutiveImageLines(content: string): string {
   return merged.join("\n")
 }
 
-function normalizeAssistantMarkdown(content: string): string {
+function stripThinkingBlocks(content: string): string {
+  let stripped = content
+  stripped = stripped.replace(/<think\b[^>]*>[\s\S]*?<\/think>/gi, "\n")
+  stripped = stripped.replace(/<think\b[^>]*>[\s\S]*$/gi, "\n")
+  stripped = stripped.replace(/<\/think>/gi, "\n")
+  return stripped
+}
+
+export function normalizeAssistantMarkdown(content: string): string {
   if (!content) {
     return ""
   }
 
   let normalized = content.replace(/\r\n?/g, "\n")
+  normalized = stripThinkingBlocks(normalized)
   normalized = mergeConsecutiveImageLines(normalized)
   normalized = normalized.replace(/([^\n])(?=#{1,6}\s?)/g, "$1\n")
   normalized = normalized.replace(/(^|\n)(#{1,6})([^\s#])/g, "$1$2 $3")
