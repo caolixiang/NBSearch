@@ -3,6 +3,8 @@ import { createOpenAI } from "@ai-sdk/openai"
 import type { LanguageModel } from "ai"
 import type { AppConfig } from "../../app/contracts"
 
+export const GATEWAY_SESSION_ID_METADATA_KEY = "__gateway_session_id"
+
 export type ProviderKind = "gateway" | "anthropic"
 
 export interface ResolvedModel {
@@ -36,6 +38,64 @@ export function normalizeGatewayBaseUrl(input: string): string {
   return `${trimmed}/v1`
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+function readSessionIdFromMetadata(payload: Record<string, unknown>): string {
+  if (!isRecord(payload.metadata)) {
+    return ""
+  }
+  const raw = payload.metadata[GATEWAY_SESSION_ID_METADATA_KEY]
+  return typeof raw === "string" ? raw.trim() : ""
+}
+
+export function injectGatewaySessionId(rawBody: string): string {
+  try {
+    const payload = JSON.parse(rawBody)
+    if (!isRecord(payload)) {
+      return rawBody
+    }
+
+    if (typeof payload.session_id === "string" && payload.session_id.trim()) {
+      return rawBody
+    }
+
+    const sessionId = readSessionIdFromMetadata(payload)
+    if (!sessionId) {
+      return rawBody
+    }
+
+    payload.session_id = sessionId
+    return JSON.stringify(payload)
+  } catch {
+    return rawBody
+  }
+}
+
+function createGatewayFetch(baseFetch: typeof fetch): typeof fetch {
+  const wrapped = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    const request = new Request(input, init)
+    const method = request.method.toUpperCase()
+    if (method !== "POST" || !request.url.includes("/responses")) {
+      return baseFetch(request)
+    }
+
+    const contentType = request.headers.get("content-type") || ""
+    if (!contentType.includes("application/json")) {
+      return baseFetch(request)
+    }
+
+    const rawBody = await request.text()
+    const nextBody = injectGatewaySessionId(rawBody)
+    const nextRequest = new Request(request, {
+      body: nextBody,
+    })
+    return baseFetch(nextRequest)
+  }
+  return wrapped as unknown as typeof fetch
+}
+
 export class ProviderRouter {
   private readonly gatewayProvider
   private readonly anthropicProvider
@@ -45,6 +105,7 @@ export class ProviderRouter {
       apiKey: config.apiKey || "missing-key",
       baseURL: normalizeGatewayBaseUrl(config.apiBaseUrl),
       name: "gateway",
+      fetch: createGatewayFetch(fetch),
     })
 
     this.anthropicProvider = createAnthropic({

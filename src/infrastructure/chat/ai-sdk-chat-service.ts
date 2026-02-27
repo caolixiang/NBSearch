@@ -8,7 +8,7 @@ import type {
   SendChatTurnInput,
 } from "../../domain/chat/types"
 import type { AppRepository, ConversationRecord } from "../../domain/storage/repository"
-import { ProviderRouter } from "./provider-router"
+import { GATEWAY_SESSION_ID_METADATA_KEY, ProviderRouter } from "./provider-router"
 
 function buildConversationId(input: Partial<ChatAnchors>): string {
   if (input.conversationId?.trim()) {
@@ -124,6 +124,7 @@ export class AiSdkChatService implements ChatService {
     signal?: AbortSignal
   ): Promise<void> {
     const conversationId = buildConversationId(input.anchors)
+    const sessionId = input.anchors.sessionId?.trim() || `sess_${crypto.randomUUID()}`
     const userMessage = buildUserMessage(input.text)
 
     await this.repository.appendMessage(conversationId, userMessage)
@@ -152,6 +153,9 @@ export class AiSdkChatService implements ChatService {
             ? {
                 openai: {
                   previousResponseId: input.anchors.lastResponseId || undefined,
+                  metadata: {
+                    [GATEWAY_SESSION_ID_METADATA_KEY]: sessionId,
+                  },
                 },
               }
             : undefined,
@@ -181,7 +185,7 @@ export class AiSdkChatService implements ChatService {
       await this.repository.appendMessage(conversationId, assistantMessage)
 
       const anchors: ChatAnchors = {
-        sessionId: input.anchors.sessionId || "",
+        sessionId,
         conversationId,
         lastResponseId: responseId || input.anchors.lastResponseId || "",
       }

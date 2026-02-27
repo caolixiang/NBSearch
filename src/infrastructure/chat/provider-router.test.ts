@@ -1,5 +1,10 @@
 import { describe, expect, it } from "bun:test"
-import { normalizeGatewayBaseUrl, ProviderRouter } from "./provider-router"
+import {
+  GATEWAY_SESSION_ID_METADATA_KEY,
+  injectGatewaySessionId,
+  normalizeGatewayBaseUrl,
+  ProviderRouter,
+} from "./provider-router"
 
 const router = new ProviderRouter({
   apiBaseUrl: "http://localhost:8787",
@@ -20,6 +25,31 @@ describe("ProviderRouter", () => {
 
   it("accepts full responses endpoint", () => {
     expect(normalizeGatewayBaseUrl("http://127.0.0.1:8787/v1/responses")).toBe("http://127.0.0.1:8787/v1")
+  })
+
+  it("injects session_id from metadata", () => {
+    const raw = JSON.stringify({
+      model: "grok-4.1-fast",
+      input: "hello",
+      metadata: {
+        [GATEWAY_SESSION_ID_METADATA_KEY]: "sess_123",
+      },
+    })
+    const payload = JSON.parse(injectGatewaySessionId(raw)) as { session_id?: string }
+    expect(payload.session_id).toBe("sess_123")
+  })
+
+  it("keeps existing session_id untouched", () => {
+    const raw = JSON.stringify({
+      model: "grok-4.1-fast",
+      input: "hello",
+      session_id: "sess_existing",
+      metadata: {
+        [GATEWAY_SESSION_ID_METADATA_KEY]: "sess_new",
+      },
+    })
+    const payload = JSON.parse(injectGatewaySessionId(raw)) as { session_id?: string }
+    expect(payload.session_id).toBe("sess_existing")
   })
 
   it("routes anthropic/* models to anthropic provider", () => {
