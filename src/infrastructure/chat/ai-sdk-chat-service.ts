@@ -1,4 +1,4 @@
-import { streamText } from "ai"
+import { streamText, type ModelMessage } from "ai"
 import type { AppConfig } from "../../app/contracts"
 import type { ChatService } from "../../domain/chat/service"
 import type {
@@ -53,6 +53,46 @@ function createConversationRecord(
   }
 }
 
+function toModelMessage(message: ChatMessage): ModelMessage | null {
+  if (message.status === "failed") {
+    return null
+  }
+
+  const content = message.content.trim()
+  if (!content) {
+    return null
+  }
+
+  if (message.role === "user") {
+    return {
+      role: "user",
+      content,
+    }
+  }
+
+  if (message.role === "assistant") {
+    return {
+      role: "assistant",
+      content,
+    }
+  }
+
+  if (message.role === "system") {
+    return {
+      role: "system",
+      content,
+    }
+  }
+
+  return null
+}
+
+export function buildAnthropicMessages(history: ChatMessage[]): ModelMessage[] {
+  return history
+    .map(toModelMessage)
+    .filter((item): item is ModelMessage => item !== null)
+}
+
 export class AiSdkChatService implements ChatService {
   private readonly router: ProviderRouter
 
@@ -87,15 +127,25 @@ export class AiSdkChatService implements ChatService {
     const userMessage = buildUserMessage(input.text)
 
     await this.repository.appendMessage(conversationId, userMessage)
+    const history = await this.repository.listMessages(conversationId)
 
     const resolved = this.router.resolve(input.model)
     const requestId = `req_${crypto.randomUUID()}`
     onEvent({ type: "started", requestId })
 
     try {
+      const promptInput: { prompt: string } | { messages: ModelMessage[] } =
+        resolved.provider === "anthropic"
+          ? {
+              messages: buildAnthropicMessages(history),
+            }
+          : {
+              prompt: input.text,
+            }
+
       const result = streamText({
         model: resolved.model,
-        prompt: input.text,
+        ...promptInput,
         abortSignal: signal,
         providerOptions:
           resolved.provider === "gateway"
