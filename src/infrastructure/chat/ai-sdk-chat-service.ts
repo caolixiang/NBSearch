@@ -38,6 +38,47 @@ function deriveConversationTitle(text: string): string {
   return collapsed.length > 36 ? `${collapsed.slice(0, 36)}...` : collapsed
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+function readNewTitle(value: unknown): string {
+  if (!isRecord(value)) {
+    return ""
+  }
+  const title = value.title
+  if (!isRecord(title)) {
+    return ""
+  }
+  const newTitle = title.newTitle
+  if (typeof newTitle !== "string") {
+    return ""
+  }
+  return newTitle.trim()
+}
+
+export function extractResponseNewTitleFromRawChunk(rawChunk: unknown): string {
+  if (!isRecord(rawChunk)) {
+    return ""
+  }
+  if (rawChunk.type !== "response.completed") {
+    return ""
+  }
+  const fromResponse = readNewTitle(rawChunk.response)
+  if (fromResponse) {
+    return fromResponse
+  }
+  return readNewTitle(rawChunk)
+}
+
+export function resolveConversationTitle(inputText: string, upstreamTitle: string): string {
+  const upstream = upstreamTitle.trim()
+  if (upstream) {
+    return upstream
+  }
+  return deriveConversationTitle(inputText)
+}
+
 function createConversationRecord(
   conversationId: string,
   title: string,
@@ -135,6 +176,7 @@ export class AiSdkChatService implements ChatService {
     onEvent({ type: "started", requestId })
 
     try {
+      let upstreamConversationTitle = ""
       const promptInput: { prompt: string } | { messages: ModelMessage[] } =
         resolved.provider === "anthropic"
           ? {
@@ -148,6 +190,16 @@ export class AiSdkChatService implements ChatService {
         model: resolved.model,
         ...promptInput,
         abortSignal: signal,
+        includeRawChunks: resolved.provider === "gateway",
+        onChunk: ({ chunk }) => {
+          if (chunk.type !== "raw") {
+            return
+          }
+          const nextTitle = extractResponseNewTitleFromRawChunk(chunk.rawValue)
+          if (nextTitle) {
+            upstreamConversationTitle = nextTitle
+          }
+        },
         providerOptions:
           resolved.provider === "gateway"
             ? {
@@ -189,7 +241,12 @@ export class AiSdkChatService implements ChatService {
         lastResponseId: responseId || input.anchors.lastResponseId || "",
       }
       await this.repository.upsertConversation(
-        createConversationRecord(conversationId, deriveConversationTitle(input.text), anchors, Date.now())
+        createConversationRecord(
+          conversationId,
+          resolveConversationTitle(input.text, upstreamConversationTitle),
+          anchors,
+          Date.now()
+        )
       )
 
       onEvent({

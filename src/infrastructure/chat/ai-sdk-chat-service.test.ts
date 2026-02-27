@@ -1,6 +1,10 @@
 import { describe, expect, it } from "bun:test"
 import type { ChatMessage } from "../../domain/chat/types"
-import { buildAnthropicMessages } from "./ai-sdk-chat-service"
+import {
+  buildAnthropicMessages,
+  extractResponseNewTitleFromRawChunk,
+  resolveConversationTitle,
+} from "./ai-sdk-chat-service"
 
 function message(overrides: Partial<ChatMessage>): ChatMessage {
   return {
@@ -37,5 +41,41 @@ describe("buildAnthropicMessages", () => {
     ])
 
     expect(result).toEqual([{ role: "user", content: "valid" }])
+  })
+})
+
+describe("extractResponseNewTitleFromRawChunk", () => {
+  it("extracts newTitle from responses completed chunk", () => {
+    const title = extractResponseNewTitleFromRawChunk({
+      type: "response.completed",
+      response: {
+        title: {
+          newTitle: "Friendly greeting",
+        },
+      },
+    })
+
+    expect(title).toBe("Friendly greeting")
+  })
+
+  it("returns empty string when chunk has no newTitle", () => {
+    const title = extractResponseNewTitleFromRawChunk({
+      type: "response.output_text.delta",
+      delta: "hello",
+    })
+
+    expect(title).toBe("")
+  })
+})
+
+describe("resolveConversationTitle", () => {
+  it("prefers upstream newTitle", () => {
+    const title = resolveConversationTitle("用户第一句", "Friendly greeting")
+    expect(title).toBe("Friendly greeting")
+  })
+
+  it("falls back to local title derivation", () => {
+    const title = resolveConversationTitle("   戴佩妮是谁？   ", "")
+    expect(title).toBe("戴佩妮是谁？")
   })
 })
