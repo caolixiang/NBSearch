@@ -135,6 +135,9 @@ export function App() {
             <strong>Voice Enabled:</strong> {String(config.voiceEnabled)}
           </div>
           <div>
+            <strong>Voice Service:</strong> gateway `/api/v1/voice/*`
+          </div>
+          <div>
             <strong>API Key Configured:</strong> {config.apiKey ? "yes" : "no"}
           </div>
           <div>

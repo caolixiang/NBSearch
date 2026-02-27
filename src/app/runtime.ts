@@ -2,7 +2,7 @@ import type { AppRuntime } from "./contracts"
 import { loadAppConfig } from "./config"
 import { AiSdkChatService } from "../infrastructure/chat/ai-sdk-chat-service"
 import { getAppRepository } from "../infrastructure/storage/factory"
-import { NoopVoiceService } from "../infrastructure/voice/noop-service"
+import { GatewayVoiceService } from "../infrastructure/voice/gateway-voice-service"
 
 let runtimeSingleton: AppRuntime | null = null
 
@@ -15,7 +15,7 @@ export function getAppRuntime(): AppRuntime {
       services: {
         repository,
         chat: new AiSdkChatService(repository, config),
-        voice: new NoopVoiceService(),
+        voice: new GatewayVoiceService(config),
       },
     }
   }
