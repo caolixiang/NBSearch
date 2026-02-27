@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react"
 import { loadAppConfig } from "./app/config"
-import { getRuntimeInfo, type RuntimeInfo } from "./app/runtime-info"
+import { getRuntimeInfo, hasTauriRuntime, type RuntimeInfo } from "./app/runtime-info"
+import { getAppRepository } from "./infrastructure/storage/factory"
 
 const initialRuntime: RuntimeInfo = {
   isTauri: false,
@@ -13,6 +14,8 @@ const initialRuntime: RuntimeInfo = {
 export function App() {
   const config = useMemo(() => loadAppConfig(), [])
   const [runtime, setRuntime] = useState<RuntimeInfo>(initialRuntime)
+  const [storageBackend, setStorageBackend] = useState<"sqlite" | "memory">("memory")
+  const [conversationCount, setConversationCount] = useState<number>(0)
 
   useEffect(() => {
     let mounted = true
@@ -33,6 +36,26 @@ export function App() {
           })
         }
       })
+
+    const repository = getAppRepository()
+    repository
+      .listConversations()
+      .then((list) => {
+        if (mounted) {
+          setConversationCount(list.length)
+        }
+      })
+      .catch(() => {
+        if (mounted) {
+          setConversationCount(0)
+        }
+      })
+
+    if (hasTauriRuntime()) {
+      setStorageBackend("sqlite")
+    } else {
+      setStorageBackend("memory")
+    }
 
     return () => {
       mounted = false
@@ -114,6 +137,12 @@ export function App() {
           </div>
           <div>
             <strong>API Key Configured:</strong> {config.apiKey ? "yes" : "no"}
+          </div>
+          <div>
+            <strong>Storage Backend:</strong> {storageBackend}
+          </div>
+          <div>
+            <strong>Conversation Count:</strong> {conversationCount}
           </div>
         </div>
       </section>

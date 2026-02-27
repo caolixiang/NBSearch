@@ -19,7 +19,7 @@ declare global {
   }
 }
 
-function hasTauriRuntime(): boolean {
+export function hasTauriRuntime(): boolean {
   return typeof window !== "undefined" && typeof window.__TAURI_INTERNALS__ !== "undefined"
 }
 

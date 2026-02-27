@@ -1,0 +1,162 @@
+import type { ChatMessage } from "../../../domain/chat/types"
+import type {
+  AppRepository,
+  ConversationRecord,
+  VoiceSessionRecord,
+} from "../../../domain/storage/repository"
+import { getDatabase } from "./database"
+
+function normalizeJsonText(input: string): string {
+  const trimmed = input.trim()
+  if (!trimmed) {
+    return JSON.stringify({ text: "" })
+  }
+  if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+    return input
+  }
+  return JSON.stringify({ text: input })
+}
+
+function parseMessageContent(contentJson: string): string {
+  if (!contentJson.trim()) {
+    return ""
+  }
+  try {
+    const value = JSON.parse(contentJson) as { text?: unknown }
+    if (typeof value?.text === "string") {
+      return value.text
+    }
+    return contentJson
+  } catch {
+    return contentJson
+  }
+}
+
+export class SqliteAppRepository implements AppRepository {
+  async listConversations(): Promise<ConversationRecord[]> {
+    const db = await getDatabase()
+    const rows = await db.select<
+      Array<{
+        id: string
+        title: string
+        session_id: string
+        conversation_id: string
+        last_response_id: string
+        created_at: number
+        updated_at: number
+      }>
+    >(
+      `SELECT id, title, session_id, conversation_id, last_response_id, created_at, updated_at
+       FROM conversations
+       ORDER BY updated_at DESC`
+    )
+
+    return rows.map((row) => ({
+      id: row.id,
+      title: row.title,
+      anchors: {
+        sessionId: row.session_id,
+        conversationId: row.conversation_id,
+        lastResponseId: row.last_response_id,
+      },
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }))
+  }
+
+  async upsertConversation(record: ConversationRecord): Promise<void> {
+    const db = await getDatabase()
+    await db.execute(
+      `INSERT INTO conversations(id, title, session_id, conversation_id, last_response_id, created_at, updated_at)
+       VALUES($1, $2, $3, $4, $5, $6, $7)
+       ON CONFLICT(id) DO UPDATE SET
+         title=excluded.title,
+         session_id=excluded.session_id,
+         conversation_id=excluded.conversation_id,
+         last_response_id=excluded.last_response_id,
+         updated_at=excluded.updated_at`,
+      [
+        record.id,
+        record.title,
+        record.anchors.sessionId || "",
+        record.anchors.conversationId || "",
+        record.anchors.lastResponseId || "",
+        record.createdAt,
+        record.updatedAt,
+      ]
+    )
+  }
+
+  async appendMessage(conversationId: string, message: ChatMessage): Promise<void> {
+    const db = await getDatabase()
+    await db.execute(
+      `INSERT INTO messages(id, conversation_id, role, content_json, response_id, previous_response_id, status, created_at)
+       VALUES($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [
+        message.id,
+        conversationId,
+        message.role,
+        normalizeJsonText(message.content),
+        message.responseId || "",
+        message.previousResponseId || "",
+        message.status || "completed",
+        message.createdAt,
+      ]
+    )
+  }
+
+  async listMessages(conversationId: string): Promise<ChatMessage[]> {
+    const db = await getDatabase()
+    const rows = await db.select<
+      Array<{
+        id: string
+        role: ChatMessage["role"]
+        content_json: string
+        response_id: string
+        previous_response_id: string
+        status: "streaming" | "completed" | "failed"
+        created_at: number
+      }>
+    >(
+      `SELECT id, role, content_json, response_id, previous_response_id, status, created_at
+       FROM messages
+       WHERE conversation_id = $1
+       ORDER BY created_at ASC`,
+      [conversationId]
+    )
+
+    return rows.map((row) => ({
+      id: row.id,
+      role: row.role,
+      content: parseMessageContent(row.content_json),
+      responseId: row.response_id || undefined,
+      previousResponseId: row.previous_response_id || undefined,
+      status: row.status,
+      createdAt: row.created_at,
+    }))
+  }
+
+  async upsertVoiceSession(record: VoiceSessionRecord): Promise<void> {
+    const db = await getDatabase()
+    await db.execute(
+      `INSERT INTO voice_sessions(id, conversation_id, livekit_room, request_id, status, started_at, ended_at)
+       VALUES($1, $2, $3, $4, $5, $6, $7)
+       ON CONFLICT(id) DO UPDATE SET
+         conversation_id=excluded.conversation_id,
+         livekit_room=excluded.livekit_room,
+         request_id=excluded.request_id,
+         status=excluded.status,
+         started_at=excluded.started_at,
+         ended_at=excluded.ended_at`,
+      [
+        record.id,
+        record.conversationId,
+        record.livekitRoom,
+        record.requestId,
+        record.status,
+        record.startedAt,
+        record.endedAt,
+      ]
+    )
+  }
+}

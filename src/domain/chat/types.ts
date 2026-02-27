@@ -4,6 +4,9 @@ export interface ChatMessage {
   id: string
   role: ChatMessageRole
   content: string
+  responseId?: string
+  previousResponseId?: string
+  status?: "streaming" | "completed" | "failed"
   createdAt: number
 }
 
