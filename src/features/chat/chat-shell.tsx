@@ -10,14 +10,6 @@ function newConversationId(): string {
   return `conv_${crypto.randomUUID()}`
 }
 
-function buildConversationTitle(text: string): string {
-  const normalized = text.replace(/\s+/g, " ").trim()
-  if (!normalized) {
-    return "新对话"
-  }
-  return normalized.length > 24 ? `${normalized.slice(0, 24)}...` : normalized
-}
-
 function formatTime(ms: number): string {
   return new Date(ms).toLocaleString("zh-CN", {
     hour: "2-digit",
@@ -70,7 +62,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     setMessages(list)
   }
 
-  async function createConversation(initialTitle = "新对话"): Promise<string> {
+  async function createConversation(initialTitle = ""): Promise<string> {
     const id = newConversationId()
     const now = Date.now()
     await repository.upsertConversation({
@@ -88,7 +80,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     return id
   }
 
-  async function ensureConversation(initialTitle = "新对话"): Promise<string> {
+  async function ensureConversation(initialTitle = ""): Promise<string> {
     if (activeConversationIdRef.current) {
       return activeConversationIdRef.current
     }
@@ -98,7 +90,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
   async function initialize(): Promise<void> {
     const list = await refreshConversations()
     if (list.length === 0) {
-      await ensureConversation("新对话")
+      await ensureConversation()
       return
     }
     const first = list[0]
@@ -131,7 +123,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       return
     }
 
-    await createConversation("新对话")
+    await createConversation()
     setStreamingAssistantText("")
     setLastError("")
   }
@@ -158,7 +150,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     setStreamingAssistantText("")
     setIsStreaming(true)
 
-    const conversationId = await ensureConversation(buildConversationTitle(text))
+    const conversationId = await ensureConversation()
     const current = conversations.find((item) => item.id === conversationId)
     const anchors =
       current?.anchors && Object.keys(current.anchors).length > 0 ? current.anchors : { conversationId }

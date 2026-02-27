@@ -11,14 +11,6 @@ import { VoiceMode } from "@/components/voice-mode"
 import { WelcomeScreen } from "@/components/welcome-screen"
 import { ScrollArea } from "@/components/ui/scroll-area"
 
-function buildConversationTitle(text: string): string {
-  const normalized = text.replace(/\s+/g, " ").trim()
-  if (!normalized) {
-    return "新对话"
-  }
-  return normalized.length > 24 ? `${normalized.slice(0, 24)}...` : normalized
-}
-
 function newConversationId(): string {
   return `conv_${crypto.randomUUID()}`
 }
@@ -106,7 +98,7 @@ export function LegacyChatShell({ runtime }: { runtime: AppRuntime }) {
   )
 
   const createConversation = useCallback(
-    async (title = "新对话"): Promise<string> => {
+    async (title = ""): Promise<string> => {
       const id = newConversationId()
       const now = Date.now()
       await repository.upsertConversation({
@@ -127,7 +119,7 @@ export function LegacyChatShell({ runtime }: { runtime: AppRuntime }) {
   )
 
   const ensureConversation = useCallback(
-    async (title = "新对话"): Promise<string> => {
+    async (title = ""): Promise<string> => {
       if (activeConversationIdRef.current) {
         return activeConversationIdRef.current
       }
@@ -176,7 +168,7 @@ export function LegacyChatShell({ runtime }: { runtime: AppRuntime }) {
       setStreamingAssistantText("")
       setIsStreaming(true)
 
-      const conversationId = await ensureConversation(buildConversationTitle(content))
+      const conversationId = await ensureConversation()
       const current = conversations.find((item) => item.id === conversationId)
       const anchors =
         current?.anchors && Object.keys(current.anchors).length > 0
@@ -257,7 +249,7 @@ export function LegacyChatShell({ runtime }: { runtime: AppRuntime }) {
     }
     setLastError("")
     setStreamingAssistantText("")
-    await createConversation("新对话")
+    await createConversation()
   }, [createConversation, isStreaming])
 
   return (
