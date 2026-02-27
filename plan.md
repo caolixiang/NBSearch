@@ -3,7 +3,7 @@
 ## 执行状态
 
 - [x] Phase 0
-- [ ] Phase 1
+- [x] Phase 1
 - [ ] Phase 2
 - [ ] Phase 3
 - [ ] Phase 4
