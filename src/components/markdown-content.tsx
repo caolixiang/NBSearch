@@ -73,8 +73,32 @@ function normalizeAssistantMarkdown(content: string): string {
   return normalized.trim()
 }
 
+function isAnchorImageNode(node: ReactNode): boolean {
+  if (!isValidElement(node)) {
+    return false
+  }
+  const props = node.props as { href?: unknown; children?: ReactNode }
+  if (typeof props.href !== "string") {
+    return false
+  }
+  const childNodes = Children.toArray(props.children).filter(
+    (item) => !(typeof item === "string" && item.trim() === "")
+  )
+  return childNodes.length === 1 && isImageNode(childNodes[0])
+}
+
 function isImageNode(node: ReactNode): boolean {
-  return isValidElement(node) && typeof node.type === "string" && node.type === "img"
+  if (!isValidElement(node)) {
+    return false
+  }
+  const props = node.props as { src?: unknown }
+  if (typeof props.src === "string" && props.src.trim() !== "") {
+    return true
+  }
+  if (typeof node.type === "string" && node.type === "img") {
+    return true
+  }
+  return isAnchorImageNode(node)
 }
 
 export function MarkdownContent({ content }: { content: string }) {
@@ -101,7 +125,11 @@ export function MarkdownContent({ content }: { content: string }) {
             }
 
             if (nodes.length === 1) {
-              return <div className="my-3">{nodes[0]}</div>
+              return (
+                <div className="my-2 inline-block w-full align-top sm:w-[calc(50%-0.375rem)] sm:pr-1.5">
+                  <div className="overflow-hidden rounded-xl border border-border bg-secondary/20">{nodes[0]}</div>
+                </div>
+              )
             }
 
             return (
@@ -137,7 +165,7 @@ export function MarkdownContent({ content }: { content: string }) {
               src={src || ""}
               alt={alt || ""}
               loading="lazy"
-              className="h-auto w-full rounded-xl border border-border bg-secondary/20 object-cover"
+              className="h-auto max-h-[380px] w-full rounded-xl border border-border bg-secondary/20 object-contain"
             />
           ),
           pre: ({ children }) => (
