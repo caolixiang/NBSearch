@@ -49,6 +49,7 @@ export function ChatInput({
   const [attachments, setAttachments] = useState<File[]>([])
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const isComposingRef = useRef(false)
 
   const handleSubmit = useCallback(() => {
     if ((!input.trim() && attachments.length === 0) || isLoading) return
@@ -61,6 +62,10 @@ export function ChatInput({
   }, [input, isLoading, onSendMessage, attachments])
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    const nativeEvent = e.nativeEvent as KeyboardEvent & { isComposing?: boolean }
+    if (isComposingRef.current || nativeEvent.isComposing || nativeEvent.keyCode === 229) {
+      return
+    }
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault()
       handleSubmit()
@@ -122,6 +127,12 @@ export function ChatInput({
           value={input}
           onChange={handleTextareaInput}
           onKeyDown={handleKeyDown}
+          onCompositionStart={() => {
+            isComposingRef.current = true
+          }}
+          onCompositionEnd={() => {
+            isComposingRef.current = false
+          }}
           placeholder={isRecording ? "正在录音..." : "你在想什么？"}
           rows={1}
           className={cn(
