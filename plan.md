@@ -12,6 +12,9 @@
 - [x] Phase 7
 - [ ] Phase 8
 
+当前阻塞：
+- Phase 8 打包在当前环境受网络限制，Rust crates 索引 `index.crates.io` 不可达，暂无法完成本地打包验证。
+
 ## 目标与边界
 
 - 目标：将当前 `Next.js` 项目迁移为 `Tauri + Vite + React` 桌面客户端。

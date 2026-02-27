@@ -10,7 +10,9 @@
     "typecheck": "tsc --noEmit",
     "test": "bun test",
     "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build"
+    "tauri:build": "tauri build",
+    "tauri:build:debug": "tauri build --debug",
+    "release:preflight": "bun test && bun run typecheck && bun run build"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.48",
