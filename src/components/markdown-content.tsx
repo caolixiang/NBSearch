@@ -1,6 +1,6 @@
 "use client"
 
-import { Children, isValidElement, useEffect, useMemo, useState, type ReactNode } from "react"
+import { Children, isValidElement, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { cn } from "@/lib/utils"
@@ -348,11 +348,16 @@ function MarkdownBody({ content }: { content: string }) {
 
 function ThinkBlock({ content, open, thinking }: { content: string; open: boolean; thinking: boolean }) {
   const [expanded, setExpanded] = useState(open || thinking)
+  const previousThinkingRef = useRef(thinking)
 
   useEffect(() => {
     if (thinking) {
       setExpanded(true)
+    } else if (previousThinkingRef.current) {
+      // Auto-collapse once the streaming think section is finished.
+      setExpanded(false)
     }
+    previousThinkingRef.current = thinking
   }, [thinking])
 
   const items = useMemo(() => parseThinkItems(content), [content])
