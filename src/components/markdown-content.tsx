@@ -185,17 +185,7 @@ function parseThinkItems(content: string): ThinkItem[] {
 }
 
 function thinkItemTagClass(type: string): string {
-  const key = type.trim().toLowerCase().replace(/\s+/g, "")
-  if (key.includes("websearch")) {
-    return "bg-blue-50 text-blue-700 border-blue-200"
-  }
-  if (key.includes("searchimage") || key.includes("image")) {
-    return "bg-purple-50 text-purple-700 border-purple-200"
-  }
-  if (key.includes("agent")) {
-    return "bg-amber-50 text-amber-700 border-amber-200"
-  }
-  return "bg-secondary text-muted-foreground border-border"
+  return "bg-secondary/80 text-foreground border-border"
 }
 
 function isWebSearchThinkItemType(type: string): boolean {
