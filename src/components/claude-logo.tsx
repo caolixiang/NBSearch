@@ -30,7 +30,7 @@ export function GrokAvatar({
   }
   return (
     <div
-      className={`flex shrink-0 items-center justify-center rounded-full border border-foreground bg-background text-foreground ${sizeClasses[size]}`}
+      className={`flex shrink-0 items-center justify-center rounded-full border border-black bg-black text-white ${sizeClasses[size]}`}
     >
       <GrokLogo className={iconClasses[size]} />
     </div>
