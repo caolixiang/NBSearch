@@ -1,5 +1,17 @@
 # Chat App 去 Next.js + Tauri 客户端化实施计划
 
+## 执行状态
+
+- [x] Phase 0
+- [ ] Phase 1
+- [ ] Phase 2
+- [ ] Phase 3
+- [ ] Phase 4
+- [ ] Phase 5
+- [ ] Phase 6
+- [ ] Phase 7
+- [ ] Phase 8
+
 ## 目标与边界
 
 - 目标：将当前 `Next.js` 项目迁移为 `Tauri + Vite + React` 桌面客户端。
