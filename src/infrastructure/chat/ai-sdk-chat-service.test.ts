@@ -70,12 +70,17 @@ describe("extractResponseNewTitleFromRawChunk", () => {
 
 describe("resolveConversationTitle", () => {
   it("prefers upstream newTitle", () => {
-    const title = resolveConversationTitle("用户第一句", "Friendly greeting")
+    const title = resolveConversationTitle("Friendly greeting", "")
     expect(title).toBe("Friendly greeting")
   })
 
-  it("falls back to local title derivation", () => {
-    const title = resolveConversationTitle("   戴佩妮是谁？   ", "")
-    expect(title).toBe("戴佩妮是谁？")
+  it("keeps existing title when upstream title is missing", () => {
+    const title = resolveConversationTitle("", "已存在标题")
+    expect(title).toBe("已存在标题")
+  })
+
+  it("keeps empty title when both upstream and existing titles are missing", () => {
+    const title = resolveConversationTitle("", "")
+    expect(title).toBe("")
   })
 })

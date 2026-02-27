@@ -30,14 +30,6 @@ function buildUserMessage(text: string): ChatMessage {
   }
 }
 
-function deriveConversationTitle(text: string): string {
-  const collapsed = text.replace(/\s+/g, " ").trim()
-  if (!collapsed) {
-    return "New Chat"
-  }
-  return collapsed.length > 36 ? `${collapsed.slice(0, 36)}...` : collapsed
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
@@ -71,12 +63,12 @@ export function extractResponseNewTitleFromRawChunk(rawChunk: unknown): string {
   return readNewTitle(rawChunk)
 }
 
-export function resolveConversationTitle(inputText: string, upstreamTitle: string): string {
+export function resolveConversationTitle(upstreamTitle: string, currentTitle: string): string {
   const upstream = upstreamTitle.trim()
   if (upstream) {
     return upstream
   }
-  return deriveConversationTitle(inputText)
+  return currentTitle.trim()
 }
 
 function createConversationRecord(
@@ -150,9 +142,12 @@ export class AiSdkChatService implements ChatService {
 
   async upsertAnchors(anchors: ChatAnchors): Promise<void> {
     const now = Date.now()
+    const conversationId = anchors.conversationId || anchors.sessionId || `conv_${crypto.randomUUID()}`
+    const existingConversations = await this.repository.listConversations()
+    const currentTitle = existingConversations.find((item) => item.id === conversationId)?.title || ""
     await this.repository.upsertConversation({
-      id: anchors.conversationId || anchors.sessionId || `conv_${crypto.randomUUID()}`,
-      title: "Conversation",
+      id: conversationId,
+      title: currentTitle,
       anchors,
       createdAt: now,
       updatedAt: now,
@@ -240,10 +235,12 @@ export class AiSdkChatService implements ChatService {
         conversationId,
         lastResponseId: responseId || input.anchors.lastResponseId || "",
       }
+      const existingConversations = await this.repository.listConversations()
+      const currentTitle = existingConversations.find((item) => item.id === conversationId)?.title || ""
       await this.repository.upsertConversation(
         createConversationRecord(
           conversationId,
-          resolveConversationTitle(input.text, upstreamConversationTitle),
+          resolveConversationTitle(upstreamConversationTitle, currentTitle),
           anchors,
           Date.now()
         )
