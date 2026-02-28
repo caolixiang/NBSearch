@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useRef, useCallback } from "react"
+import { useState, useRef, useCallback, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { ArrowUp, Square, Paperclip, Mic, MicOff, X } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -35,6 +35,7 @@ interface ChatInputProps {
   onVoiceStart?: () => void
   isLoading: boolean
   onStop?: () => void
+  onHeightChange?: (height: number) => void
 }
 
 export function ChatInput({
@@ -42,6 +43,7 @@ export function ChatInput({
   onVoiceStart,
   isLoading,
   onStop,
+  onHeightChange,
 }: ChatInputProps) {
   const [input, setInput] = useState("")
   const [deepSearch, setDeepSearch] = useState(false)
@@ -49,7 +51,26 @@ export function ChatInput({
   const [attachments, setAttachments] = useState<File[]>([])
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
   const isComposingRef = useRef(false)
+
+  useEffect(() => {
+    if (!onHeightChange || !containerRef.current) {
+      return
+    }
+    const element = containerRef.current
+    const notifyHeight = () => {
+      onHeightChange(element.getBoundingClientRect().height)
+    }
+    notifyHeight()
+    const observer = new ResizeObserver(() => {
+      notifyHeight()
+    })
+    observer.observe(element)
+    return () => {
+      observer.disconnect()
+    }
+  }, [onHeightChange])
 
   const handleSubmit = useCallback(() => {
     if ((!input.trim() && attachments.length === 0) || isLoading) return
@@ -101,7 +122,7 @@ export function ChatInput({
   }
 
   return (
-    <div className="mx-auto w-full max-w-[48rem] px-4 pb-4">
+    <div ref={containerRef} className="mx-auto w-full max-w-[48rem] px-4 pb-4">
       <div className="relative rounded-2xl border border-border bg-card shadow-sm transition-shadow focus-within:shadow-md focus-within:border-ring/40">
         {/* Attachments preview */}
         {attachments.length > 0 && (

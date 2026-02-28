@@ -34,6 +34,117 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
+type WebSearchToolMeta = {
+  query: string
+  numResults: number
+}
+
+function toPositiveInteger(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    const parsed = Math.floor(value)
+    return parsed > 0 ? parsed : null
+  }
+  if (typeof value === "string") {
+    const parsed = Number.parseInt(value.trim(), 10)
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null
+  }
+  return null
+}
+
+function parseFunctionArguments(value: unknown): Record<string, unknown> | null {
+  if (isRecord(value)) {
+    return value
+  }
+  if (typeof value !== "string") {
+    return null
+  }
+  try {
+    const parsed = JSON.parse(value) as unknown
+    return isRecord(parsed) ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+function extractWebSearchToolMetaFromOutputItem(item: unknown): WebSearchToolMeta | null {
+  if (!isRecord(item)) {
+    return null
+  }
+
+  if (item.type !== "function_call" || item.name !== "web_search") {
+    return null
+  }
+
+  const args = parseFunctionArguments(item.arguments)
+  if (!args) {
+    return null
+  }
+
+  const queryRaw = args.query ?? args.q
+  const query = typeof queryRaw === "string" ? queryRaw.trim() : ""
+  if (!query) {
+    return null
+  }
+
+  const numResults =
+    toPositiveInteger(args.num_results) ??
+    toPositiveInteger(args.result_count) ??
+    toPositiveInteger(args.max_results)
+  if (!numResults) {
+    return null
+  }
+
+  return { query, numResults }
+}
+
+function extractWebSearchToolMetaFromResponse(response: unknown): WebSearchToolMeta[] {
+  if (!isRecord(response) || !Array.isArray(response.output)) {
+    return []
+  }
+
+  const results: WebSearchToolMeta[] = []
+  for (const item of response.output) {
+    const row = extractWebSearchToolMetaFromOutputItem(item)
+    if (row) {
+      results.push(row)
+    }
+  }
+  return results
+}
+
+export function extractWebSearchToolMetaFromRawChunk(rawChunk: unknown): WebSearchToolMeta[] {
+  if (!isRecord(rawChunk)) {
+    return []
+  }
+
+  const eventType = typeof rawChunk.type === "string" ? rawChunk.type.trim() : ""
+  if (eventType === "response.output_item.added" || eventType === "response.output_item.done") {
+    const row = extractWebSearchToolMetaFromOutputItem(rawChunk.item)
+    return row ? [row] : []
+  }
+
+  if (eventType === "response.completed") {
+    const nested = extractWebSearchToolMetaFromResponse(rawChunk.response)
+    if (nested.length > 0) {
+      return nested
+    }
+  }
+
+  const nestedResponse = extractWebSearchToolMetaFromResponse(rawChunk.response)
+  if (nestedResponse.length > 0) {
+    return nestedResponse
+  }
+  return []
+}
+
+function appendToolMeta(content: string, webSearch: WebSearchToolMeta[]): string {
+  if (webSearch.length === 0) {
+    return content
+  }
+  const metaPayload = JSON.stringify({ webSearch })
+  return `${content}\n<tool-meta>${metaPayload}</tool-meta>`
+}
+
 function readNewTitle(value: unknown): string {
   if (!isRecord(value)) {
     return ""
@@ -172,6 +283,18 @@ export class AiSdkChatService implements ChatService {
 
     try {
       let upstreamConversationTitle = ""
+      const collectedWebSearchMeta: WebSearchToolMeta[] = []
+      const collectedWebSearchSeen = new Set<string>()
+      const appendWebSearchMeta = (items: WebSearchToolMeta[]) => {
+        for (const item of items) {
+          const dedupeKey = `${item.query}\u0000${item.numResults}`
+          if (collectedWebSearchSeen.has(dedupeKey)) {
+            continue
+          }
+          collectedWebSearchSeen.add(dedupeKey)
+          collectedWebSearchMeta.push(item)
+        }
+      }
       const promptInput: { prompt: string } | { messages: ModelMessage[] } =
         resolved.provider === "anthropic"
           ? {
@@ -194,6 +317,7 @@ export class AiSdkChatService implements ChatService {
           if (nextTitle) {
             upstreamConversationTitle = nextTitle
           }
+          appendWebSearchMeta(extractWebSearchToolMetaFromRawChunk(chunk.rawValue))
         },
         providerOptions:
           resolved.provider === "gateway"
@@ -218,11 +342,13 @@ export class AiSdkChatService implements ChatService {
       const responseId =
         (providerMetadata as { openai?: { responseId?: string | null } } | undefined)?.openai?.responseId ||
         response.id
+      appendWebSearchMeta(extractWebSearchToolMetaFromResponse(response as unknown))
+      const assistantContent = appendToolMeta(assistantText, collectedWebSearchMeta)
 
       const assistantMessage: ChatMessage = {
         id: responseId || `asst_${crypto.randomUUID()}`,
         role: "assistant",
-        content: assistantText,
+        content: assistantContent,
         createdAt: Date.now(),
         responseId: responseId || undefined,
         previousResponseId: input.anchors.lastResponseId || undefined,

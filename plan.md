@@ -23,6 +23,7 @@
 - 固定技术决策：
   - 仅使用 `AI SDK` 体系，不引入 `openai` 原生 SDK。
   - Tauri 打包运行时网络请求统一经 `@tauri-apps/plugin-http`（避免 WebView 网络栈差异）。
+  - 模型目录统一从网关 `GET /v1/models/tauri_chat_models` 获取，模型列表与当前选择缓存到 `localStorage`（不进入 SQLite）。
   - 多模型通过 AI SDK provider 路由：
     - OpenAI-compatible provider -> 你的网关 `/v1/responses`
     - Anthropic provider -> Claude `/v1/messages`

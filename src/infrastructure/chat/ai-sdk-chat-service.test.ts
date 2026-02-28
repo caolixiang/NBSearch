@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test"
 import type { ChatMessage } from "../../domain/chat/types"
 import {
   buildAnthropicMessages,
+  extractWebSearchToolMetaFromRawChunk,
   extractResponseNewTitleFromRawChunk,
   resolveConversationTitle,
 } from "./ai-sdk-chat-service"
@@ -65,6 +66,36 @@ describe("extractResponseNewTitleFromRawChunk", () => {
     })
 
     expect(title).toBe("")
+  })
+})
+
+describe("extractWebSearchToolMetaFromRawChunk", () => {
+  it("extracts web_search num_results from output item events", () => {
+    const rows = extractWebSearchToolMetaFromRawChunk({
+      type: "response.output_item.done",
+      item: {
+        type: "function_call",
+        name: "web_search",
+        arguments: "{\"query\":\"foo\",\"num_results\":\"10\"}",
+      },
+    })
+    expect(rows).toEqual([{ query: "foo", numResults: 10 }])
+  })
+
+  it("extracts web_search rows from response.completed payload", () => {
+    const rows = extractWebSearchToolMetaFromRawChunk({
+      type: "response.completed",
+      response: {
+        output: [
+          {
+            type: "function_call",
+            name: "web_search",
+            arguments: { query: "bar", num_results: 5 },
+          },
+        ],
+      },
+    })
+    expect(rows).toEqual([{ query: "bar", numResults: 5 }])
   })
 })
 

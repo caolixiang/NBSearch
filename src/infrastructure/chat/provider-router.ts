@@ -2,7 +2,7 @@ import { createAnthropic } from "@ai-sdk/anthropic"
 import { createOpenAI } from "@ai-sdk/openai"
 import type { LanguageModel } from "ai"
 import type { AppConfig } from "../../app/contracts"
-import { hasTauriRuntime } from "../../app/runtime-info"
+import { createRuntimeFetch } from "../http/runtime-fetch"
 
 export const GATEWAY_SESSION_ID_METADATA_KEY = "__gateway_session_id"
 
@@ -83,30 +83,6 @@ export function injectGatewaySessionId(rawBody: string): string {
   } catch {
     return rawBody
   }
-}
-
-let tauriFetchPromise: Promise<typeof fetch | null> | null = null
-
-function createRuntimeFetch(baseFetch: typeof fetch): typeof fetch {
-  const wrapped = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-    if (!hasTauriRuntime()) {
-      return baseFetch(input, init)
-    }
-
-    if (!tauriFetchPromise) {
-      tauriFetchPromise = import("@tauri-apps/plugin-http")
-        .then((module) => module.fetch as typeof fetch)
-        .catch(() => null)
-    }
-
-    const tauriFetch = await tauriFetchPromise
-    if (!tauriFetch) {
-      return baseFetch(input, init)
-    }
-
-    return tauriFetch(input, init)
-  }
-  return wrapped as unknown as typeof fetch
 }
 
 function createGatewayFetch(baseFetch: typeof fetch): typeof fetch {

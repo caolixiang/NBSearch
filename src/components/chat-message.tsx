@@ -13,6 +13,7 @@ export interface RenderChatMessage {
 
 export function ChatMessage({ message }: { message: RenderChatMessage }) {
   const isUser = message.role === "user"
+  const isStreamingAssistant = !isUser && message.id === "streaming_assistant"
 
   return (
     <div className={cn("flex gap-3 px-6 py-5", isUser ? "justify-end" : "") }>
@@ -28,7 +29,7 @@ export function ChatMessage({ message }: { message: RenderChatMessage }) {
         {isUser ? (
           <p className="text-sm leading-relaxed whitespace-pre-wrap">{message.content}</p>
         ) : (
-          <MarkdownContent content={message.content} />
+          <MarkdownContent content={message.content} streaming={isStreamingAssistant} />
         )}
       </div>
       {isUser && (

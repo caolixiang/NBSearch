@@ -24,6 +24,42 @@ describe("parseThinkSections", () => {
     }
     expect(first.thinking).toBe(true)
   })
+
+  it("treats unclosed think as completed when streaming is false", () => {
+    const sections = parseThinkSections("<think> [WebSearch] A", {
+      treatUnclosedThinkAsThinking: false,
+    })
+    expect(sections.length).toBe(1)
+    const first = sections[0]
+    expect(first?.type).toBe("think")
+    if (!first || first.type !== "think") {
+      throw new Error("expected think section")
+    }
+    expect(first.thinking).toBe(false)
+  })
+
+  it("merges consecutive think blocks into one panel", () => {
+    const sections = parseThinkSections("<think>[WebSearch] A</think><think>[Agent 1] B</think>done")
+    expect(sections.length).toBe(2)
+    expect(sections[0]?.type).toBe("think")
+    if (!sections[0] || sections[0].type !== "think") {
+      throw new Error("expected merged think section")
+    }
+    expect(sections[0].value.includes("[WebSearch] A")).toBe(true)
+    expect(sections[0].value.includes("[Agent 1] B")).toBe(true)
+    expect(sections[1]?.type).toBe("text")
+  })
+
+  it("keeps AgentThink sections as think content for downstream agent parsing", () => {
+    const sections = parseThinkSections("<think>[AgentThink] Agent 1: foo\nAgent 2: bar</think>")
+    expect(sections.length).toBe(1)
+    expect(sections[0]?.type).toBe("think")
+    if (!sections[0] || sections[0].type !== "think") {
+      throw new Error("expected think section")
+    }
+    expect(sections[0].value.includes("AgentThink")).toBe(true)
+    expect(sections[0].value.includes("Agent 1")).toBe(true)
+  })
 })
 
 describe("normalizeAssistantMarkdown", () => {
