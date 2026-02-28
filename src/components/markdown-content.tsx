@@ -9,7 +9,7 @@ import {
   useState,
   type ReactNode,
 } from "react"
-import { ChevronDown, ChevronRight, Globe, Search, X } from "lucide-react"
+import { ChevronDown, ChevronRight, Globe, ImageIcon, Search, X } from "lucide-react"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import type { ChatCardAttachmentPayload, ChatReasoningEventDetail } from "@/domain/chat/types"
@@ -815,13 +815,13 @@ function readToolUsageQueries(args: Record<string, unknown>): string[] {
     values.push(trimmed)
   }
 
-  for (const key of ["query", "q", "url", "keyword"]) {
+  for (const key of ["query", "q", "url", "keyword", "imageDescription", "image_description", "prompt"]) {
     for (const row of readStringListFromUnknown(args[key])) {
       append(row)
     }
   }
 
-  for (const key of ["queries", "q", "urls", "keywords"]) {
+  for (const key of ["queries", "q", "urls", "keywords", "prompts"]) {
     for (const row of readStringListFromUnknown(args[key])) {
       append(row)
     }
@@ -843,15 +843,54 @@ function readToolUsageQueries(args: Record<string, unknown>): string[] {
   return values
 }
 
+function readRequestedResultsCount(args: Record<string, unknown>): number | undefined {
+  for (const key of ["num_results", "number_of_images", "limit", "max_results", "result_count"]) {
+    const value = args[key]
+    if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+      return Math.floor(value)
+    }
+    if (typeof value === "string") {
+      const parsed = Number.parseInt(value, 10)
+      if (Number.isFinite(parsed) && parsed > 0) {
+        return parsed
+      }
+    }
+  }
+  return undefined
+}
+
+function isImageSearchToolName(value: string): boolean {
+  const normalized = value.trim().toLowerCase()
+  return normalized.includes("search_image") || normalized.includes("imagesearch") || normalized.includes("image_search")
+}
+
+function isXSearchToolName(value: string): boolean {
+  const normalized = value.trim().toLowerCase()
+  return normalized.startsWith("x_") || normalized.includes("xsearch")
+}
+
 function humanizeToolName(value: string): string {
   const trimmed = value.trim()
   if (!trimmed) {
     return "tool"
   }
+  if (isImageSearchToolName(trimmed)) {
+    return "已搜索图像"
+  }
+  if (isXSearchToolName(trimmed)) {
+    return "已搜索 X"
+  }
   if (trimmed.includes("search")) {
     return "已搜索网络"
   }
   return trimmed.replace(/[_-]+/g, " ")
+}
+
+function resolveStructuredEntryLabel(toolName: string, visited: boolean): string {
+  if (visited) {
+    return "已浏览网页"
+  }
+  return humanizeToolName(toolName)
 }
 
 function buildStructuredReasoningSummary(events: ChatReasoningEventDetail[]): StructuredReasoningSummary {
@@ -890,6 +929,7 @@ function buildStructuredReasoningSummary(events: ChatReasoningEventDetail[]): St
 
       const queries = readToolUsageQueries(detail.usage.args)
       const lines = queries.length > 0 ? queries : [humanizeToolName(detail.usage.toolName)]
+      const requestedResultsCount = readRequestedResultsCount(detail.usage.args)
       const scopedEntries: StructuredReasoningEntry[] = []
 
       lines.forEach((line, queryIndex) => {
@@ -904,6 +944,7 @@ function buildStructuredReasoningSummary(events: ChatReasoningEventDetail[]): St
           text: line,
           visited: isLikelyUrl(line),
           toolName: detail.usage.toolName,
+          resultsCount: requestedResultsCount,
           status: "running",
         }
         entryByKey.set(key, nextEntry)
@@ -1344,11 +1385,17 @@ function StructuredReasoningPanel({
                         )}
                       </span>
                       <span className="mt-1 inline-flex size-5 shrink-0 items-center justify-center text-muted-foreground">
-                        {entry.visited ? <Globe className="size-5" /> : <Search className="size-5" />}
+                        {entry.visited ? (
+                          <Globe className="size-5" />
+                        ) : isImageSearchToolName(entry.toolName) ? (
+                          <ImageIcon className="size-5" />
+                        ) : (
+                          <Search className="size-5" />
+                        )}
                       </span>
                       <div className="min-w-0">
                         <p className="text-[0.9rem] text-muted-foreground">
-                          {descriptor.label} · {entry.visited ? "已浏览网页" : "已经搜索网络"}
+                          {descriptor.label} · {resolveStructuredEntryLabel(entry.toolName, entry.visited)}
                         </p>
                         <p
                           className={cn(
