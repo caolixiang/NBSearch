@@ -1,6 +1,6 @@
 import type { AppRuntime } from "./contracts"
 import { loadAppConfig } from "./config"
-import { AiSdkChatService } from "../infrastructure/chat/ai-sdk-chat-service"
+import { GrokChatService } from "../infrastructure/chat/grok-chat-service"
 import { getAppRepository } from "../infrastructure/storage/factory"
 import { GatewayVoiceService } from "../infrastructure/voice/gateway-voice-service"
 
@@ -14,7 +14,7 @@ export function getAppRuntime(): AppRuntime {
       config,
       services: {
         repository,
-        chat: new AiSdkChatService(repository, config),
+        chat: new GrokChatService(repository, config),
         voice: new GatewayVoiceService(config),
       },
     }

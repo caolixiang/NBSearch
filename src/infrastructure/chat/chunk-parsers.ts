@@ -1,6 +1,3 @@
-import { streamText, type ModelMessage } from "ai"
-import type { AppConfig } from "../../app/contracts"
-import type { ChatService } from "../../domain/chat/service"
 import type {
   ChatCardAttachmentPayload,
   ChatAnchors,
@@ -10,34 +7,16 @@ import type {
   ChatStreamEvent,
   SendChatTurnInput,
 } from "../../domain/chat/types"
-import type { AppRepository, ConversationRecord } from "../../domain/storage/repository"
-import { GATEWAY_SESSION_ID_METADATA_KEY, ProviderRouter } from "./provider-router"
 
-function buildConversationId(input: Partial<ChatAnchors>): string {
-  if (input.conversationId?.trim()) {
-    return input.conversationId.trim()
-  }
-  if (input.sessionId?.trim()) {
-    return input.sessionId.trim()
-  }
-  return `conv_${crypto.randomUUID()}`
-}
+// ---------------------------------------------------------------------------
+// Shared helpers
+// ---------------------------------------------------------------------------
 
-function buildUserMessage(text: string): ChatMessage {
-  return {
-    id: `usr_${crypto.randomUUID()}`,
-    role: "user",
-    content: text,
-    createdAt: Date.now(),
-    status: "completed",
-  }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
+export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
-function parseJsonObjectStrings(raw: string): string[] {
+export function parseJsonObjectStrings(raw: string): string[] {
   const input = raw.trim()
   if (!input || input === "[DONE]") {
     return []
@@ -238,12 +217,16 @@ function isInternalGatewayJsonToken(value: string): boolean {
   }
 }
 
-type WebSearchToolMeta = {
+// ---------------------------------------------------------------------------
+// Web search tool meta
+// ---------------------------------------------------------------------------
+
+export type WebSearchToolMeta = {
   query: string
   numResults: number
 }
 
-type AssistantToolMetaPayload = {
+export type AssistantToolMetaPayload = {
   webSearch: WebSearchToolMeta[]
   cards: ChatCardAttachmentPayload[]
 }
@@ -376,6 +359,10 @@ export function extractWebSearchToolMetaFromRawChunk(rawChunk: unknown): WebSear
 
   return []
 }
+
+// ---------------------------------------------------------------------------
+// Reasoning layout / tool usage / tool result
+// ---------------------------------------------------------------------------
 
 function readStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) {
@@ -565,6 +552,10 @@ function readToolResultEvent(rawChunk: unknown): ChatReasoningEventDetail | null
   return null
 }
 
+// ---------------------------------------------------------------------------
+// Card attachments
+// ---------------------------------------------------------------------------
+
 function buildGeneratedImageCard(url: string): ChatCardAttachmentPayload {
   const stableId = `generated_image_${encodeURIComponent(url)}`
   return {
@@ -709,6 +700,10 @@ export function extractCardAttachmentsFromRawChunk(rawChunk: unknown): ChatCardA
   return cards
 }
 
+// ---------------------------------------------------------------------------
+// Reasoning events (aggregated)
+// ---------------------------------------------------------------------------
+
 export function extractReasoningEventsFromRawChunk(rawChunk: unknown): ChatReasoningEventDetail[] {
   const events: ChatReasoningEventDetail[] = []
 
@@ -742,7 +737,11 @@ export function extractReasoningEventsFromRawChunk(rawChunk: unknown): ChatReaso
   return events
 }
 
-function appendToolMeta(content: string, payload: AssistantToolMetaPayload): string {
+// ---------------------------------------------------------------------------
+// Tool meta / title
+// ---------------------------------------------------------------------------
+
+export function appendToolMeta(content: string, payload: AssistantToolMetaPayload): string {
   if (payload.webSearch.length === 0 && payload.cards.length === 0) {
     return content
   }
@@ -787,6 +786,10 @@ export function extractResponseNewTitleFromRawChunk(rawChunk: unknown): string {
 
   return ""
 }
+
+// ---------------------------------------------------------------------------
+// Text delta / final message / response id extraction
+// ---------------------------------------------------------------------------
 
 export function extractGatewayTextDeltaFromRawChunk(rawChunk: unknown): string {
   for (const candidate of collectRawChunkCandidates(rawChunk)) {
@@ -880,6 +883,10 @@ export function extractGatewayResponseIdFromRawChunk(rawChunk: unknown): string 
   return ""
 }
 
+// ---------------------------------------------------------------------------
+// Conversation title
+// ---------------------------------------------------------------------------
+
 export function resolveConversationTitle(upstreamTitle: string, currentTitle: string): string {
   const upstream = upstreamTitle.trim()
   if (upstream) {
@@ -888,269 +895,26 @@ export function resolveConversationTitle(upstreamTitle: string, currentTitle: st
   return currentTitle.trim()
 }
 
-function createConversationRecord(
-  conversationId: string,
-  title: string,
-  anchors: Partial<ChatAnchors>,
-  now: number
-): ConversationRecord {
+// ---------------------------------------------------------------------------
+// Message builders
+// ---------------------------------------------------------------------------
+
+export function buildConversationId(input: Partial<ChatAnchors>): string {
+  if (input.conversationId?.trim()) {
+    return input.conversationId.trim()
+  }
+  if (input.sessionId?.trim()) {
+    return input.sessionId.trim()
+  }
+  return `conv_${crypto.randomUUID()}`
+}
+
+export function buildUserMessage(text: string): ChatMessage {
   return {
-    id: conversationId,
-    title,
-    anchors,
-    createdAt: now,
-    updatedAt: now,
-  }
-}
-
-function toModelMessage(message: ChatMessage): ModelMessage | null {
-  if (message.status === "failed") {
-    return null
-  }
-
-  const content = message.content.trim()
-  if (!content) {
-    return null
-  }
-
-  if (message.role === "user") {
-    return {
-      role: "user",
-      content,
-    }
-  }
-
-  if (message.role === "assistant") {
-    return {
-      role: "assistant",
-      content,
-    }
-  }
-
-  if (message.role === "system") {
-    return {
-      role: "system",
-      content,
-    }
-  }
-
-  return null
-}
-
-export function buildAnthropicMessages(history: ChatMessage[]): ModelMessage[] {
-  return history
-    .map(toModelMessage)
-    .filter((item): item is ModelMessage => item !== null)
-}
-
-export class AiSdkChatService implements ChatService {
-  private readonly router: ProviderRouter
-
-  constructor(
-    private readonly repository: AppRepository,
-    config: AppConfig
-  ) {
-    this.router = new ProviderRouter(config)
-  }
-
-  async listMessages(conversationId: string): Promise<ChatMessage[]> {
-    return this.repository.listMessages(conversationId)
-  }
-
-  async upsertAnchors(anchors: ChatAnchors): Promise<void> {
-    const now = Date.now()
-    const conversationId = anchors.conversationId || anchors.sessionId || `conv_${crypto.randomUUID()}`
-    const existingConversations = await this.repository.listConversations()
-    const currentTitle = existingConversations.find((item) => item.id === conversationId)?.title || ""
-    await this.repository.upsertConversation({
-      id: conversationId,
-      title: currentTitle,
-      anchors,
-      createdAt: now,
-      updatedAt: now,
-    })
-  }
-
-  async streamTurn(
-    input: SendChatTurnInput,
-    onEvent: (event: ChatStreamEvent) => void,
-    signal?: AbortSignal
-  ): Promise<void> {
-    const conversationId = buildConversationId(input.anchors)
-    const sessionId = input.anchors.sessionId?.trim() || `sess_${crypto.randomUUID()}`
-    const userMessage = buildUserMessage(input.text)
-
-    await this.repository.appendMessage(conversationId, userMessage)
-    const history = await this.repository.listMessages(conversationId)
-
-    const resolved = this.router.resolve(input.model)
-    const requestId = `req_${crypto.randomUUID()}`
-    onEvent({ type: "started", requestId })
-
-    try {
-      let upstreamConversationTitle = ""
-      let assistantText = ""
-      let gatewayResponseId = ""
-      let gatewayFinalMessage = ""
-      let sawGatewayTextDelta = false
-      const collectedWebSearchMeta: WebSearchToolMeta[] = []
-      const collectedWebSearchSeen = new Set<string>()
-      const collectedCards: ChatCardAttachmentPayload[] = []
-      const collectedCardIds = new Set<string>()
-      const appendWebSearchMeta = (items: WebSearchToolMeta[]) => {
-        for (const item of items) {
-          const dedupeKey = `${item.query}\u0000${item.numResults}`
-          if (collectedWebSearchSeen.has(dedupeKey)) {
-            continue
-          }
-          collectedWebSearchSeen.add(dedupeKey)
-          collectedWebSearchMeta.push(item)
-        }
-      }
-      const appendCards = (items: ChatCardAttachmentPayload[]) => {
-        for (const item of items) {
-          if (collectedCardIds.has(item.id)) {
-            continue
-          }
-          collectedCardIds.add(item.id)
-          collectedCards.push(item)
-        }
-      }
-      const promptInput: { prompt: string } | { messages: ModelMessage[] } =
-        resolved.provider === "anthropic"
-          ? {
-              messages: buildAnthropicMessages(history),
-            }
-          : {
-              prompt: input.text,
-            }
-
-      const result = streamText({
-        model: resolved.model,
-        ...promptInput,
-        abortSignal: signal,
-        includeRawChunks: resolved.provider === "gateway",
-        onChunk: ({ chunk }) => {
-          if (chunk.type !== "raw") {
-            return
-          }
-
-          if (resolved.provider === "gateway") {
-            const delta = extractGatewayTextDeltaFromRawChunk(chunk.rawValue)
-            if (delta) {
-              sawGatewayTextDelta = true
-              assistantText += delta
-              onEvent({ type: "delta", textDelta: delta })
-            }
-
-            const nextResponseId = extractGatewayResponseIdFromRawChunk(chunk.rawValue)
-            if (nextResponseId) {
-              gatewayResponseId = nextResponseId
-            }
-
-            const nextFinalMessage = extractGatewayFinalMessageFromRawChunk(chunk.rawValue)
-            if (nextFinalMessage) {
-              gatewayFinalMessage = nextFinalMessage
-            }
-          }
-
-          const nextTitle = extractResponseNewTitleFromRawChunk(chunk.rawValue)
-          if (nextTitle) {
-            upstreamConversationTitle = nextTitle
-          }
-          appendWebSearchMeta(extractWebSearchToolMetaFromRawChunk(chunk.rawValue))
-          appendCards(extractCardAttachmentsFromRawChunk(chunk.rawValue))
-          const reasoningEvents = extractReasoningEventsFromRawChunk(chunk.rawValue)
-          for (const detail of reasoningEvents) {
-            onEvent({
-              type: "reasoning",
-              detail,
-            })
-          }
-        },
-        providerOptions:
-          resolved.provider === "gateway"
-            ? {
-                openai: {
-                  metadata: {
-                    [GATEWAY_SESSION_ID_METADATA_KEY]: sessionId,
-                  },
-                },
-              }
-            : undefined,
-      })
-
-      for await (const delta of result.textStream) {
-        if (resolved.provider === "gateway" && sawGatewayTextDelta) {
-          continue
-        }
-        assistantText += delta
-        onEvent({ type: "delta", textDelta: delta })
-      }
-
-      let responseId = gatewayResponseId
-      let response: Awaited<typeof result.response> | null = null
-
-      if (resolved.provider === "gateway") {
-        if (!assistantText && gatewayFinalMessage) {
-          assistantText = gatewayFinalMessage
-        }
-      } else {
-        response = await result.response
-        const providerMetadata = await result.providerMetadata
-        responseId =
-          (providerMetadata as { openai?: { responseId?: string | null } } | undefined)?.openai?.responseId ||
-          response.id
-        appendWebSearchMeta(extractWebSearchToolMetaFromResponse(response as unknown))
-        appendCards(extractCardAttachmentsFromRawChunk(response as unknown))
-      }
-
-      const assistantContent = appendToolMeta(assistantText, {
-        webSearch: collectedWebSearchMeta,
-        cards: collectedCards,
-      })
-
-      const assistantMessage: ChatMessage = {
-        id: responseId || `asst_${crypto.randomUUID()}`,
-        role: "assistant",
-        content: assistantContent,
-        createdAt: Date.now(),
-        responseId: responseId || undefined,
-        previousResponseId: input.anchors.lastResponseId || undefined,
-        status: "completed",
-      }
-      await this.repository.appendMessage(conversationId, assistantMessage)
-
-      const anchors: ChatAnchors = {
-        sessionId,
-        conversationId,
-        lastResponseId: responseId || input.anchors.lastResponseId || "",
-      }
-      const existingConversations = await this.repository.listConversations()
-      const currentTitle = existingConversations.find((item) => item.id === conversationId)?.title || ""
-      await this.repository.upsertConversation(
-        createConversationRecord(
-          conversationId,
-          resolveConversationTitle(upstreamConversationTitle, currentTitle),
-          anchors,
-          Date.now()
-        )
-      )
-
-      onEvent({
-        type: "completed",
-        result: {
-          assistantMessage,
-          anchors,
-        },
-      })
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "unknown_error"
-      onEvent({
-        type: "failed",
-        code: "chat_stream_error",
-        message,
-      })
-    }
+    id: `usr_${crypto.randomUUID()}`,
+    role: "user",
+    content: text,
+    createdAt: Date.now(),
+    status: "completed",
   }
 }

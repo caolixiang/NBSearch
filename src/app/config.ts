@@ -20,7 +20,5 @@ export function loadAppConfig(): AppConfig {
     apiKey: import.meta.env.VITE_APP_API_KEY?.trim() || "",
     defaultModel: import.meta.env.VITE_APP_DEFAULT_MODEL?.trim() || "grok-4.1-fast",
     voiceEnabled: parseBool(import.meta.env.VITE_APP_VOICE_ENABLED, true),
-    anthropicApiKey: import.meta.env.VITE_APP_ANTHROPIC_API_KEY?.trim() || undefined,
-    anthropicBaseUrl: import.meta.env.VITE_APP_ANTHROPIC_BASE_URL?.trim() || undefined,
   }
 }
