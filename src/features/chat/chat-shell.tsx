@@ -168,7 +168,12 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       .map(toRenderMessage)
       .filter((item): item is RenderChatMessage => item !== null)
 
-    if (isStreaming) {
+    const hasRenderableStreamingAssistant =
+      streamingAssistantText.trim().length > 0 ||
+      streamingReasoningEvents.length > 0 ||
+      streamingReasoningActive
+
+    if (isStreaming && hasRenderableStreamingAssistant) {
       rendered.push({
         id: "streaming_assistant",
         role: "assistant",
@@ -556,7 +561,12 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
                   <ChatMessage message={message} />
                 </div>
               ))}
-              {isStreaming && !streamingAssistantText && !streamingReasoningActive ? <TypingIndicator /> : null}
+              {isStreaming &&
+              streamingAssistantText.trim().length === 0 &&
+              streamingReasoningEvents.length === 0 &&
+              !streamingReasoningActive ? (
+                <TypingIndicator />
+              ) : null}
               <div className={isThinkingStreaming ? "h-10" : "h-4"} />
             </div>
           )}

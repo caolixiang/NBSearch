@@ -3,6 +3,9 @@ import type { ChatMessage } from "../../domain/chat/types"
 import {
   buildAnthropicMessages,
   extractCardAttachmentsFromRawChunk,
+  extractGatewayFinalMessageFromRawChunk,
+  extractGatewayResponseIdFromRawChunk,
+  extractGatewayTextDeltaFromRawChunk,
   extractReasoningEventsFromRawChunk,
   extractWebSearchToolMetaFromRawChunk,
   extractResponseNewTitleFromRawChunk,
@@ -68,6 +71,53 @@ describe("extractResponseNewTitleFromRawChunk", () => {
     })
 
     expect(title).toBe("")
+  })
+
+  it("extracts newTitle from gateway result envelope", () => {
+    const title = extractResponseNewTitleFromRawChunk({
+      result: {
+        title: {
+          newTitle: "Friendly greeting",
+        },
+      },
+    })
+
+    expect(title).toBe("Friendly greeting")
+  })
+})
+
+describe("gateway raw chunk extractors", () => {
+  it("extracts token/message/responseId from gateway response envelope", () => {
+    const rawChunk = {
+      result: {
+        response: {
+          token: "你",
+          responseId: "resp_env_1",
+          modelResponse: {
+            message: "你好！",
+            responseId: "resp_model_1",
+          },
+        },
+      },
+    }
+
+    expect(extractGatewayTextDeltaFromRawChunk(rawChunk)).toBe("你")
+    expect(extractGatewayFinalMessageFromRawChunk(rawChunk)).toBe("你好！")
+    expect(extractGatewayResponseIdFromRawChunk(rawChunk)).toBe("resp_env_1")
+  })
+
+  it("falls back to modelResponse.responseId when envelope responseId is missing", () => {
+    const rawChunk = {
+      result: {
+        response: {
+          modelResponse: {
+            responseId: "resp_model_only",
+          },
+        },
+      },
+    }
+
+    expect(extractGatewayResponseIdFromRawChunk(rawChunk)).toBe("resp_model_only")
   })
 })
 

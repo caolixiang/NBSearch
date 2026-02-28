@@ -37,6 +37,21 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
+function parseRecord(value: unknown): Record<string, unknown> | null {
+  if (isRecord(value)) {
+    return value
+  }
+  if (typeof value !== "string") {
+    return null
+  }
+  try {
+    const parsed = JSON.parse(value) as unknown
+    return isRecord(parsed) ? parsed : null
+  } catch {
+    return null
+  }
+}
+
 type WebSearchToolMeta = {
   query: string
   numResults: number
@@ -153,16 +168,25 @@ function readStringArray(value: unknown): string[] {
 }
 
 function readGatewayResponseEnvelope(rawChunk: unknown): Record<string, unknown> | null {
-  if (!isRecord(rawChunk)) {
+  const parsed = parseRecord(rawChunk)
+  if (!parsed) {
     return null
   }
-  if (isRecord(rawChunk.result) && isRecord(rawChunk.result.response)) {
-    return rawChunk.result.response
+  if (isRecord(parsed.result) && isRecord(parsed.result.response)) {
+    return parsed.result.response
   }
-  if (isRecord(rawChunk.response)) {
-    return rawChunk.response
+  if (isRecord(parsed.response)) {
+    return parsed.response
   }
   return null
+}
+
+function readGatewayModelResponse(rawChunk: unknown): Record<string, unknown> | null {
+  const envelope = readGatewayResponseEnvelope(rawChunk)
+  if (!envelope || !isRecord(envelope.modelResponse)) {
+    return null
+  }
+  return envelope.modelResponse
 }
 
 function readReasoningLayout(rawChunk: unknown): {
@@ -409,18 +433,82 @@ function readNewTitle(value: unknown): string {
   return newTitle.trim()
 }
 
+function readDirectNewTitle(value: unknown): string {
+  if (!isRecord(value)) {
+    return ""
+  }
+  return typeof value.newTitle === "string" ? value.newTitle.trim() : ""
+}
+
 export function extractResponseNewTitleFromRawChunk(rawChunk: unknown): string {
-  if (!isRecord(rawChunk)) {
+  const parsed = parseRecord(rawChunk)
+  if (!parsed) {
     return ""
   }
-  if (rawChunk.type !== "response.completed") {
+
+  if (parsed.type === "response.completed") {
+    const fromResponse = readNewTitle(parsed.response)
+    if (fromResponse) {
+      return fromResponse
+    }
+    const fromRoot = readNewTitle(parsed)
+    if (fromRoot) {
+      return fromRoot
+    }
+  }
+
+  const gatewayResult = isRecord(parsed.result) ? parsed.result : null
+  const candidates = [
+    gatewayResult,
+    gatewayResult?.title,
+    readGatewayResponseEnvelope(parsed),
+    readGatewayModelResponse(parsed),
+    parsed.response,
+    parsed,
+  ]
+
+  for (const candidate of candidates) {
+    const nested = readNewTitle(candidate)
+    if (nested) {
+      return nested
+    }
+    const direct = readDirectNewTitle(candidate)
+    if (direct) {
+      return direct
+    }
+  }
+
+  return ""
+}
+
+export function extractGatewayTextDeltaFromRawChunk(rawChunk: unknown): string {
+  const envelope = readGatewayResponseEnvelope(rawChunk)
+  if (!envelope) {
     return ""
   }
-  const fromResponse = readNewTitle(rawChunk.response)
-  if (fromResponse) {
-    return fromResponse
+  return typeof envelope.token === "string" ? envelope.token : ""
+}
+
+export function extractGatewayFinalMessageFromRawChunk(rawChunk: unknown): string {
+  const modelResponse = readGatewayModelResponse(rawChunk)
+  if (!modelResponse) {
+    return ""
   }
-  return readNewTitle(rawChunk)
+  return typeof modelResponse.message === "string" ? modelResponse.message : ""
+}
+
+export function extractGatewayResponseIdFromRawChunk(rawChunk: unknown): string {
+  const envelope = readGatewayResponseEnvelope(rawChunk)
+  if (envelope && typeof envelope.responseId === "string" && envelope.responseId.trim()) {
+    return envelope.responseId.trim()
+  }
+
+  const modelResponse = readGatewayModelResponse(rawChunk)
+  if (modelResponse && typeof modelResponse.responseId === "string" && modelResponse.responseId.trim()) {
+    return modelResponse.responseId.trim()
+  }
+
+  return ""
 }
 
 export function resolveConversationTitle(upstreamTitle: string, currentTitle: string): string {
@@ -532,6 +620,10 @@ export class AiSdkChatService implements ChatService {
 
     try {
       let upstreamConversationTitle = ""
+      let assistantText = ""
+      let gatewayResponseId = ""
+      let gatewayFinalMessage = ""
+      let sawGatewayTextDelta = false
       const collectedWebSearchMeta: WebSearchToolMeta[] = []
       const collectedWebSearchSeen = new Set<string>()
       const collectedCards: ChatCardAttachmentPayload[] = []
@@ -573,6 +665,26 @@ export class AiSdkChatService implements ChatService {
           if (chunk.type !== "raw") {
             return
           }
+
+          if (resolved.provider === "gateway") {
+            const delta = extractGatewayTextDeltaFromRawChunk(chunk.rawValue)
+            if (delta) {
+              sawGatewayTextDelta = true
+              assistantText += delta
+              onEvent({ type: "delta", textDelta: delta })
+            }
+
+            const nextResponseId = extractGatewayResponseIdFromRawChunk(chunk.rawValue)
+            if (nextResponseId) {
+              gatewayResponseId = nextResponseId
+            }
+
+            const nextFinalMessage = extractGatewayFinalMessageFromRawChunk(chunk.rawValue)
+            if (nextFinalMessage) {
+              gatewayFinalMessage = nextFinalMessage
+            }
+          }
+
           const nextTitle = extractResponseNewTitleFromRawChunk(chunk.rawValue)
           if (nextTitle) {
             upstreamConversationTitle = nextTitle
@@ -599,19 +711,31 @@ export class AiSdkChatService implements ChatService {
             : undefined,
       })
 
-      let assistantText = ""
       for await (const delta of result.textStream) {
+        if (resolved.provider === "gateway" && sawGatewayTextDelta) {
+          continue
+        }
         assistantText += delta
         onEvent({ type: "delta", textDelta: delta })
       }
 
-      const response = await result.response
-      const providerMetadata = await result.providerMetadata
-      const responseId =
-        (providerMetadata as { openai?: { responseId?: string | null } } | undefined)?.openai?.responseId ||
-        response.id
-      appendWebSearchMeta(extractWebSearchToolMetaFromResponse(response as unknown))
-      appendCards(extractCardAttachmentsFromRawChunk(response as unknown))
+      let responseId = gatewayResponseId
+      let response: Awaited<typeof result.response> | null = null
+
+      if (resolved.provider === "gateway") {
+        if (!assistantText && gatewayFinalMessage) {
+          assistantText = gatewayFinalMessage
+        }
+      } else {
+        response = await result.response
+        const providerMetadata = await result.providerMetadata
+        responseId =
+          (providerMetadata as { openai?: { responseId?: string | null } } | undefined)?.openai?.responseId ||
+          response.id
+        appendWebSearchMeta(extractWebSearchToolMetaFromResponse(response as unknown))
+        appendCards(extractCardAttachmentsFromRawChunk(response as unknown))
+      }
+
       const assistantContent = appendToolMeta(assistantText, {
         webSearch: collectedWebSearchMeta,
         cards: collectedCards,
