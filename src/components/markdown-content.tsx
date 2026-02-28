@@ -3,6 +3,7 @@
 import {
   Children,
   isValidElement,
+  memo,
   useCallback,
   useEffect,
   useMemo,
@@ -1331,66 +1332,59 @@ function AgentCanvasOrb({
   active,
   thinking,
   size = "md",
+  isPrimary = false,
 }: {
   paletteIndex: number
   active: boolean
   thinking: boolean
   size?: "sm" | "md" | "lg"
+  isPrimary?: boolean
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const rafRef = useRef<number | null>(null)
   const tickRef = useRef(0)
 
-  // Grok uses golden angle (137.508°) to distribute base hues
-  const baseHue = useMemo(() => (137.508 * (paletteIndex + 1)) % 360, [paletteIndex])
+  // Grok uses golden angle to distribute base hues. If it's the primary agent, use Grok's signature red/orange.
+  const baseHue = useMemo(() => (isPrimary ? 12 : (137.508 * (paletteIndex + 1)) % 360), [paletteIndex, isPrimary])
 
-  // Build 8×8 color grid using HSL variations around baseHue
-  const buildGrid = useCallback(
-    (time: number) => {
-      const grid: string[][] = []
-      for (let y = 0; y < 8; y++) {
-        const row: string[] = []
-        for (let x = 0; x < 8; x++) {
-          const dx = x - 3.5
-          const dy = y - 3.5
-          const dist = Math.sqrt(dx * dx + dy * dy)
-          if (dist > 3.6) {
-            row.push("transparent")
-            continue
-          }
-          // Per-cell hue offset (golden angle per cell position)
-          const cellHash = Math.imul(x * 7 + y * 13 + paletteIndex * 31, 2654435761) >>> 0
-          const hueOffset = ((cellHash & 0xff) / 255) * 60 - 30 // ±30° variation
-          // During animation: shift hue based on time and position
-          const timeShift = thinking ? Math.sin(time * 0.003 + x * 0.7 + y * 0.5) * 25 : 0
-          const hue = (baseHue + hueOffset + timeShift + 360) % 360
-          // Saturation/lightness vary by distance from center
-          const satBase = 75 + (cellHash >> 8 & 0xf)
-          const litBase = 45 + ((cellHash >> 12 & 0xf) - 8) + (1 - dist / 3.6) * 12
-          row.push(`hsl(${hue.toFixed(1)}, ${satBase}%, ${litBase.toFixed(1)}%)`)
-        }
-        grid.push(row)
-      }
-      return grid
-    },
-    [baseHue, paletteIndex, thinking]
-  )
-
-  // Draw grid to canvas
+  // Draw smooth organic blobs to canvas
   const draw = useCallback(
     (ctx: CanvasRenderingContext2D, time: number) => {
-      ctx.clearRect(0, 0, 64, 64)
-      const grid = buildGrid(time)
-      for (let y = 0; y < 8; y++) {
-        for (let x = 0; x < 8; x++) {
-          const color = grid[y]?.[x]
-          if (!color || color === "transparent") continue
-          ctx.fillStyle = color
-          ctx.fillRect(x * 8, y * 8, 8, 8)
-        }
-      }
+      const w = 64
+      const h = 64
+      ctx.clearRect(0, 0, w, h)
+      
+      // Draw a base background
+      const baseGrad = ctx.createRadialGradient(w/2, h/2, 0, w/2, h/2, w/2)
+      baseGrad.addColorStop(0, `hsl(${baseHue}, 85%, 55%)`)
+      baseGrad.addColorStop(1, `hsl(${(baseHue + 40) % 360}, 90%, 35%)`)
+      ctx.fillStyle = baseGrad
+      ctx.fillRect(0, 0, w, h)
+
+      // Only animate internal blobs if "thinking"
+      const t = thinking ? time * 0.002 : 0
+
+      // Draw 3 moving "blobs" of color to create the organic fluid effect
+      const blobs = [
+        { hueOff: -30, size: 28, x: w/2 + Math.sin(t * 1.2) * 12, y: h/2 + Math.cos(t * 1.3) * 12 },
+        { hueOff: 45,  size: 32, x: w/2 + Math.sin(t * 1.5 + 2) * 14, y: h/2 + Math.cos(t * 1.1 + 3) * 14 },
+        { hueOff: 15,  size: 24, x: w/2 + Math.cos(t * 0.9 + 4) * 16, y: h/2 + Math.sin(t * 1.4 + 1) * 16 }
+      ]
+
+      // Set global composite operation for smooth blending
+      ctx.globalCompositeOperation = 'screen'
+
+      blobs.forEach(blob => {
+        const grad = ctx.createRadialGradient(blob.x, blob.y, 0, blob.x, blob.y, blob.size)
+        grad.addColorStop(0, `hsla(${(baseHue + blob.hueOff + 360) % 360}, 90%, 65%, 0.8)`)
+        grad.addColorStop(1, `hsla(${(baseHue + blob.hueOff + 360) % 360}, 90%, 65%, 0)`)
+        ctx.fillStyle = grad
+        ctx.fillRect(0, 0, w, h)
+      })
+
+      ctx.globalCompositeOperation = 'source-over'
     },
-    [buildGrid]
+    [baseHue, thinking]
   )
 
   useEffect(() => {
@@ -1398,6 +1392,9 @@ function AgentCanvasOrb({
     if (!canvas) return
     const ctx = canvas.getContext("2d")
     if (!ctx) return
+    
+    // Apply blur filter on the 64x64 canvas for ultra-smoothness
+    ctx.filter = 'blur(6px)'
 
     if (thinking) {
       const loop = () => {
@@ -1419,7 +1416,7 @@ function AgentCanvasOrb({
   return (
     <span
       className={cn(
-        "relative inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full",
+        "relative inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full shadow-[inset_0_1px_3px_rgba(255,255,255,0.3)]",
         active ? "ring-2 ring-foreground/20 ring-offset-2 ring-offset-background" : ""
       )}
       style={{ width: pxSize, height: pxSize }}
@@ -1432,8 +1429,9 @@ function AgentCanvasOrb({
         style={{
           width: pxSize,
           height: pxSize,
-          imageRendering: "pixelated" as const,
+          imageRendering: "auto" as const, // explicitly use smooth rendering
         }}
+        className="scale-125" // Scale up slightly to hide blurred edges
       />
     </span>
   )
@@ -1477,24 +1475,7 @@ function AgentIconOrb({
   )
 }
 
-function GrokPrimaryOrb({ active, thinking }: { active: boolean; thinking: boolean }) {
-  return (
-    <span
-      className={cn(
-        "relative inline-flex shrink-0 items-center justify-center rounded-full",
-        active ? "ring-2 ring-foreground/18 ring-offset-2 ring-offset-background" : ""
-      )}
-      aria-hidden="true"
-    >
-      {active ? <span className="absolute -inset-[2.5px] rounded-full think-agent-active-halo" /> : null}
-      <span className={cn("absolute inset-0 rounded-full bg-[#9ca3af]", thinking ? "think-agent-orb-shell" : "")} />
-      <span className="absolute inset-[1.4px] rounded-full border border-white/20 bg-black" />
-      <span className={cn("relative z-[1] inline-flex items-center justify-center text-white", active ? "think-grok-orb" : "")}>
-        <GrokLogo className="size-3.5" />
-      </span>
-    </span>
-  )
-}
+// Removed GrokPrimaryOrb. Replaced with AgentCanvasOrb usage.
 
 function AgentAvatarStack({
   agents,
@@ -1511,7 +1492,7 @@ function AgentAvatarStack({
     <span className="inline-flex items-center -space-x-1.5">
       {visibleAgents.map((agent, index) =>
         agent.isPrimary ? (
-          <GrokPrimaryOrb key={agent.key} active={agent.key === activeAgentKey} thinking={thinking} />
+          <AgentCanvasOrb key={agent.key} paletteIndex={0} isPrimary={true} active={agent.key === activeAgentKey} thinking={thinking} size="sm" />
         ) : (
           <AgentIconOrb
             key={agent.key}
@@ -1860,7 +1841,7 @@ function StructuredReasoningPanel({
                       {effectiveThinking ? (
                         <span className="inline-flex shrink-0 items-center justify-center">
                           {descriptor.isPrimary ? (
-                            <GrokPrimaryOrb active={active} thinking={effectiveThinking} />
+                            <AgentCanvasOrb paletteIndex={0} isPrimary={true} active={active} thinking={effectiveThinking} size="lg" />
                           ) : (
                             <AgentIconOrb
                               paletteIndex={descriptor.paletteIndex}
@@ -1971,12 +1952,15 @@ function collectImageParagraphNodes(children: ReactNode): ReactNode[] | null {
   return rows.length > 0 ? rows : null
 }
 
-function MarkdownImage({
+// Global DOM cache to prevent images from flickering/reloading when ReactMarkdown remounts them
+const GLOBAL_IMAGE_CACHE = new Map<string, HTMLImageElement>()
+
+const MarkdownImage = memo(function({
   src,
   alt,
 }: {
-  src?: string
-  alt?: string
+  src: string
+  alt: string
 }) {
   const [currentSrc, setCurrentSrc] = useState(src || "")
   const [failed, setFailed] = useState(false)
@@ -2059,7 +2043,7 @@ function MarkdownImage({
       data-grok-md-image="true"
     />
   )
-}
+})
 
 function MarkdownBody({ content }: { content: string }) {
   const normalized = useMemo(() => normalizeAssistantMarkdown(content), [content])
@@ -2340,7 +2324,7 @@ function ThinkBlock({
                     <div key={entry.key} className="space-y-2.5">
                       <div className="flex items-center gap-2 pl-0.5 text-[0.95rem] font-semibold text-foreground">
                         {isPrimaryAgent ? (
-                          <GrokPrimaryOrb active={active} thinking={thinking} />
+                          <AgentCanvasOrb paletteIndex={0} isPrimary={true} active={active} thinking={thinking} size="lg" />
                         ) : (
                           <AgentIconOrb
                             paletteIndex={entry.paletteIndex}
