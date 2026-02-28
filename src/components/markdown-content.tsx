@@ -977,6 +977,7 @@ function AgentOrb({
       )}
       aria-hidden="true"
     >
+      {active ? <span className="absolute -inset-[2.5px] rounded-full think-agent-active-halo" /> : null}
       <span
         style={style}
         className={cn(
@@ -1006,6 +1007,7 @@ function GrokPrimaryOrb({ active }: { active: boolean }) {
       )}
       aria-hidden="true"
     >
+      {active ? <span className="absolute -inset-[2.5px] rounded-full think-agent-active-halo" /> : null}
       <span className={cn("rounded-full", active ? "think-grok-orb" : "")}>
         <GrokAvatar size="sm" />
       </span>
@@ -1164,20 +1166,27 @@ function StructuredReasoningPanel({
         <AgentAvatarStack agents={agents} activeAgentKey={activeAgentKey} thinking />
         <span className="text-[0.95rem] font-medium">思考中</span>
       </div>
-      <div className="relative mt-2 min-h-[13.5rem] overflow-hidden">
+      <div className="relative mt-2 min-h-[14rem] overflow-hidden">
         {displayEntries.length > 0 ? (
-          <div className="flex min-h-[13.5rem] flex-col justify-end space-y-3">
+          <div className="flex min-h-[14rem] flex-col justify-end space-y-3">
             {displayEntries.map((entry, index) => {
               const active = entry.status === "running" && toAgentKey(entry.rolloutId) === activeAgentKey
               const entryAgentKey = toAgentKey(entry.rolloutId)
               const descriptor = agentByKey.get(entryAgentKey) || resolveAgentDescriptorByKey(agents, entryAgentKey)
               const key = `${entry.key}:${index}`
+              const ageFromNewest = displayEntries.length - 1 - index
               return (
                 <div
                   key={key}
                   className={cn(
                     "animate-in slide-in-from-bottom-2 duration-300 fade-in-50 flex items-start justify-between gap-4",
-                    "think-stream-row"
+                    "think-stream-row",
+                    ageFromNewest >= 2
+                      ? "think-stream-row-oldest"
+                      : ageFromNewest === 1
+                        ? "think-stream-row-middle"
+                        : "think-stream-row-newest",
+                    active ? "think-stream-row-active" : ""
                   )}
                 >
                   <div className="flex min-w-0 items-start gap-2.5">
