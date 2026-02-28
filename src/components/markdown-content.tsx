@@ -287,7 +287,7 @@ export function expandGrokRenderTags(content: string, cards: Record<string, Imag
     return ""
   }
 
-  return content.replace(/<grok:render\b[^>]*card_id="([^"]+)"[^>]*>[\s\S]*?<\/grok:render>/gi, (_, cardId) => {
+  const replaceRenderTag = (_raw: string, cardId: string): string => {
     const normalizedCardId = typeof cardId === "string" ? cardId.trim() : ""
     const card = normalizedCardId ? cards[normalizedCardId] : undefined
     const imageUrl = card?.image?.original || card?.image?.thumbnail || card?.url
@@ -299,7 +299,13 @@ export function expandGrokRenderTags(content: string, cards: Record<string, Imag
     const imageMarkdown = `![${alt}](${wrapMarkdownUrl(imageUrl)})`
     const targetUrl = card?.image?.link || card?.url
     return targetUrl ? `[${imageMarkdown}](${wrapMarkdownUrl(targetUrl)})` : imageMarkdown
-  })
+  }
+
+  const withPairTags = content.replace(
+    /<grok:render\b[^>]*card_id="([^"]+)"[^>]*>[\s\S]*?<\/grok:render>/gi,
+    replaceRenderTag
+  )
+  return withPairTags.replace(/<grok:render\b[^>]*card_id="([^"]+)"[^>]*\/>/gi, replaceRenderTag)
 }
 
 function isImageMarkdownLine(line: string): boolean {
@@ -370,6 +376,7 @@ export function normalizeAssistantMarkdown(content: string): string {
   let normalized = content.replace(/\r\n?/g, "\n")
   normalized = normalized.replace(/<tool-meta>[\s\S]*?<\/tool-meta>/gi, "")
   normalized = normalized.replace(/<grok:render\b[\s\S]*?<\/grok:render>/gi, "")
+  normalized = normalized.replace(/<grok:render\b[^>]*\/>/gi, "")
   normalized = normalized.replace(/<argument\b[\s\S]*?<\/argument>/gi, "")
   normalized = normalized.replace(/<\/think>/gi, "")
   normalized = mergeConsecutiveImageLines(normalized)

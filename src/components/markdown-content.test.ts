@@ -74,6 +74,11 @@ describe("normalizeAssistantMarkdown", () => {
     )
     expect(normalized).toBe("正文")
   })
+
+  it("drops unresolved self-closing grok:render tags", () => {
+    const normalized = normalizeAssistantMarkdown('<grok:render card_id="abc" card_type="image_card" />\n\n正文')
+    expect(normalized).toBe("正文")
+  })
 })
 
 describe("expandGrokRenderTags", () => {
@@ -96,5 +101,24 @@ describe("expandGrokRenderTags", () => {
 
     expect(expanded).toContain("![sample](<https://img.test/a.jpg>)")
     expect(expanded).toContain("](<https://source.test>)")
+  })
+
+  it("replaces self-closing grok:render tags with markdown image links", () => {
+    const expanded = expandGrokRenderTags(
+      '<grok:render card_id="abc" card_type="image_card" type="render_searched_image" />',
+      {
+        abc: {
+          id: "abc",
+          cardType: "image_card",
+          type: "render_searched_image",
+          image: {
+            original: "https://img.test/a.jpg",
+            title: "sample",
+          },
+        },
+      }
+    )
+
+    expect(expanded).toContain("![sample](<https://img.test/a.jpg>)")
   })
 })
