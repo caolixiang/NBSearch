@@ -23,6 +23,10 @@ export interface AppRepository {
 
   upsertConversation(record: ConversationRecord): Promise<void>
 
+  updateConversationTitle(conversationId: string, title: string): Promise<void>
+
+  deleteConversation(conversationId: string): Promise<void>
+
   appendMessage(conversationId: string, message: ChatMessage): Promise<void>
 
   listMessages(conversationId: string): Promise<ChatMessage[]>

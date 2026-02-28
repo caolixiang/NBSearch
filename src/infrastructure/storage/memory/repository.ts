@@ -18,6 +18,28 @@ export class MemoryAppRepository implements AppRepository {
     this.conversations.set(record.id, record)
   }
 
+  async updateConversationTitle(conversationId: string, title: string): Promise<void> {
+    const current = this.conversations.get(conversationId)
+    if (!current) {
+      return
+    }
+    this.conversations.set(conversationId, {
+      ...current,
+      title,
+      updatedAt: Date.now(),
+    })
+  }
+
+  async deleteConversation(conversationId: string): Promise<void> {
+    this.conversations.delete(conversationId)
+    this.messages.delete(conversationId)
+    for (const [id, session] of this.voiceSessions.entries()) {
+      if (session.conversationId === conversationId) {
+        this.voiceSessions.delete(id)
+      }
+    }
+  }
+
   async appendMessage(conversationId: string, message: ChatMessage): Promise<void> {
     const prev = this.messages.get(conversationId) || []
     this.messages.set(conversationId, [...prev, message])

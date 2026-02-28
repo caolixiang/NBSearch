@@ -5,11 +5,13 @@ import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   Plus,
-  MessageSquare,
   PanelLeftClose,
   PanelLeft,
   Settings,
+  PenLine,
   Trash2,
+  Check,
+  X,
 } from "lucide-react"
 import { GrokAvatar } from "./claude-logo"
 import { cn } from "@/lib/utils"
@@ -26,8 +28,10 @@ interface ChatSidebarProps {
   activeId: string | null
   onSelect: (id: string) => void
   onNew: () => void
+  onRename?: (id: string, title: string) => void
   onDelete?: (id: string) => void
   onOpenSettings: () => void
+  disableConversationActions?: boolean
   isCollapsed: boolean
   onToggleCollapse: () => void
 }
@@ -37,12 +41,51 @@ export function ChatSidebar({
   activeId,
   onSelect,
   onNew,
+  onRename,
   onDelete,
   onOpenSettings,
+  disableConversationActions = false,
   isCollapsed,
   onToggleCollapse,
 }: ChatSidebarProps) {
   const [hoveredId, setHoveredId] = useState<string | null>(null)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editingTitle, setEditingTitle] = useState("")
+  const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null)
+
+  const resetModes = () => {
+    setEditingId(null)
+    setEditingTitle("")
+    setConfirmingDeleteId(null)
+  }
+
+  const beginRename = (conversation: Conversation) => {
+    if (disableConversationActions || !onRename) {
+      return
+    }
+    setConfirmingDeleteId(null)
+    setEditingId(conversation.id)
+    setEditingTitle(conversation.title)
+  }
+
+  const confirmRename = (conversationId: string) => {
+    const nextTitle = editingTitle.trim()
+    if (!nextTitle) {
+      resetModes()
+      return
+    }
+    onRename?.(conversationId, nextTitle)
+    resetModes()
+  }
+
+  const beginDeleteConfirm = (conversationId: string) => {
+    if (disableConversationActions || !onDelete) {
+      return
+    }
+    setEditingId(null)
+    setEditingTitle("")
+    setConfirmingDeleteId(conversationId)
+  }
 
   const today = new Date()
   const todayConvos = conversations.filter(
@@ -82,31 +125,113 @@ export function ChatSidebar({
       onMouseEnter={() => setHoveredId(convo.id)}
       onMouseLeave={() => setHoveredId(null)}
     >
-      <button
-        onClick={() => onSelect(convo.id)}
-        className={cn(
-          "flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm transition-colors pr-8",
-          activeId === convo.id
-            ? "bg-sidebar-accent text-sidebar-accent-foreground"
-            : "text-sidebar-foreground hover:bg-sidebar-accent/50"
-        )}
-      >
-        <MessageSquare className="size-4 shrink-0 opacity-50" />
-        <span className="truncate">{convo.title}</span>
-      </button>
-      {/* Delete button on hover */}
-      {hoveredId === convo.id && onDelete ? (
-        <button
-          onClick={(e) => {
-            e.stopPropagation()
-            onDelete?.(convo.id)
-          }}
-          className="absolute right-1 top-1/2 -translate-y-1/2 flex size-6 items-center justify-center rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
-          aria-label="删除对话"
-        >
-          <Trash2 className="size-3.5" />
-        </button>
-      ) : null}
+      {editingId === convo.id ? (
+        <div className="flex items-center gap-2 rounded-xl bg-sidebar-accent px-3 py-2 text-sidebar-accent-foreground">
+          <input
+            value={editingTitle}
+            onChange={(event) => setEditingTitle(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault()
+                confirmRename(convo.id)
+              }
+              if (event.key === "Escape") {
+                event.preventDefault()
+                resetModes()
+              }
+            }}
+            autoFocus
+            className="min-w-0 flex-1 bg-transparent text-base outline-none"
+          />
+          <button
+            onClick={() => resetModes()}
+            className="flex size-9 items-center justify-center rounded-xl text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent/80 hover:text-sidebar-foreground"
+            aria-label="取消重命名"
+          >
+            <X className="size-5" />
+          </button>
+          <button
+            onClick={() => confirmRename(convo.id)}
+            className="flex size-9 items-center justify-center rounded-xl text-sidebar-foreground transition-colors hover:bg-sidebar-accent/80"
+            aria-label="确认重命名"
+          >
+            <Check className="size-5" />
+          </button>
+        </div>
+      ) : confirmingDeleteId === convo.id ? (
+        <div className="flex items-center gap-2 rounded-xl bg-sidebar-accent px-3 py-2 text-sidebar-accent-foreground">
+          <span className="min-w-0 flex-1 truncate text-base">删除“{convo.title}”?</span>
+          <button
+            onClick={() => resetModes()}
+            className="flex size-9 items-center justify-center rounded-xl text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent/80 hover:text-sidebar-foreground"
+            aria-label="取消删除"
+          >
+            <X className="size-5" />
+          </button>
+          <button
+            onClick={() => {
+              onDelete?.(convo.id)
+              resetModes()
+            }}
+            className="flex size-9 items-center justify-center rounded-xl text-destructive transition-colors hover:bg-destructive/10"
+            aria-label="确认删除"
+          >
+            <Check className="size-5" />
+          </button>
+        </div>
+      ) : (
+        <>
+          <button
+            onClick={() => {
+              resetModes()
+              onSelect(convo.id)
+            }}
+            className={cn(
+              "flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm transition-colors pr-24",
+              activeId === convo.id
+                ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                : "text-sidebar-foreground hover:bg-sidebar-accent/50"
+            )}
+          >
+            <span className="truncate text-base">{convo.title}</span>
+          </button>
+          {onDelete || onRename ? (
+            <div
+              className={cn(
+                "absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-1 rounded-xl bg-sidebar-accent/90 px-1 py-0.5 transition-opacity",
+                hoveredId === convo.id || activeId === convo.id ? "opacity-100" : "opacity-0 pointer-events-none"
+              )}
+            >
+              {onRename ? (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    beginRename(convo)
+                  }}
+                  disabled={disableConversationActions}
+                  className="flex size-8 items-center justify-center rounded-lg text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                  aria-label="重命名对话"
+                >
+                  <PenLine className="size-4" />
+                </button>
+              ) : null}
+              {onDelete ? (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    beginDeleteConfirm(convo.id)
+                  }}
+                  disabled={disableConversationActions}
+                  className="flex size-8 items-center justify-center rounded-lg text-sidebar-foreground/80 transition-colors hover:bg-destructive/10 hover:text-destructive disabled:cursor-not-allowed disabled:opacity-40"
+                  aria-label="删除对话"
+                >
+                  <Trash2 className="size-4" />
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+        </>
+      )}
     </div>
   )
 

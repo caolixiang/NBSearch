@@ -87,6 +87,23 @@ export class SqliteAppRepository implements AppRepository {
     )
   }
 
+  async updateConversationTitle(conversationId: string, title: string): Promise<void> {
+    const db = await getDatabase()
+    await db.execute(
+      `UPDATE conversations
+       SET title = $1, updated_at = $2
+       WHERE id = $3`,
+      [title, Date.now(), conversationId]
+    )
+  }
+
+  async deleteConversation(conversationId: string): Promise<void> {
+    const db = await getDatabase()
+    await db.execute(`DELETE FROM messages WHERE conversation_id = $1`, [conversationId])
+    await db.execute(`DELETE FROM voice_sessions WHERE conversation_id = $1`, [conversationId])
+    await db.execute(`DELETE FROM conversations WHERE id = $1`, [conversationId])
+  }
+
   async appendMessage(conversationId: string, message: ChatMessage): Promise<void> {
     const db = await getDatabase()
     await db.execute(

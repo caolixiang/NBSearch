@@ -268,6 +268,49 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     await createConversation()
   }, [createConversation, isStreaming])
 
+  const handleRenameConversation = useCallback(
+    async (conversationId: string, title: string): Promise<void> => {
+      const nextTitle = title.trim()
+      if (!nextTitle) {
+        return
+      }
+      const current = conversations.find((item) => item.id === conversationId)
+      if (!current || current.title === nextTitle) {
+        return
+      }
+      await repository.updateConversationTitle(conversationId, nextTitle)
+      await refreshConversations()
+    },
+    [conversations, refreshConversations, repository]
+  )
+
+  const handleDeleteConversation = useCallback(
+    async (conversationId: string): Promise<void> => {
+      if (isStreaming) {
+        return
+      }
+      await repository.deleteConversation(conversationId)
+      const list = await refreshConversations()
+      setLastError("")
+      setStreamingAssistantText("")
+
+      if (activeConversationIdRef.current !== conversationId) {
+        return
+      }
+
+      if (list.length === 0) {
+        setActiveConversationId(null)
+        setMessages([])
+        return
+      }
+
+      const nextConversationId = list[0].id
+      setActiveConversationId(nextConversationId)
+      await loadMessages(nextConversationId)
+    },
+    [isStreaming, loadMessages, refreshConversations, repository]
+  )
+
   return (
     <main className="flex h-dvh min-h-0 overflow-hidden bg-background">
       <ChatSidebar
@@ -275,7 +318,10 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
         activeId={activeConversationId}
         onSelect={(id) => void handleSelectConversation(id)}
         onNew={() => void handleNewConversation()}
+        onRename={(id, title) => void handleRenameConversation(id, title)}
+        onDelete={(id) => void handleDeleteConversation(id)}
         onOpenSettings={() => setSettingsOpen(true)}
+        disableConversationActions={isStreaming}
         isCollapsed={sidebarCollapsed}
         onToggleCollapse={() => setSidebarCollapsed((prev) => !prev)}
       />
