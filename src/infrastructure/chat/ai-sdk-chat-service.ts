@@ -106,6 +106,16 @@ function parseFunctionArguments(value: unknown): Record<string, unknown> | null 
   }
 }
 
+function readWebSearchResultsCount(value: unknown): number | undefined {
+  if (Array.isArray(value)) {
+    return value.length
+  }
+  if (isRecord(value) && Array.isArray(value.results)) {
+    return value.results.length
+  }
+  return undefined
+}
+
 function extractWebSearchToolMetaFromOutputItem(item: unknown): WebSearchToolMeta | null {
   if (!isRecord(item)) {
     return null
@@ -339,16 +349,19 @@ function readToolResultEvent(rawChunk: unknown): ChatReasoningEventDetail | null
   if (
     parsed?.type === "response.tool_usage_card" &&
     typeof parsed.messageTag === "string" &&
-    parsed.messageTag === "raw_function_result" &&
-    Array.isArray(parsed.webSearchResults)
+    parsed.messageTag === "raw_function_result"
   ) {
+    const webSearchResultsCount = readWebSearchResultsCount(parsed.webSearchResults)
+    if (typeof webSearchResultsCount !== "number") {
+      return null
+    }
     return {
       kind: "tool_result",
       result: {
         toolUsageCardId: typeof parsed.toolUsageCardId === "string" ? parsed.toolUsageCardId : undefined,
         rolloutId: typeof parsed.rolloutId === "string" ? parsed.rolloutId : undefined,
         messageTag: parsed.messageTag,
-        webSearchResultsCount: parsed.webSearchResults.length,
+        webSearchResultsCount,
         isThinking: typeof parsed.isThinking === "boolean" ? parsed.isThinking : undefined,
         responseId:
           typeof parsed.responseId === "string"
@@ -374,6 +387,62 @@ function buildGeneratedImageCard(url: string): ChatCardAttachmentPayload {
       original: url,
     },
   }
+}
+
+function parseCardAttachmentRecord(value: unknown): Record<string, unknown> | null {
+  if (isRecord(value) && typeof value.jsonData === "string") {
+    return parseRecord(value.jsonData)
+  }
+  return parseRecord(value)
+}
+
+function readCardAttachmentPayload(value: unknown): ChatCardAttachmentPayload | null {
+  const parsed = parseCardAttachmentRecord(value)
+  if (!parsed) {
+    return null
+  }
+
+  const image = isRecord(parsed.image) ? parsed.image : null
+  const directUrl = typeof parsed.url === "string" ? parsed.url.trim() : ""
+  const imageOriginal = image && typeof image.original === "string" ? image.original.trim() : ""
+  const imageThumbnail = image && typeof image.thumbnail === "string" ? image.thumbnail.trim() : ""
+  const stableUrl = imageOriginal || directUrl || imageThumbnail
+  const idRaw = typeof parsed.id === "string" ? parsed.id.trim() : ""
+  const id = idRaw || (stableUrl ? `image_card_${encodeURIComponent(stableUrl)}` : "")
+  if (!id) {
+    return null
+  }
+
+  return {
+    id,
+    cardType: typeof parsed.cardType === "string" ? parsed.cardType : undefined,
+    type: typeof parsed.type === "string" ? parsed.type : undefined,
+    url: directUrl || undefined,
+    image: image
+      ? {
+          thumbnail: typeof image.thumbnail === "string" ? image.thumbnail : undefined,
+          original: typeof image.original === "string" ? image.original : undefined,
+          title: typeof image.title === "string" ? image.title : undefined,
+          link: typeof image.link === "string" ? image.link : undefined,
+          source: typeof image.source === "string" ? image.source : undefined,
+        }
+      : undefined,
+  }
+}
+
+function collectCardAttachmentsFromUnknownList(value: unknown): ChatCardAttachmentPayload[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  const cards: ChatCardAttachmentPayload[] = []
+  for (const item of value) {
+    const card = readCardAttachmentPayload(item)
+    if (card) {
+      cards.push(card)
+    }
+  }
+  return cards
 }
 
 function collectCardAttachmentsFromEnvelope(value: unknown): ChatCardAttachmentPayload[] {
@@ -406,6 +475,19 @@ function collectCardAttachmentsFromEnvelope(value: unknown): ChatCardAttachmentP
       continue
     }
     cards.push(buildGeneratedImageCard(url))
+  }
+
+  const inlineCard = readCardAttachmentPayload(value.cardAttachment)
+  if (inlineCard) {
+    cards.push(inlineCard)
+  }
+
+  for (const card of collectCardAttachmentsFromUnknownList(value.cardAttachmentsJson)) {
+    cards.push(card)
+  }
+
+  for (const card of collectCardAttachmentsFromUnknownList(value.cardAttachments)) {
+    cards.push(card)
   }
 
   return cards

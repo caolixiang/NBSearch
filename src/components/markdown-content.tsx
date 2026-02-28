@@ -517,6 +517,25 @@ function isLikelyUrl(value: string): boolean {
   return /^(https?:\/\/|www\.|[a-z0-9-]+\.[a-z]{2,}(?:\/|$))/i.test(text)
 }
 
+function decodeUrlForDisplay(value: string): string {
+  const text = value.trim()
+  if (!text || !text.includes("%")) {
+    return value
+  }
+  try {
+    return decodeURI(text)
+  } catch {
+    return value
+  }
+}
+
+function formatSearchTextForDisplay(value: string): string {
+  if (!isLikelyUrl(value)) {
+    return value
+  }
+  return decodeUrlForDisplay(value)
+}
+
 function normalizeSearchQuery(value: string): string {
   return value
     .normalize("NFKC")
@@ -1334,7 +1353,7 @@ function StructuredReasoningPanel({
                             entry.visited ? "italic" : ""
                           )}
                         >
-                          {entry.text}
+                          {formatSearchTextForDisplay(entry.text)}
                         </p>
                       </div>
                     </div>
@@ -1647,7 +1666,7 @@ function ThinkBlock({
                               entry.visited ? "italic" : ""
                             )}
                           >
-                            {entry.text}
+                            {formatSearchTextForDisplay(entry.text)}
                           </p>
                         </div>
                       </div>

@@ -191,6 +191,39 @@ describe("extractCardAttachmentsFromRawChunk", () => {
     expect(cards[0]?.image?.original).toBe("https://img.test/a.jpg")
     expect(cards[1]?.image?.original).toBe("https://img.test/b.jpg")
   })
+
+  it("extracts image card from cardAttachment.jsonData payload", () => {
+    const cards = extractCardAttachmentsFromRawChunk({
+      type: "response.tool_usage_card",
+      cardAttachment: {
+        jsonData:
+          "{\"id\":\"card_1\",\"cardType\":\"image_card\",\"type\":\"render_searched_image\",\"image\":{\"original\":\"https://img.test/c.jpg\",\"thumbnail\":\"https://img.test/c-thumb.jpg\",\"title\":\"sample\",\"link\":\"https://source.test\"}}",
+      },
+    })
+
+    expect(cards).toHaveLength(1)
+    expect(cards[0]?.id).toBe("card_1")
+    expect(cards[0]?.cardType).toBe("image_card")
+    expect(cards[0]?.type).toBe("render_searched_image")
+    expect(cards[0]?.image?.original).toBe("https://img.test/c.jpg")
+    expect(cards[0]?.image?.link).toBe("https://source.test")
+  })
+
+  it("extracts image cards from cardAttachmentsJson array payload", () => {
+    const cards = extractCardAttachmentsFromRawChunk({
+      type: "response.completed",
+      response: {
+        cardAttachmentsJson: [
+          "{\"id\":\"card_1\",\"cardType\":\"image_card\",\"type\":\"render_searched_image\",\"image\":{\"original\":\"https://img.test/c.jpg\"}}",
+          "{\"id\":\"card_2\",\"cardType\":\"image_card\",\"type\":\"render_searched_image\",\"image\":{\"original\":\"https://img.test/d.jpg\"}}",
+        ],
+      },
+    })
+
+    expect(cards).toHaveLength(2)
+    expect(cards[0]?.id).toBe("card_1")
+    expect(cards[1]?.id).toBe("card_2")
+  })
 })
 
 describe("extractReasoningEventsFromRawChunk", () => {
@@ -308,6 +341,34 @@ describe("extractReasoningEventsFromRawChunk", () => {
           rolloutId: "Agent 1",
           messageTag: "raw_function_result",
           webSearchResultsCount: 2,
+          isThinking: false,
+          responseId: "resp_1",
+        },
+      },
+    ])
+  })
+
+  it("extracts tool result count from raw_function_result object payload", () => {
+    const events = extractReasoningEventsFromRawChunk({
+      type: "response.tool_usage_card",
+      response_id: "resp_1",
+      isThinking: false,
+      messageTag: "raw_function_result",
+      rolloutId: "Agent 1",
+      toolUsageCardId: "tool_1",
+      webSearchResults: {
+        results: [{ url: "https://a.test" }, { url: "https://b.test" }, { url: "https://c.test" }],
+      },
+    })
+
+    expect(events).toEqual([
+      {
+        kind: "tool_result",
+        result: {
+          toolUsageCardId: "tool_1",
+          rolloutId: "Agent 1",
+          messageTag: "raw_function_result",
+          webSearchResultsCount: 3,
           isThinking: false,
           responseId: "resp_1",
         },
