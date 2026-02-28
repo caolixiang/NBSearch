@@ -73,10 +73,9 @@ const AGENT_PIXEL_PALETTES = [
   ["#84cc16", "#facc15", "#ea580c", "#d97706"],
 ] as const
 
-const AGENT_STACK_RING_COLORS = ["#9ca3af", "#22c55e", "#f97316", "#9ca3af", "#60a5fa"] as const
+const AGENT_STACK_RING_COLORS = ["#9ca3af", "#22c55e", "#f97316", "#60a5fa", "#a855f7", "#eab308"] as const
 
 const AGENT_STACK_ICON_SEQUENCE: GrokLottieName[] = [
-  "rewind",
   "waveform",
   "square_pen",
   "square_code",
@@ -84,6 +83,7 @@ const AGENT_STACK_ICON_SEQUENCE: GrokLottieName[] = [
   "folder",
   "image",
   "pin",
+  "rewind",
 ]
 
 function resolveAgentIconName(paletteIndex: number): GrokLottieName {
@@ -1231,7 +1231,7 @@ function StructuredReasoningPanel({
     }
     const timer = window.setInterval(() => {
       setActiveTick((value) => value + 1)
-    }, 900)
+    }, 1200)
     return () => window.clearInterval(timer)
   }, [agents.length, isThinking])
 
@@ -1568,7 +1568,7 @@ function ThinkBlock({
 
     const timer = window.setInterval(() => {
       setActiveTick((value) => value + 1)
-    }, 900)
+    }, 1200)
     return () => window.clearInterval(timer)
   }, [agents.length, thinking])
 

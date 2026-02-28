@@ -173,7 +173,7 @@
     filter: saturate(95%);
   }
   50% {
-    transform: translateY(-2px) scale(1.04);
+    transform: translateY(-1px) scale(1.028);
     filter: saturate(115%);
   }
   100% {
@@ -189,7 +189,7 @@
   }
   100% {
     transform: rotate(360deg);
-    filter: saturate(120%);
+    filter: saturate(112%);
   }
 }
 
@@ -214,8 +214,8 @@
     filter: drop-shadow(0 0 0 rgba(0, 0, 0, 0));
   }
   50% {
-    transform: translateY(-1px) scale(1.035);
-    filter: drop-shadow(0 3px 8px rgba(0, 0, 0, 0.24));
+    transform: translateY(-1px) scale(1.022);
+    filter: drop-shadow(0 2px 7px rgba(0, 0, 0, 0.2));
   }
   100% {
     transform: translateY(0) scale(1);
@@ -225,14 +225,14 @@
 
 @keyframes thinkAgentHaloPulse {
   0% {
-    transform: scale(0.9);
+    transform: scale(0.94);
     opacity: 0;
   }
   30% {
-    opacity: 0.35;
+    opacity: 0.28;
   }
   100% {
-    transform: scale(1.18);
+    transform: scale(1.12);
     opacity: 0;
   }
 }
@@ -246,7 +246,7 @@
 }
 
 .think-agent-orb-shell {
-  animation: thinkAgentRingSpin 2.6s linear infinite, thinkAgentDrift 1.6s ease-in-out infinite;
+  animation: thinkAgentRingSpin 3.8s linear infinite, thinkAgentDrift 2s ease-in-out infinite;
 }
 
 .think-agent-core-active {
@@ -254,7 +254,7 @@
 }
 
 .think-grok-orb {
-  animation: thinkGrokPulse 1.4s ease-in-out infinite;
+  animation: thinkGrokPulse 1.8s ease-in-out infinite;
 }
 
 .think-stream-row {
@@ -294,5 +294,5 @@
 
 .think-agent-active-halo {
   border: 1px solid color-mix(in oklab, var(--foreground) 28%, transparent);
-  animation: thinkAgentHaloPulse 1.4s ease-out infinite;
+  animation: thinkAgentHaloPulse 1.8s ease-out infinite;
 }
