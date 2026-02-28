@@ -37,35 +37,204 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
-function parseRecord(value: unknown): Record<string, unknown> | null {
+function parseJsonObjectStrings(raw: string): string[] {
+  const input = raw.trim()
+  if (!input || input === "[DONE]") {
+    return []
+  }
+
+  const segments: string[] = []
+  let start = -1
+  let depth = 0
+  let inString = false
+  let escaped = false
+
+  for (let index = 0; index < input.length; index += 1) {
+    const char = input[index]
+    if (start < 0) {
+      if (char === "{") {
+        start = index
+        depth = 1
+        inString = false
+        escaped = false
+      }
+      continue
+    }
+
+    if (inString) {
+      if (escaped) {
+        escaped = false
+      } else if (char === "\\") {
+        escaped = true
+      } else if (char === "\"") {
+        inString = false
+      }
+      continue
+    }
+
+    if (char === "\"") {
+      inString = true
+      continue
+    }
+    if (char === "{") {
+      depth += 1
+      continue
+    }
+    if (char === "}") {
+      depth -= 1
+      if (depth === 0) {
+        segments.push(input.slice(start, index + 1))
+        start = -1
+      }
+    }
+  }
+
+  return segments
+}
+
+function parseRecords(value: unknown): Record<string, unknown>[] {
   if (isRecord(value)) {
-    return value
+    return [value]
   }
   if (typeof value !== "string") {
-    return null
+    return []
   }
   const trimmed = value.trim()
   if (!trimmed || trimmed === "[DONE]") {
-    return null
+    return []
+  }
+
+  const records: Record<string, unknown>[] = []
+  for (const candidate of parseJsonObjectStrings(trimmed)) {
+    try {
+      const parsed = JSON.parse(candidate) as unknown
+      if (isRecord(parsed)) {
+        records.push(parsed)
+      }
+    } catch {
+      continue
+    }
+  }
+  if (records.length > 0) {
+    return records
   }
 
   const sseLines = trimmed
     .split(/\r?\n/)
     .map((line) => line.trim())
-    .filter(Boolean)
-  const ssePayload = sseLines
     .filter((line) => line.startsWith("data:"))
-    .map((line) => line.slice("data:".length).trim())
-    .join("\n")
-  const rawJson = ssePayload || trimmed
-  if (!rawJson || rawJson === "[DONE]") {
-    return null
+
+  for (const line of sseLines) {
+    const payload = line.slice("data:".length).trim()
+    if (!payload || payload === "[DONE]") {
+      continue
+    }
+    for (const candidate of parseJsonObjectStrings(payload)) {
+      try {
+        const parsed = JSON.parse(candidate) as unknown
+        if (isRecord(parsed)) {
+          records.push(parsed)
+        }
+      } catch {
+        continue
+      }
+    }
   }
+
+  return records
+}
+
+function collectRawChunkCandidates(rawChunk: unknown): Record<string, unknown>[] {
+  const parsedRecords = parseRecords(rawChunk)
+  if (parsedRecords.length === 0) {
+    return []
+  }
+
+  const candidates: Record<string, unknown>[] = []
+  const seen = new Set<Record<string, unknown>>()
+
+  const append = (value: unknown) => {
+    if (!isRecord(value) || seen.has(value)) {
+      return
+    }
+    seen.add(value)
+    candidates.push(value)
+  }
+
+  for (const parsed of parsedRecords) {
+    append(parsed)
+    append(parsed.result)
+    append(parsed.response)
+
+    if (isRecord(parsed.result)) {
+      append(parsed.result.response)
+      append(parsed.result.title)
+    }
+  }
+
+  return candidates
+}
+
+function extractResponseIdFromRecord(value: Record<string, unknown>): string {
+  const responseIdCamel = typeof value.responseId === "string" ? value.responseId.trim() : ""
+  if (responseIdCamel) {
+    return responseIdCamel
+  }
+
+  const responseIdSnake = typeof value.response_id === "string" ? value.response_id.trim() : ""
+  if (responseIdSnake) {
+    return responseIdSnake
+  }
+
+  if (typeof value.id === "string" && value.id.trim() && value.id.trim().startsWith("resp")) {
+    return value.id.trim()
+  }
+
+  return ""
+}
+
+function isInternalRelayRecord(value: Record<string, unknown>): boolean {
+  const hasRoutingKey =
+    typeof value.to === "string" ||
+    typeof value.from === "string" ||
+    typeof value.sender === "string" ||
+    typeof value.receiver === "string" ||
+    typeof value.recipient === "string" ||
+    typeof value.rolloutId === "string" ||
+    typeof value.rollout_id === "string"
+  if (!hasRoutingKey) {
+    return false
+  }
+  return typeof value.message === "string" || typeof value.content === "string"
+}
+
+function isInternalGatewayJsonToken(value: string): boolean {
+  const trimmed = value.trim()
+  if (!(trimmed.startsWith("{") && trimmed.endsWith("}"))) {
+    return false
+  }
+
   try {
-    const parsed = JSON.parse(rawJson) as unknown
-    return isRecord(parsed) ? parsed : null
+    const parsed = JSON.parse(trimmed) as unknown
+    if (!isRecord(parsed)) {
+      return false
+    }
+    if (isInternalRelayRecord(parsed)) {
+      return true
+    }
+
+    const toolSignalKeys = [
+      "query",
+      "q",
+      "num_results",
+      "number_of_images",
+      "image_description",
+      "instructions",
+      "toolUsageCardId",
+    ]
+    return toolSignalKeys.some((key) => key in parsed)
   } catch {
-    return null
+    return false
   }
 }
 
@@ -163,28 +332,48 @@ function extractWebSearchToolMetaFromResponse(response: unknown): WebSearchToolM
 }
 
 export function extractWebSearchToolMetaFromRawChunk(rawChunk: unknown): WebSearchToolMeta[] {
-  const parsed = parseRecord(rawChunk)
-  if (!parsed) {
+  const candidates = collectRawChunkCandidates(rawChunk)
+  if (candidates.length === 0) {
     return []
   }
 
-  const eventType = typeof parsed.type === "string" ? parsed.type.trim() : ""
-  if (eventType === "response.output_item.added" || eventType === "response.output_item.done") {
-    const row = extractWebSearchToolMetaFromOutputItem(parsed.item)
-    return row ? [row] : []
-  }
-
-  if (eventType === "response.completed") {
-    const nested = extractWebSearchToolMetaFromResponse(parsed.response)
-    if (nested.length > 0) {
-      return nested
+  for (const candidate of candidates) {
+    const eventType = typeof candidate.type === "string" ? candidate.type.trim() : ""
+    if (eventType === "response.output_item.added" || eventType === "response.output_item.done") {
+      const row = extractWebSearchToolMetaFromOutputItem(candidate.item)
+      if (row) {
+        return [row]
+      }
     }
+
+    if (eventType === "response.completed") {
+      const nested = extractWebSearchToolMetaFromResponse(candidate.response)
+      if (nested.length > 0) {
+        return nested
+      }
+    }
+
+    const nestedResponse = extractWebSearchToolMetaFromResponse(candidate.response)
+    if (nestedResponse.length > 0) {
+      return nestedResponse
+    }
+
+    const usage = readToolUsageCard(candidate.toolUsageCard)
+    if (!usage || usage.toolName.toLowerCase() !== "websearch" && usage.toolName.toLowerCase() !== "web_search") {
+      continue
+    }
+    const queryRaw = usage.args.query ?? usage.args.q
+    const query = typeof queryRaw === "string" ? queryRaw.trim() : ""
+    const numResults =
+      toPositiveInteger(usage.args.num_results) ??
+      toPositiveInteger(usage.args.result_count) ??
+      toPositiveInteger(usage.args.max_results)
+    if (!query || !numResults) {
+      continue
+    }
+    return [{ query, numResults }]
   }
 
-  const nestedResponse = extractWebSearchToolMetaFromResponse(parsed.response)
-  if (nestedResponse.length > 0) {
-    return nestedResponse
-  }
   return []
 }
 
@@ -200,35 +389,26 @@ function readReasoningLayout(rawChunk: unknown): {
   isThinking?: boolean
   responseId?: string
 } | null {
-  const parsed = parseRecord(rawChunk)
-  if (!parsed || (parsed.type !== "response.created" && parsed.type !== "response.completed")) {
-    return null
+  for (const candidate of collectRawChunkCandidates(rawChunk)) {
+    const uiLayout = isRecord(candidate.uiLayout) ? candidate.uiLayout : null
+    if (!uiLayout) {
+      continue
+    }
+
+    const responseId = extractResponseIdFromRecord(candidate)
+    return {
+      layout: {
+        reasoningUiLayout: typeof uiLayout.reasoningUiLayout === "string" ? uiLayout.reasoningUiLayout : undefined,
+        willThinkLong: typeof uiLayout.willThinkLong === "boolean" ? uiLayout.willThinkLong : undefined,
+        effort: typeof uiLayout.effort === "string" ? uiLayout.effort : undefined,
+        rolloutIds: readStringArray(uiLayout.rolloutIds),
+      },
+      isThinking: typeof candidate.isThinking === "boolean" ? candidate.isThinking : undefined,
+      responseId: responseId || undefined,
+    }
   }
 
-  const response = isRecord(parsed.response) ? parsed.response : null
-  const uiLayoutFromResponse = response && isRecord(response.uiLayout) ? response.uiLayout : null
-  const uiLayout = uiLayoutFromResponse ?? (isRecord(parsed.uiLayout) ? parsed.uiLayout : null)
-  if (!uiLayout) {
-    return null
-  }
-
-  return {
-    layout: {
-      reasoningUiLayout: typeof uiLayout.reasoningUiLayout === "string" ? uiLayout.reasoningUiLayout : undefined,
-      willThinkLong: typeof uiLayout.willThinkLong === "boolean" ? uiLayout.willThinkLong : undefined,
-      effort: typeof uiLayout.effort === "string" ? uiLayout.effort : undefined,
-      rolloutIds: readStringArray(uiLayout.rolloutIds),
-    },
-    isThinking: typeof parsed.isThinking === "boolean" ? parsed.isThinking : undefined,
-    responseId:
-      typeof parsed.responseId === "string"
-        ? parsed.responseId
-        : typeof parsed.response_id === "string"
-          ? parsed.response_id
-          : response && typeof response.id === "string"
-            ? response.id
-          : undefined,
-  }
+  return null
 }
 
 function readToolUsageCard(
@@ -261,114 +441,123 @@ function readToolUsageCard(
 }
 
 function readToolUsageEvent(rawChunk: unknown): ChatReasoningEventDetail | null {
-  const parsed = parseRecord(rawChunk)
-  if (parsed?.type === "response.output_item.added" && isRecord(parsed.item) && parsed.item.type === "function_call") {
-    const args = parseFunctionArguments(parsed.item.arguments) || {}
-    const toolUsageCardId =
-      typeof parsed.item.call_id === "string" && parsed.item.call_id.trim()
-        ? parsed.item.call_id.trim()
-        : typeof parsed.item.id === "string" && parsed.item.id.trim()
-          ? parsed.item.id.trim()
-          : ""
-    if (!toolUsageCardId) {
-      return null
+  for (const candidate of collectRawChunkCandidates(rawChunk)) {
+    if (
+      candidate.type === "response.output_item.added" &&
+      isRecord(candidate.item) &&
+      candidate.item.type === "function_call"
+    ) {
+      const args = parseFunctionArguments(candidate.item.arguments) || {}
+      const toolUsageCardId =
+        typeof candidate.item.call_id === "string" && candidate.item.call_id.trim()
+          ? candidate.item.call_id.trim()
+          : typeof candidate.item.id === "string" && candidate.item.id.trim()
+            ? candidate.item.id.trim()
+            : ""
+      if (!toolUsageCardId) {
+        continue
+      }
+
+      const responseId = extractResponseIdFromRecord(candidate)
+      return {
+        kind: "tool_usage",
+        usage: {
+          toolUsageCardId,
+          toolName: typeof candidate.item.name === "string" ? candidate.item.name : "tool",
+          args,
+          rolloutId: typeof candidate.item.rollout_id === "string" ? candidate.item.rollout_id : undefined,
+          messageTag: typeof candidate.messageTag === "string" ? candidate.messageTag : undefined,
+          isThinking: typeof candidate.isThinking === "boolean" ? candidate.isThinking : undefined,
+          responseId: responseId || undefined,
+        },
+      }
     }
+
+    const messageTag = typeof candidate.messageTag === "string" ? candidate.messageTag : ""
+    const hasToolUsagePayload = isRecord(candidate.toolUsageCard)
+    const isToolUsageType = candidate.type === "response.tool_usage_card"
+    const isToolUsageMessageTag = messageTag === "tool_usage_card"
+    if (!hasToolUsagePayload || (!isToolUsageType && !isToolUsageMessageTag)) {
+      continue
+    }
+
+    const toolUsage = readToolUsageCard(candidate.toolUsageCard)
+    if (!toolUsage) {
+      continue
+    }
+
+    const responseId = extractResponseIdFromRecord(candidate)
     return {
       kind: "tool_usage",
       usage: {
-        toolUsageCardId,
-        toolName: typeof parsed.item.name === "string" ? parsed.item.name : "tool",
-        args,
-        rolloutId: typeof parsed.item.rollout_id === "string" ? parsed.item.rollout_id : undefined,
-        messageTag: typeof parsed.messageTag === "string" ? parsed.messageTag : undefined,
-        isThinking: typeof parsed.isThinking === "boolean" ? parsed.isThinking : undefined,
-        responseId:
-          typeof parsed.responseId === "string"
-            ? parsed.responseId
-            : typeof parsed.response_id === "string"
-              ? parsed.response_id
+        toolUsageCardId: toolUsage.toolUsageCardId,
+        toolName: toolUsage.toolName,
+        args: toolUsage.args,
+        rolloutId:
+          typeof candidate.rolloutId === "string"
+            ? candidate.rolloutId
+            : typeof candidate.rollout_id === "string"
+              ? candidate.rollout_id
               : undefined,
+        messageTag: messageTag || undefined,
+        isThinking: typeof candidate.isThinking === "boolean" ? candidate.isThinking : undefined,
+        responseId: responseId || undefined,
       },
     }
   }
 
-  if (parsed?.type !== "response.tool_usage_card") {
-    return null
-  }
-
-  const toolUsage = readToolUsageCard(parsed.toolUsageCard)
-  if (!toolUsage) {
-    return null
-  }
-
-  return {
-    kind: "tool_usage",
-    usage: {
-      toolUsageCardId: toolUsage.toolUsageCardId,
-      toolName: toolUsage.toolName,
-      args: toolUsage.args,
-      rolloutId: typeof parsed.rolloutId === "string" ? parsed.rolloutId : undefined,
-      messageTag: typeof parsed.messageTag === "string" ? parsed.messageTag : undefined,
-      isThinking: typeof parsed.isThinking === "boolean" ? parsed.isThinking : undefined,
-      responseId:
-        typeof parsed.responseId === "string"
-          ? parsed.responseId
-          : typeof parsed.response_id === "string"
-            ? parsed.response_id
-            : undefined,
-    },
-  }
+  return null
 }
 
 function readToolResultEvent(rawChunk: unknown): ChatReasoningEventDetail | null {
-  const parsed = parseRecord(rawChunk)
-  if (parsed?.type === "response.output_item.done" && isRecord(parsed.item) && parsed.item.type === "function_call") {
-    const toolUsageCardId =
-      typeof parsed.item.call_id === "string" && parsed.item.call_id.trim()
-        ? parsed.item.call_id.trim()
-        : typeof parsed.item.id === "string" && parsed.item.id.trim()
-          ? parsed.item.id.trim()
-          : undefined
-    return {
-      kind: "tool_result",
-      result: {
-        toolUsageCardId,
-        rolloutId: typeof parsed.item.rollout_id === "string" ? parsed.item.rollout_id : undefined,
-        messageTag: typeof parsed.messageTag === "string" ? parsed.messageTag : undefined,
-        isThinking: typeof parsed.isThinking === "boolean" ? parsed.isThinking : undefined,
-        responseId:
-          typeof parsed.responseId === "string"
-            ? parsed.responseId
-            : typeof parsed.response_id === "string"
-              ? parsed.response_id
-              : undefined,
-      },
+  for (const candidate of collectRawChunkCandidates(rawChunk)) {
+    if (
+      candidate.type === "response.output_item.done" &&
+      isRecord(candidate.item) &&
+      candidate.item.type === "function_call"
+    ) {
+      const toolUsageCardId =
+        typeof candidate.item.call_id === "string" && candidate.item.call_id.trim()
+          ? candidate.item.call_id.trim()
+          : typeof candidate.item.id === "string" && candidate.item.id.trim()
+            ? candidate.item.id.trim()
+            : undefined
+      const responseId = extractResponseIdFromRecord(candidate)
+      return {
+        kind: "tool_result",
+        result: {
+          toolUsageCardId,
+          rolloutId: typeof candidate.item.rollout_id === "string" ? candidate.item.rollout_id : undefined,
+          messageTag: typeof candidate.messageTag === "string" ? candidate.messageTag : undefined,
+          isThinking: typeof candidate.isThinking === "boolean" ? candidate.isThinking : undefined,
+          responseId: responseId || undefined,
+        },
+      }
     }
-  }
 
-  if (
-    parsed?.type === "response.tool_usage_card" &&
-    typeof parsed.messageTag === "string" &&
-    parsed.messageTag === "raw_function_result"
-  ) {
-    const webSearchResultsCount = readWebSearchResultsCount(parsed.webSearchResults)
-    if (typeof webSearchResultsCount !== "number") {
-      return null
+    if (typeof candidate.messageTag !== "string" || candidate.messageTag !== "raw_function_result") {
+      continue
     }
+
+    const webSearchResultsCount = readWebSearchResultsCount(candidate.webSearchResults)
+    if (typeof webSearchResultsCount !== "number") {
+      continue
+    }
+    const responseId = extractResponseIdFromRecord(candidate)
     return {
       kind: "tool_result",
       result: {
-        toolUsageCardId: typeof parsed.toolUsageCardId === "string" ? parsed.toolUsageCardId : undefined,
-        rolloutId: typeof parsed.rolloutId === "string" ? parsed.rolloutId : undefined,
-        messageTag: parsed.messageTag,
-        webSearchResultsCount,
-        isThinking: typeof parsed.isThinking === "boolean" ? parsed.isThinking : undefined,
-        responseId:
-          typeof parsed.responseId === "string"
-            ? parsed.responseId
-            : typeof parsed.response_id === "string"
-              ? parsed.response_id
+        toolUsageCardId: typeof candidate.toolUsageCardId === "string" ? candidate.toolUsageCardId : undefined,
+        rolloutId:
+          typeof candidate.rolloutId === "string"
+            ? candidate.rolloutId
+            : typeof candidate.rollout_id === "string"
+              ? candidate.rollout_id
               : undefined,
+        messageTag: candidate.messageTag,
+        webSearchResultsCount,
+        isThinking: typeof candidate.isThinking === "boolean" ? candidate.isThinking : undefined,
+        responseId: responseId || undefined,
       },
     }
   }
@@ -391,9 +580,9 @@ function buildGeneratedImageCard(url: string): ChatCardAttachmentPayload {
 
 function parseCardAttachmentRecord(value: unknown): Record<string, unknown> | null {
   if (isRecord(value) && typeof value.jsonData === "string") {
-    return parseRecord(value.jsonData)
+    return parseRecords(value.jsonData)[0] ?? null
   }
-  return parseRecord(value)
+  return parseRecords(value)[0] ?? null
 }
 
 function readCardAttachmentPayload(value: unknown): ChatCardAttachmentPayload | null {
@@ -482,6 +671,11 @@ function collectCardAttachmentsFromEnvelope(value: unknown): ChatCardAttachmentP
     cards.push(inlineCard)
   }
 
+  const inlineCardParsed = readCardAttachmentPayload(value.cardAttachmentParsed)
+  if (inlineCardParsed) {
+    cards.push(inlineCardParsed)
+  }
+
   for (const card of collectCardAttachmentsFromUnknownList(value.cardAttachmentsJson)) {
     cards.push(card)
   }
@@ -494,13 +688,11 @@ function collectCardAttachmentsFromEnvelope(value: unknown): ChatCardAttachmentP
 }
 
 export function extractCardAttachmentsFromRawChunk(rawChunk: unknown): ChatCardAttachmentPayload[] {
-  const parsed = parseRecord(rawChunk)
-  if (!parsed) {
+  const candidates = collectRawChunkCandidates(rawChunk)
+  if (candidates.length === 0) {
     return []
   }
 
-  const nestedResponse = isRecord(parsed.response) ? parsed.response : null
-  const candidates = [nestedResponse, parsed]
   const cards: ChatCardAttachmentPayload[] = []
   const seen = new Set<string>()
 
@@ -581,13 +773,7 @@ function readDirectNewTitle(value: unknown): string {
 }
 
 export function extractResponseNewTitleFromRawChunk(rawChunk: unknown): string {
-  const parsed = parseRecord(rawChunk)
-  if (!parsed) {
-    return ""
-  }
-
-  const candidates = [parsed.response, parsed]
-
+  const candidates = collectRawChunkCandidates(rawChunk)
   for (const candidate of candidates) {
     const nested = readNewTitle(candidate)
     if (nested) {
@@ -603,10 +789,32 @@ export function extractResponseNewTitleFromRawChunk(rawChunk: unknown): string {
 }
 
 export function extractGatewayTextDeltaFromRawChunk(rawChunk: unknown): string {
-  const parsed = parseRecord(rawChunk)
-  if (parsed?.type === "response.output_text.delta" && typeof parsed.delta === "string") {
-    return parsed.delta
+  for (const candidate of collectRawChunkCandidates(rawChunk)) {
+    if (candidate.type === "response.output_text.delta" && typeof candidate.delta === "string") {
+      return candidate.delta
+    }
+
+    if (typeof candidate.delta === "string") {
+      return candidate.delta
+    }
+
+    if (typeof candidate.token !== "string") {
+      continue
+    }
+
+    const messageTag = typeof candidate.messageTag === "string" ? candidate.messageTag.trim().toLowerCase() : ""
+    if (messageTag === "header" || messageTag === "tool_usage_card" || messageTag === "raw_function_result") {
+      continue
+    }
+    if (typeof candidate.isThinking === "boolean" && candidate.isThinking && messageTag !== "final") {
+      continue
+    }
+    if (isInternalGatewayJsonToken(candidate.token)) {
+      continue
+    }
+    return candidate.token
   }
+
   return ""
 }
 
@@ -631,33 +839,41 @@ function extractTextFromOutputMessage(response: unknown): string {
 }
 
 export function extractGatewayFinalMessageFromRawChunk(rawChunk: unknown): string {
-  const parsed = parseRecord(rawChunk)
-  if (parsed?.type === "response.output_text.done" && typeof parsed.text === "string") {
-    return parsed.text
-  }
-  if (parsed?.type === "response.completed") {
-    const completedText = extractTextFromOutputMessage(parsed.response)
-    if (completedText) {
-      return completedText
+  for (const candidate of collectRawChunkCandidates(rawChunk)) {
+    if (candidate.type === "response.output_text.done" && typeof candidate.text === "string") {
+      return candidate.text
+    }
+
+    if (candidate.type === "response.completed") {
+      const completedText = extractTextFromOutputMessage(candidate.response)
+      if (completedText) {
+        return completedText
+      }
+    }
+
+    const outputText = extractTextFromOutputMessage(candidate)
+    if (outputText) {
+      return outputText
+    }
+
+    if (
+      typeof candidate.message === "string" &&
+      candidate.message.trim() &&
+      !(typeof candidate.sender === "string" && candidate.sender.toLowerCase() === "human") &&
+      !isInternalGatewayJsonToken(candidate.message)
+    ) {
+      return candidate.message
     }
   }
+
   return ""
 }
 
 export function extractGatewayResponseIdFromRawChunk(rawChunk: unknown): string {
-  const parsed = parseRecord(rawChunk)
-  if (parsed) {
-    const responseIdCamel = typeof parsed.responseId === "string" ? parsed.responseId.trim() : ""
-    if (responseIdCamel) {
-      return responseIdCamel
-    }
-
-    const responseId = typeof parsed.response_id === "string" ? parsed.response_id.trim() : ""
+  for (const candidate of collectRawChunkCandidates(rawChunk)) {
+    const responseId = extractResponseIdFromRecord(candidate)
     if (responseId) {
       return responseId
-    }
-    if (isRecord(parsed.response) && typeof parsed.response.id === "string" && parsed.response.id.trim()) {
-      return parsed.response.id.trim()
     }
   }
 

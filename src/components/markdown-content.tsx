@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
   type ReactNode,
+  type SyntheticEvent,
 } from "react"
 import { ChevronDown, ChevronRight, Globe, ImageIcon, Search, X } from "lucide-react"
 import ReactMarkdown from "react-markdown"
@@ -66,13 +67,13 @@ type ThinkTimelineEntry =
     }
 
 const AGENT_PIXEL_PALETTES = [
-  ["#2f54eb", "#0ea5e9", "#7c3aed", "#22d3ee"],
-  ["#facc15", "#f59e0b", "#b45309", "#dc2626"],
-  ["#a855f7", "#d946ef", "#7e22ce", "#ec4899"],
-  ["#84cc16", "#facc15", "#ea580c", "#d97706"],
+  ["#111827", "#374151", "#6b7280", "#d1d5db"],
+  ["#422006", "#78350f", "#d97706", "#fde68a"],
+  ["#0f172a", "#1e293b", "#475569", "#cbd5e1"],
+  ["#3f3f46", "#52525b", "#71717a", "#d4d4d8"],
 ] as const
 
-const AGENT_STACK_RING_COLORS = ["#9ca3af", "#22c55e", "#f97316", "#60a5fa", "#a855f7", "#eab308"] as const
+const AGENT_STACK_RING_COLORS = ["#9ca3af", "#a3a3a3", "#b45309", "#64748b", "#52525b", "#a8a29e"] as const
 
 type WebSearchToolMeta = {
   query: string
@@ -283,29 +284,60 @@ function collectCardsFromReasoningEvents(events: ChatReasoningEventDetail[]): Re
 }
 
 export function expandGrokRenderTags(content: string, cards: Record<string, ImageCardMeta>): string {
-  if (!content.trim()) {
-    return ""
+  const hasContent = content.trim().length > 0
+  const source = hasContent ? content : ""
+  const lastThinkStart = source.lastIndexOf("<think")
+  const lastThinkEnd = source.lastIndexOf("</think>")
+  const hasOpenThink = lastThinkStart >= 0 && lastThinkEnd < lastThinkStart
+
+  // Match upstream chat behavior: do not show card images before think section closes.
+  if (hasOpenThink) {
+    return source
+  }
+
+  const toMarkdownImageFromCard = (card: ImageCardMeta | undefined): string => {
+    if (!card) {
+      return ""
+    }
+    const imageUrl = card.image?.original || card.image?.thumbnail || card.url
+    if (!imageUrl) {
+      return ""
+    }
+
+    const alt = escapeMarkdownText(card.image?.title || card.image?.source || "Generated Image") || "Generated Image"
+    const imageMarkdown = `![${alt}](${wrapMarkdownUrl(imageUrl)})`
+    const targetUrl = card.image?.link || card.url
+    return targetUrl ? `[${imageMarkdown}](${wrapMarkdownUrl(targetUrl)})` : imageMarkdown
   }
 
   const replaceRenderTag = (_raw: string, cardId: string): string => {
     const normalizedCardId = typeof cardId === "string" ? cardId.trim() : ""
     const card = normalizedCardId ? cards[normalizedCardId] : undefined
-    const imageUrl = card?.image?.original || card?.image?.thumbnail || card?.url
-    if (!imageUrl) {
-      return ""
-    }
-
-    const alt = escapeMarkdownText(card?.image?.title || card?.image?.source || "Generated Image") || "Generated Image"
-    const imageMarkdown = `![${alt}](${wrapMarkdownUrl(imageUrl)})`
-    const targetUrl = card?.image?.link || card?.url
-    return targetUrl ? `[${imageMarkdown}](${wrapMarkdownUrl(targetUrl)})` : imageMarkdown
+    return toMarkdownImageFromCard(card)
   }
 
-  const withPairTags = content.replace(
+  const withPairTags = source.replace(
     /<grok:render\b[^>]*card_id="([^"]+)"[^>]*>[\s\S]*?<\/grok:render>/gi,
     replaceRenderTag
   )
-  return withPairTags.replace(/<grok:render\b[^>]*card_id="([^"]+)"[^>]*\/>/gi, replaceRenderTag)
+  const expanded = withPairTags.replace(/<grok:render\b[^>]*card_id="([^"]+)"[^>]*\/>/gi, replaceRenderTag)
+
+  const hasMarkdownImage = /!\[[^\]]*]\((?:<[^>]+>|[^)]+)\)/.test(expanded)
+  if (hasMarkdownImage) {
+    return expanded
+  }
+
+  const fallbackImageLines = Object.values(cards)
+    .map((card) => toMarkdownImageFromCard(card))
+    .filter((line) => line.trim().length > 0)
+
+  if (fallbackImageLines.length === 0) {
+    return expanded
+  }
+  if (!expanded.trim()) {
+    return fallbackImageLines.join("\n")
+  }
+  return `${expanded.trim()}\n\n${fallbackImageLines.join("\n")}`
 }
 
 function isImageMarkdownLine(line: string): boolean {
@@ -368,6 +400,237 @@ function mergeConsecutiveImageLines(content: string): string {
   return merged.join("\n")
 }
 
+function isLikelyImageUrl(value: string): boolean {
+  const text = value.trim()
+  if (!text) {
+    return false
+  }
+  return /^https?:\/\/[^\s<>"']+?\.(?:png|jpe?g|gif|webp|bmp|svg|avif|heic|heif)(?:[?#].*)?$/i.test(text)
+}
+
+function isLikelyHttpUrl(value: string): boolean {
+  const text = value.trim()
+  if (!text) {
+    return false
+  }
+  return /^https?:\/\/[^\s<>"']+$/i.test(text)
+}
+
+function extractFirstImageUrlFromText(value: string): string {
+  const match = /https?:\/\/[^\s<>"']+?\.(?:png|jpe?g|gif|webp|bmp|svg|avif|heic|heif)(?:\?[^<>\s"]*)?/i.exec(value)
+  return match?.[0] || ""
+}
+
+function normalizeRenderableImageUrl(value: string): string {
+  const text = value.trim()
+  if (!text || !isLikelyHttpUrl(text)) {
+    return ""
+  }
+  return text
+}
+
+function toMarkdownImageLine(url: string): string {
+  return `![Generated Image](<${normalizeRenderableImageUrl(url)}>)`
+}
+
+function extractImageUrlFromJsonLikeLine(line: string): string {
+  const trimmed = line.trim()
+  if (!trimmed) {
+    return ""
+  }
+  if (!(trimmed.startsWith("{") && trimmed.endsWith("}"))) {
+    return ""
+  }
+
+  const imageUrlMatch = /["']image_url["']\s*:\s*["']([^"']+)["']/i.exec(trimmed)
+  if (imageUrlMatch?.[1]) {
+    return normalizeRenderableImageUrl(imageUrlMatch[1])
+  }
+
+  const urlMatch = /["']url["']\s*:\s*["']([^"']+)["']/i.exec(trimmed)
+  if (urlMatch?.[1] && isLikelyImageUrl(urlMatch[1])) {
+    return normalizeRenderableImageUrl(urlMatch[1])
+  }
+
+  return ""
+}
+
+type ToolJsonLineRewrite =
+  | {
+      kind: "keep"
+      line: string
+    }
+  | {
+      kind: "drop"
+    }
+
+function isLikelyInternalRelayJson(value: Record<string, unknown>): boolean {
+  const hasRoutingKey =
+    typeof value.to === "string" ||
+    typeof value.from === "string" ||
+    typeof value.sender === "string" ||
+    typeof value.receiver === "string" ||
+    typeof value.recipient === "string" ||
+    typeof value.rolloutId === "string" ||
+    typeof value.rollout_id === "string"
+
+  if (!hasRoutingKey) {
+    return false
+  }
+
+  return typeof value.message === "string" || typeof value.content === "string"
+}
+
+function rewriteToolJsonLine(line: string): ToolJsonLineRewrite {
+  const trimmed = line.trim()
+
+  if (!(trimmed.startsWith("{") && trimmed.endsWith("}"))) {
+    if (isLikelyImageUrl(trimmed)) {
+      return {
+        kind: "keep",
+        line: toMarkdownImageLine(trimmed),
+      }
+    }
+    const inlineImageUrl = extractFirstImageUrlFromText(trimmed)
+    if (inlineImageUrl) {
+      const textWithoutImage = trimmed.replace(inlineImageUrl, "").trim()
+      if (!textWithoutImage) {
+        return {
+          kind: "keep",
+          line: toMarkdownImageLine(inlineImageUrl),
+        }
+      }
+      return {
+        kind: "keep",
+        line: `${textWithoutImage}\n${toMarkdownImageLine(inlineImageUrl)}`,
+      }
+    }
+    return {
+      kind: "keep",
+      line,
+    }
+  }
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(trimmed)
+  } catch {
+    const looseImageUrl = extractImageUrlFromJsonLikeLine(trimmed)
+    if (looseImageUrl) {
+      return {
+        kind: "keep",
+        line: toMarkdownImageLine(looseImageUrl),
+      }
+    }
+    return {
+      kind: "keep",
+      line,
+    }
+  }
+  if (!isRecord(parsed)) {
+    return {
+      kind: "keep",
+      line,
+    }
+  }
+
+  if (isLikelyInternalRelayJson(parsed)) {
+    return {
+      kind: "drop",
+    }
+  }
+
+  const explicitImageUrlRaw =
+    typeof parsed.image_url === "string"
+      ? parsed.image_url
+      : typeof parsed.imageUrl === "string"
+        ? parsed.imageUrl
+        : ""
+  const explicitImageUrl = normalizeRenderableImageUrl(explicitImageUrlRaw)
+  if (explicitImageUrl) {
+    return {
+      kind: "keep",
+      line: toMarkdownImageLine(explicitImageUrl),
+    }
+  }
+
+  const toolKeys = [
+    "query",
+    "q",
+    "num_results",
+    "number_of_images",
+    "image_description",
+    "instructions",
+    "url",
+    "prompt",
+    "toolUsageCardId",
+  ]
+  if (toolKeys.some((key) => key in parsed)) {
+    return {
+      kind: "drop",
+    }
+  }
+
+  const urlValue = typeof parsed.url === "string" ? normalizeRenderableImageUrl(parsed.url) : ""
+  if (urlValue && isLikelyImageUrl(urlValue)) {
+    return {
+      kind: "keep",
+      line: toMarkdownImageLine(urlValue),
+    }
+  }
+
+  return {
+    kind: "keep",
+    line,
+  }
+}
+
+function rewriteImageTags(content: string): string {
+  if (!content) {
+    return ""
+  }
+
+  let normalized = content
+  normalized = normalized.replace(
+    /<image>\s*(https?:\/\/[^\s<>"')]+?\.(?:png|jpe?g|gif|webp|bmp|svg|avif|heic|heif)(?:\?[^<>\s"]*)?)\s*<\/image>/gi,
+    (_raw, url) => toMarkdownImageLine(url)
+  )
+  normalized = normalized.replace(
+    /<image[^>]*\bsrc=["'](https?:\/\/[^"']+?\.(?:png|jpe?g|gif|webp|bmp|svg|avif|heic|heif)(?:\?[^"']*)?)["'][^>]*\/?>/gi,
+    (_raw, url) => toMarkdownImageLine(url)
+  )
+  normalized = normalized.replace(/<image\b[^>]*>[\s\S]*?<\/image>/gi, "")
+  normalized = normalized.replace(/<image\b[^>]*\/>/gi, "")
+  return normalized
+}
+
+function rewriteToolJsonLines(content: string): string {
+  const lines = content.split("\n")
+  const next: string[] = []
+  let insideFence = false
+
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (trimmed.startsWith("```")) {
+      insideFence = !insideFence
+      next.push(line)
+      continue
+    }
+    if (insideFence) {
+      next.push(line)
+      continue
+    }
+
+    const rewritten = rewriteToolJsonLine(line)
+    if (rewritten.kind === "drop") {
+      continue
+    }
+    next.push(rewritten.line)
+  }
+
+  return next.join("\n")
+}
+
 export function normalizeAssistantMarkdown(content: string): string {
   if (!content) {
     return ""
@@ -379,6 +642,8 @@ export function normalizeAssistantMarkdown(content: string): string {
   normalized = normalized.replace(/<grok:render\b[^>]*\/>/gi, "")
   normalized = normalized.replace(/<argument\b[\s\S]*?<\/argument>/gi, "")
   normalized = normalized.replace(/<\/think>/gi, "")
+  normalized = rewriteImageTags(normalized)
+  normalized = rewriteToolJsonLines(normalized)
   normalized = mergeConsecutiveImageLines(normalized)
   normalized = normalized.replace(/([^\n])(?=#{1,6}\s?)/g, "$1\n")
   normalized = normalized.replace(/(^|\n)(#{1,6})([^\s#])/g, "$1$2 $3")
@@ -1028,13 +1293,8 @@ function AgentPixelAvatar({
 }) {
   const palette = AGENT_PIXEL_PALETTES[Math.abs(paletteIndex) % AGENT_PIXEL_PALETTES.length] as readonly string[]
   const [p0, p1, p2, p3] = palette
-  const cellSize: string = size === "sm" ? "2px" : "2.5px"
-  const mosaicStyle = {
-    backgroundImage: `
-      repeating-linear-gradient(0deg, ${p0} 0 ${cellSize}, ${p1} ${cellSize} calc(${cellSize} * 2), ${p2} calc(${cellSize} * 2) calc(${cellSize} * 3), ${p3} calc(${cellSize} * 3) calc(${cellSize} * 4)),
-      repeating-linear-gradient(90deg, ${p3} 0 ${cellSize}, ${p2} ${cellSize} calc(${cellSize} * 2), ${p1} calc(${cellSize} * 2) calc(${cellSize} * 3), ${p0} calc(${cellSize} * 3) calc(${cellSize} * 4))
-    `,
-    backgroundBlendMode: "multiply",
+  const orbStyle = {
+    backgroundImage: `conic-gradient(from 210deg, ${p0}, ${p1}, ${p2}, ${p3}, ${p0})`,
   } as const
 
   return (
@@ -1046,9 +1306,9 @@ function AgentPixelAvatar({
       )}
       aria-hidden="true"
     >
-      <span className="absolute inset-0 rounded-full border border-black/15 bg-white/75" />
-      <span style={mosaicStyle} className="absolute inset-[1.25px] rounded-full [image-rendering:pixelated]" />
-      <span className="absolute inset-[1.25px] rounded-full shadow-[inset_0_0_0_1px_rgba(255,255,255,0.28)]" />
+      <span className="absolute inset-0 rounded-full border border-black/15 bg-white" />
+      <span style={orbStyle} className="absolute inset-[1.2px] rounded-full" />
+      <span className="absolute inset-[2.2px] rounded-full border border-white/35 bg-transparent" />
     </span>
   )
 }
@@ -1217,10 +1477,11 @@ function StructuredReasoningPanel({
   isThinking: boolean
 }) {
   const summary = useMemo(() => buildStructuredReasoningSummary(events), [events])
-  const effectiveThinking = useMemo(
+  const effectiveThinkingRaw = useMemo(
     () => isThinking || summary.entries.some((entry) => entry.status === "running"),
     [isThinking, summary.entries]
   )
+  const [thinkingStable, setThinkingStable] = useState(effectiveThinkingRaw)
   const agents = useMemo(() => collectRolloutAgents(summary.rolloutIds), [summary.rolloutIds])
   const agentByKey = useMemo(() => {
     const map = new Map<string, AgentDescriptor>()
@@ -1230,60 +1491,76 @@ function StructuredReasoningPanel({
     return map
   }, [agents])
   const [activeTick, setActiveTick] = useState(0)
-  const [expanded, setExpanded] = useState(effectiveThinking)
+  const [expanded, setExpanded] = useState(false)
   const [durationSeconds, setDurationSeconds] = useState(0)
-  const startedAtRef = useRef<number | null>(effectiveThinking ? Date.now() : null)
-  const previousThinkingRef = useRef(effectiveThinking)
-  const collapseTimerRef = useRef<number | null>(null)
-  const displayEntries = useMemo(
-    () => (effectiveThinking ? summary.entries.slice(-3) : summary.entries),
-    [effectiveThinking, summary.entries]
-  )
+  const startedAtRef = useRef<number | null>(effectiveThinkingRaw ? Date.now() : null)
+  const thinkingStopTimerRef = useRef<number | null>(null)
+  const previousEntryCountRef = useRef(summary.entries.length)
+  const timelineRef = useRef<HTMLDivElement | null>(null)
+  const effectiveThinking = thinkingStable
+  const displayEntries = useMemo(() => {
+    if (!effectiveThinking) {
+      return summary.entries
+    }
+    return summary.entries.slice(-3)
+  }, [effectiveThinking, summary.entries])
 
-  const activeAgentKey = useMemo(() => {
+  const latestAgentKey = useMemo(() => {
     for (let index = summary.entries.length - 1; index >= 0; index -= 1) {
       const entry = summary.entries[index]
       if (!entry) {
         continue
       }
-      if (entry.status === "running") {
-        return toAgentKey(entry.rolloutId)
-      }
-    }
-    if (agents.length > 0) {
-      return agents[activeTick % agents.length]?.key || "grok_primary"
+      return toAgentKey(entry.rolloutId)
     }
     return "grok_primary"
-  }, [activeTick, agents, summary.entries])
+  }, [summary.entries])
+
+  const activeAgentKey = useMemo(() => {
+    if (effectiveThinking) {
+      for (let index = summary.entries.length - 1; index >= 0; index -= 1) {
+        const entry = summary.entries[index]
+        if (!entry || entry.status !== "running") {
+          continue
+        }
+        return toAgentKey(entry.rolloutId)
+      }
+      if (agents.length > 0) {
+        return agents[activeTick % agents.length]?.key || "grok_primary"
+      }
+      return "grok_primary"
+    }
+    return latestAgentKey
+  }, [activeTick, agents, effectiveThinking, latestAgentKey, summary.entries])
 
   useEffect(() => {
-    if (effectiveThinking) {
-      if (collapseTimerRef.current) {
-        window.clearTimeout(collapseTimerRef.current)
-        collapseTimerRef.current = null
+    if (effectiveThinkingRaw) {
+      if (thinkingStopTimerRef.current) {
+        window.clearTimeout(thinkingStopTimerRef.current)
+        thinkingStopTimerRef.current = null
       }
       if (!startedAtRef.current) {
         startedAtRef.current = Date.now()
       }
-      setExpanded(true)
+      setThinkingStable(true)
     } else if (startedAtRef.current) {
-      const elapsed = Math.max(1, Math.round((Date.now() - startedAtRef.current) / 1000))
-      setDurationSeconds(elapsed)
-    }
-
-    if (previousThinkingRef.current && !effectiveThinking) {
-      collapseTimerRef.current = window.setTimeout(() => {
+      if (thinkingStopTimerRef.current) {
+        window.clearTimeout(thinkingStopTimerRef.current)
+      }
+      thinkingStopTimerRef.current = window.setTimeout(() => {
+        setThinkingStable(false)
         setExpanded(false)
-        collapseTimerRef.current = null
-      }, 450)
+        thinkingStopTimerRef.current = null
+        const elapsed = Math.max(1, Math.round((Date.now() - (startedAtRef.current || Date.now())) / 1000))
+        setDurationSeconds(elapsed)
+      }, 650)
     }
-    previousThinkingRef.current = effectiveThinking
-  }, [effectiveThinking])
+  }, [effectiveThinkingRaw])
 
   useEffect(
     () => () => {
-      if (collapseTimerRef.current) {
-        window.clearTimeout(collapseTimerRef.current)
+      if (thinkingStopTimerRef.current) {
+        window.clearTimeout(thinkingStopTimerRef.current)
       }
     },
     []
@@ -1317,25 +1594,62 @@ function StructuredReasoningPanel({
     return () => window.clearInterval(timer)
   }, [effectiveThinking])
 
+  useEffect(() => {
+    if (!effectiveThinking) {
+      previousEntryCountRef.current = summary.entries.length
+      return
+    }
+    const currentCount = summary.entries.length
+    const previousCount = previousEntryCountRef.current
+    previousEntryCountRef.current = currentCount
+    if (currentCount <= previousCount) {
+      return
+    }
+
+    const node = timelineRef.current
+    if (!node) {
+      return
+    }
+    const raf = window.requestAnimationFrame(() => {
+      node.scrollTop = node.scrollHeight
+    })
+    return () => window.cancelAnimationFrame(raf)
+  }, [effectiveThinking, summary.entries.length])
+
   const summaryLabel = effectiveThinking ? "思考中" : "思考过程"
   const durationLabel = durationSeconds > 0 || effectiveThinking ? ` · ${durationSeconds || 0}s` : ""
+  const hasAnyRecords = summary.entries.length > 0
+  const showPanel = effectiveThinking || hasAnyRecords
+  const bodyExpanded = effectiveThinking || expanded
+
+  if (!showPanel) {
+    return null
+  }
 
   return (
     <div className="my-2 w-full">
       <button
         type="button"
         className="inline-flex items-center gap-2 text-muted-foreground"
-        onClick={() => setExpanded((value) => !value)}
+        onClick={() => {
+          if (effectiveThinking) {
+            return
+          }
+          setExpanded((value) => !value)
+        }}
       >
         <ChevronRight
           className={cn(
             "size-4 shrink-0 text-muted-foreground/85 transition-transform duration-200",
-            expanded ? "rotate-90" : ""
+            bodyExpanded ? "rotate-90" : ""
           )}
         />
         <AgentAvatarStack agents={agents} activeAgentKey={activeAgentKey} thinking={effectiveThinking} />
         <span
-          className={cn("text-[0.95rem] font-medium", effectiveThinking ? "text-foreground/80" : "text-muted-foreground")}
+          className={cn(
+            "text-[0.92rem] font-medium",
+            effectiveThinking ? "text-foreground/80" : "text-muted-foreground"
+          )}
         >
           {summaryLabel}
           {durationLabel}
@@ -1344,16 +1658,19 @@ function StructuredReasoningPanel({
       <div
         className={cn(
           "transition-all duration-200 ease-out",
-          expanded ? "mt-2 opacity-100" : "max-h-0 overflow-hidden opacity-0"
+          bodyExpanded ? "mt-2 opacity-100" : "max-h-0 overflow-hidden opacity-0"
         )}
       >
         <div
+          ref={timelineRef}
           className={cn(
-            effectiveThinking ? "relative min-h-[14rem] overflow-hidden" : "max-h-[65vh] overflow-auto pr-2"
+            effectiveThinking
+              ? "relative max-h-[18rem] overflow-hidden"
+              : "max-h-[65vh] overflow-auto pr-2 text-xs text-muted-foreground"
           )}
         >
           {displayEntries.length > 0 ? (
-            <div className={cn(effectiveThinking ? "flex min-h-[14rem] flex-col justify-end space-y-3" : "space-y-3")}>
+            <div className={cn(effectiveThinking ? "flex min-h-[12.5rem] flex-col justify-end space-y-2" : "space-y-2")}>
               {displayEntries.map((entry, index) => {
                 const active =
                   effectiveThinking && entry.status === "running" && toAgentKey(entry.rolloutId) === activeAgentKey
@@ -1365,7 +1682,7 @@ function StructuredReasoningPanel({
                   <div
                     key={key}
                     className={cn(
-                      "flex items-start justify-between gap-4",
+                      "flex items-start justify-between gap-3 py-1 transition-all duration-300",
                       effectiveThinking ? "animate-in slide-in-from-bottom-2 duration-300 fade-in-50 think-stream-row" : "",
                       effectiveThinking && ageFromNewest >= 2
                         ? "think-stream-row-oldest"
@@ -1391,22 +1708,22 @@ function StructuredReasoningPanel({
                           />
                         )}
                       </span>
-                      <span className="mt-1 inline-flex size-5 shrink-0 items-center justify-center text-muted-foreground">
+                      <span className="mt-1 inline-flex size-4 shrink-0 items-center justify-center text-muted-foreground">
                         {entry.visited ? (
-                          <Globe className="size-5" />
+                          <Globe className="size-4" />
                         ) : isImageSearchToolName(entry.toolName) ? (
-                          <ImageIcon className="size-5" />
+                          <ImageIcon className="size-4" />
                         ) : (
-                          <Search className="size-5" />
+                          <Search className="size-4" />
                         )}
                       </span>
                       <div className="min-w-0">
-                        <p className="text-[0.9rem] text-muted-foreground">
+                        <p className="text-[0.78rem] text-muted-foreground">
                           {descriptor.label} · {resolveStructuredEntryLabel(entry.toolName, entry.visited)}
                         </p>
                         <p
                           className={cn(
-                            "break-all text-[0.98rem] leading-7 text-foreground",
+                            "break-all text-[0.9rem] leading-6 text-foreground",
                             entry.visited ? "italic" : ""
                           )}
                         >
@@ -1416,7 +1733,7 @@ function StructuredReasoningPanel({
                     </div>
                     <div className="flex shrink-0 items-center gap-2 pt-0.5">
                       {typeof entry.resultsCount === "number" ? (
-                        <span className="text-[0.88rem] text-muted-foreground">{entry.resultsCount} 结果</span>
+                        <span className="text-[0.78rem] text-muted-foreground">{entry.resultsCount} 结果</span>
                       ) : null}
                       {active ? <span className="size-1.5 animate-pulse rounded-full bg-foreground/60" /> : null}
                     </div>
@@ -1473,6 +1790,140 @@ function isImageNode(node: ReactNode): boolean {
   return isAnchorImageNode(node)
 }
 
+function collectImageOnlyNodes(node: ReactNode): ReactNode[] | null {
+  if (typeof node === "string") {
+    return node.trim() ? null : []
+  }
+  if (node === null || node === undefined || typeof node === "boolean") {
+    return []
+  }
+
+  if (isImageNode(node)) {
+    return [node]
+  }
+
+  if (!isValidElement(node)) {
+    return null
+  }
+
+  const props = node.props as { children?: ReactNode }
+  if (props.children === undefined) {
+    return null
+  }
+
+  const nested: ReactNode[] = []
+  for (const child of Children.toArray(props.children)) {
+    const rows = collectImageOnlyNodes(child)
+    if (!rows) {
+      return null
+    }
+    nested.push(...rows)
+  }
+  return nested
+}
+
+function collectImageParagraphNodes(children: ReactNode): ReactNode[] | null {
+  const rows: ReactNode[] = []
+  for (const child of Children.toArray(children)) {
+    const nested = collectImageOnlyNodes(child)
+    if (!nested) {
+      return null
+    }
+    rows.push(...nested)
+  }
+  return rows.length > 0 ? rows : null
+}
+
+function MarkdownImage({
+  src,
+  alt,
+}: {
+  src?: string
+  alt?: string
+}) {
+  const [currentSrc, setCurrentSrc] = useState(src || "")
+  const [failed, setFailed] = useState(false)
+  const swappedProtocolRef = useRef(false)
+
+  useEffect(() => {
+    setCurrentSrc(src || "")
+    setFailed(false)
+    swappedProtocolRef.current = false
+  }, [src])
+
+  const handleError = (_event: SyntheticEvent<HTMLImageElement>) => {
+    if (swappedProtocolRef.current) {
+      setFailed(true)
+      return
+    }
+    const value = (currentSrc || "").trim()
+    if (value.startsWith("https://")) {
+      swappedProtocolRef.current = true
+      setFailed(false)
+      setCurrentSrc(`http://${value.slice("https://".length)}`)
+      return
+    }
+    if (value.startsWith("http://")) {
+      swappedProtocolRef.current = true
+      setFailed(false)
+      setCurrentSrc(`https://${value.slice("http://".length)}`)
+      return
+    }
+    setFailed(true)
+  }
+
+  const retryImage = () => {
+    const value = (src || "").trim()
+    if (!value) {
+      return
+    }
+    swappedProtocolRef.current = false
+    setFailed(false)
+    const separator = value.includes("?") ? "&" : "?"
+    setCurrentSrc(`${value}${separator}retry=${Date.now()}`)
+  }
+
+  if (failed || !currentSrc.trim()) {
+    const fallbackLink = currentSrc.trim() || (src || "").trim()
+    return (
+      <div className="flex w-full flex-col items-center justify-center gap-2 bg-secondary/30 px-4 py-4 text-center text-sm text-muted-foreground">
+        <span>图片加载失败</span>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            className="rounded-full bg-secondary px-3 py-1 text-xs text-foreground transition-colors hover:bg-secondary/80"
+            onClick={retryImage}
+          >
+            重试
+          </button>
+          {fallbackLink ? (
+            <a
+              href={fallbackLink}
+              className="text-xs text-claude-sienna underline decoration-claude-sienna/45 underline-offset-2"
+              target="_blank"
+              rel="noreferrer noopener"
+            >
+              打开原图
+            </a>
+          ) : null}
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <img
+      src={currentSrc}
+      alt={alt || ""}
+      loading="lazy"
+      referrerPolicy="no-referrer"
+      onError={handleError}
+      className="grok-md-image block h-auto max-h-[72vh] w-full rounded-[20px] bg-secondary/20 object-contain"
+      data-grok-md-image="true"
+    />
+  )
+}
+
 function MarkdownBody({ content }: { content: string }) {
   const normalized = useMemo(() => normalizeAssistantMarkdown(content), [content])
   if (!normalized) {
@@ -1487,30 +1938,30 @@ function MarkdownBody({ content }: { content: string }) {
         h2: ({ children }) => <h2 className="mb-2 mt-4 text-lg font-semibold">{children}</h2>,
         h3: ({ children }) => <h3 className="mb-2 mt-4 text-base font-semibold">{children}</h3>,
         p: ({ children }) => {
-          const nodes = Children.toArray(children).filter(
-            (item) => !(typeof item === "string" && item.trim() === "")
-          )
-          const imageOnlyParagraph = nodes.length > 0 && nodes.every((item) => isImageNode(item))
-
-          if (!imageOnlyParagraph) {
+          const imageNodes = collectImageParagraphNodes(children)
+          if (!imageNodes) {
             return <p className="leading-7">{children}</p>
           }
 
-          if (nodes.length === 1) {
-            return (
-              <div className="my-2 inline-block w-full align-top sm:w-[calc(50%-0.375rem)] sm:pr-1.5">
-                <div className="overflow-hidden rounded-xl border border-border bg-secondary/20">{nodes[0]}</div>
-              </div>
-            )
-          }
+          const imageCount = imageNodes.length
+          const galleryColumnsClass =
+            imageCount <= 1 ? "grid-cols-1" : imageCount === 2 ? "grid-cols-2" : "grid-cols-2 md:grid-cols-3"
 
           return (
-            <div className="my-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-              {nodes.map((node, index) => (
-                <div key={index} className="overflow-hidden rounded-xl border border-border bg-secondary/20">
-                  {node}
-                </div>
-              ))}
+            <div className="my-2 w-full">
+              <div
+                className={cn(
+                  "grok-md-image-grid grid gap-[2px] overflow-hidden rounded-[24px]",
+                  galleryColumnsClass,
+                  imageCount === 1 ? "grok-md-image-grid-single max-w-[32rem]" : ""
+                )}
+              >
+                {imageNodes.map((node, index) => (
+                  <div key={index} className="overflow-hidden bg-secondary/20">
+                    {node}
+                  </div>
+                ))}
+              </div>
             </div>
           )
         },
@@ -1532,14 +1983,7 @@ function MarkdownBody({ content }: { content: string }) {
             {children}
           </blockquote>
         ),
-        img: ({ src, alt }) => (
-          <img
-            src={src || ""}
-            alt={alt || ""}
-            loading="lazy"
-            className="h-auto max-h-[380px] w-full rounded-xl border border-border bg-secondary/20 object-contain"
-          />
-        ),
+        img: ({ src, alt }) => <MarkdownImage src={src || ""} alt={alt || ""} />,
         pre: ({ children }) => (
           <pre className="my-3 overflow-x-auto rounded-lg border border-border bg-secondary/40 p-3">{children}</pre>
         ),
@@ -1687,7 +2131,7 @@ function ThinkBlock({
             )}
           />
         )}
-        <span className="text-[2rem] font-semibold tracking-tight text-muted-foreground">
+        <span className="text-[0.92rem] font-medium text-muted-foreground">
           {summaryLabel}
           {durationLabel}
         </span>
@@ -1705,15 +2149,15 @@ function ThinkBlock({
             <div className="mb-4 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <AgentAvatarStack agents={agents} activeAgentKey={activeAgentKey} thinking={false} />
-                <h4 className="text-[2rem] font-semibold tracking-tight text-foreground">思考结果</h4>
+                <h4 className="text-[0.95rem] font-medium text-foreground">思考结果</h4>
               </div>
               <button
                 type="button"
-                className="inline-flex size-8 items-center justify-center rounded-full text-muted-foreground hover:bg-secondary/80 hover:text-foreground"
+                className="inline-flex size-7 items-center justify-center rounded-full text-muted-foreground hover:bg-secondary/80 hover:text-foreground"
                 onClick={() => setExpanded(false)}
                 aria-label="关闭思考结果"
               >
-                <X className="size-6" />
+                <X className="size-4" />
               </button>
             </div>
           ) : null}
@@ -1771,18 +2215,16 @@ function ThinkBlock({
                         <span>{entry.agentLabel}</span>
                         <ChevronDown className="size-4 text-muted-foreground" />
                       </div>
-                      <div className="ml-11 rounded-3xl border border-border bg-background/75 px-5 py-4">
-                        <p
-                          className={cn(
-                            "whitespace-pre-wrap break-words text-[1.02rem] leading-8 text-foreground/95",
-                            thinking
-                              ? "[display:-webkit-box] [-webkit-line-clamp:4] [-webkit-box-orient:vertical] overflow-hidden"
-                              : ""
-                          )}
-                        >
-                          {entry.body || "（空）"}
-                        </p>
-                      </div>
+                      <p
+                        className={cn(
+                          "ml-11 whitespace-pre-wrap break-words text-[0.92rem] leading-6 text-foreground/95",
+                          thinking
+                            ? "[display:-webkit-box] [-webkit-line-clamp:4] [-webkit-box-orient:vertical] overflow-hidden"
+                            : ""
+                        )}
+                      >
+                        {entry.body || "（空）"}
+                      </p>
                     </div>
                   )
                 }

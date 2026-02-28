@@ -106,8 +106,23 @@ function appendReasoningEvent(
   detail: ChatReasoningEventDetail
 ): ChatReasoningEventDetail[] {
   if (detail.kind === "ui_layout") {
+    const previousLayout = previous.find((item): item is Extract<ChatReasoningEventDetail, { kind: "ui_layout" }> => item.kind === "ui_layout")
+    const mergedLayout =
+      previousLayout &&
+      previousLayout.layout.rolloutIds.length > 0 &&
+      detail.layout.rolloutIds.length === 0
+        ? {
+            ...detail,
+            layout: {
+              reasoningUiLayout: detail.layout.reasoningUiLayout ?? previousLayout.layout.reasoningUiLayout,
+              willThinkLong: detail.layout.willThinkLong ?? previousLayout.layout.willThinkLong,
+              effort: detail.layout.effort ?? previousLayout.layout.effort,
+              rolloutIds: previousLayout.layout.rolloutIds,
+            },
+          }
+        : detail
     const filtered = previous.filter((item) => item.kind !== "ui_layout")
-    return [...filtered, detail]
+    return [...filtered, mergedLayout]
   }
 
   if (detail.kind === "tool_usage") {
@@ -181,6 +196,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
   const shouldAutoScrollRef = useRef(true)
   const leadAnchorMessageIdRef = useRef<string | null>(null)
   const streamingReasoningEventsRef = useRef<ChatReasoningEventDetail[]>([])
+  const reasoningStopTimerRef = useRef<number | null>(null)
 
   useEffect(() => {
     activeConversationIdRef.current = activeConversationId
@@ -354,6 +370,10 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
 
     return () => {
       mounted = false
+      if (reasoningStopTimerRef.current) {
+        window.clearTimeout(reasoningStopTimerRef.current)
+        reasoningStopTimerRef.current = null
+      }
       abortRef.current?.abort()
     }
   }, [loadMessages, refreshConversations])
@@ -409,6 +429,10 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       setStreamingAssistantText("")
       setStreamingReasoningEvents([])
       setStreamingReasoningActive(false)
+      if (reasoningStopTimerRef.current) {
+        window.clearTimeout(reasoningStopTimerRef.current)
+        reasoningStopTimerRef.current = null
+      }
       streamingReasoningEventsRef.current = []
       setIsStreaming(true)
       shouldAutoScrollRef.current = true
@@ -450,11 +474,27 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
               const nextReasoningEvents = appendReasoningEvent(streamingReasoningEventsRef.current, event.detail)
               streamingReasoningEventsRef.current = nextReasoningEvents
               setStreamingReasoningEvents(nextReasoningEvents)
-              setStreamingReasoningActive(inferReasoningActive(nextReasoningEvents))
+              const nextReasoningActive = inferReasoningActive(nextReasoningEvents)
+              if (nextReasoningActive) {
+                if (reasoningStopTimerRef.current) {
+                  window.clearTimeout(reasoningStopTimerRef.current)
+                  reasoningStopTimerRef.current = null
+                }
+                setStreamingReasoningActive(true)
+              } else if (!reasoningStopTimerRef.current) {
+                reasoningStopTimerRef.current = window.setTimeout(() => {
+                  setStreamingReasoningActive(false)
+                  reasoningStopTimerRef.current = null
+                }, 700)
+              }
               return
             }
 
             if (event.type === "completed") {
+              if (reasoningStopTimerRef.current) {
+                window.clearTimeout(reasoningStopTimerRef.current)
+                reasoningStopTimerRef.current = null
+              }
               const reasoningSnapshot = streamingReasoningEventsRef.current
               if (reasoningSnapshot.length > 0) {
                 const messageId = event.result.assistantMessage.id.trim()
@@ -480,6 +520,10 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
             }
 
             if (event.type === "failed") {
+              if (reasoningStopTimerRef.current) {
+                window.clearTimeout(reasoningStopTimerRef.current)
+                reasoningStopTimerRef.current = null
+              }
               setStreamingAssistantText("")
               setStreamingReasoningEvents([])
               setStreamingReasoningActive(false)
@@ -492,6 +536,10 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
           controller.signal
         )
       } catch (error) {
+        if (reasoningStopTimerRef.current) {
+          window.clearTimeout(reasoningStopTimerRef.current)
+          reasoningStopTimerRef.current = null
+        }
         setStreamingAssistantText("")
         setStreamingReasoningEvents([])
         setStreamingReasoningActive(false)
@@ -511,6 +559,10 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       if (isStreaming || conversationId === activeConversationIdRef.current) {
         return
       }
+      if (reasoningStopTimerRef.current) {
+        window.clearTimeout(reasoningStopTimerRef.current)
+        reasoningStopTimerRef.current = null
+      }
       setLastError("")
       setStreamingAssistantText("")
       setStreamingReasoningEvents([])
@@ -526,6 +578,10 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
   const handleNewConversation = useCallback(async () => {
     if (isStreaming) {
       return
+    }
+    if (reasoningStopTimerRef.current) {
+      window.clearTimeout(reasoningStopTimerRef.current)
+      reasoningStopTimerRef.current = null
     }
     setLastError("")
     setStreamingAssistantText("")

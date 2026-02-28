@@ -72,6 +72,18 @@ describe("extractResponseNewTitleFromRawChunk", () => {
 
     expect(title).toBe("")
   })
+
+  it("extracts newTitle from wrapped gateway payload", () => {
+    const title = extractResponseNewTitleFromRawChunk({
+      result: {
+        title: {
+          newTitle: "刘美贤冬奥金牌照片",
+        },
+      },
+    })
+
+    expect(title).toBe("刘美贤冬奥金牌照片")
+  })
 })
 
 describe("gateway raw chunk extractors", () => {
@@ -129,6 +141,97 @@ describe("gateway raw chunk extractors", () => {
     }
 
     expect(extractGatewayResponseIdFromRawChunk(rawChunk)).toBe("resp_created_1")
+  })
+
+  it("extracts token and responseId from wrapped gateway token payload", () => {
+    const rawChunk = {
+      result: {
+        response: {
+          token: "你好",
+          messageTag: "final",
+          isThinking: false,
+          responseId: "resp_wrapped_1",
+        },
+      },
+    }
+
+    expect(extractGatewayTextDeltaFromRawChunk(rawChunk)).toBe("你好")
+    expect(extractGatewayResponseIdFromRawChunk(rawChunk)).toBe("resp_wrapped_1")
+  })
+
+  it("ignores wrapped non-final token payload", () => {
+    const rawChunk = {
+      result: {
+        response: {
+          token: "Thinking about your request",
+          messageTag: "header",
+          isThinking: true,
+          responseId: "resp_wrapped_2",
+        },
+      },
+    }
+
+    expect(extractGatewayTextDeltaFromRawChunk(rawChunk)).toBe("")
+  })
+
+  it("ignores wrapped internal relay json token payload", () => {
+    const rawChunk = {
+      result: {
+        response: {
+          token: '{"message":"用户要张国荣生平附带图片","to":"Grok"}',
+          messageTag: "final",
+          isThinking: false,
+          responseId: "resp_wrapped_internal_1",
+        },
+      },
+    }
+
+    expect(extractGatewayTextDeltaFromRawChunk(rawChunk)).toBe("")
+    expect(extractGatewayResponseIdFromRawChunk(rawChunk)).toBe("resp_wrapped_internal_1")
+  })
+
+  it("ignores wrapped tool json token payload even when tagged final", () => {
+    const rawChunk = {
+      result: {
+        response: {
+          token: '{"query":"张国荣 年轻时 照片","num_results":"15"}',
+          messageTag: "final",
+          isThinking: false,
+          responseId: "resp_wrapped_internal_2",
+        },
+      },
+    }
+
+    expect(extractGatewayTextDeltaFromRawChunk(rawChunk)).toBe("")
+  })
+
+  it("extracts final message from wrapped gateway response payload", () => {
+    const rawChunk = {
+      result: {
+        response: {
+          message: "最终答案",
+          responseId: "resp_wrapped_3",
+          cardAttachmentsJson: [],
+        },
+      },
+    }
+
+    expect(extractGatewayFinalMessageFromRawChunk(rawChunk)).toBe("最终答案")
+    expect(extractGatewayResponseIdFromRawChunk(rawChunk)).toBe("resp_wrapped_3")
+  })
+
+  it("ignores wrapped internal relay message payload", () => {
+    const rawChunk = {
+      result: {
+        response: {
+          message: '{"message":"我已经搜集了生平资料","to":"Grok"}',
+          responseId: "resp_wrapped_4",
+        },
+      },
+    }
+
+    expect(extractGatewayFinalMessageFromRawChunk(rawChunk)).toBe("")
+    expect(extractGatewayResponseIdFromRawChunk(rawChunk)).toBe("resp_wrapped_4")
   })
 })
 
@@ -223,6 +326,83 @@ describe("extractCardAttachmentsFromRawChunk", () => {
     expect(cards).toHaveLength(2)
     expect(cards[0]?.id).toBe("card_1")
     expect(cards[1]?.id).toBe("card_2")
+  })
+
+  it("extracts wrapped image cards from gateway result.response payload", () => {
+    const cards = extractCardAttachmentsFromRawChunk({
+      result: {
+        response: {
+          cardAttachment: {
+            jsonData:
+              "{\"id\":\"card_live_1\",\"cardType\":\"image_card\",\"type\":\"render_searched_image\",\"image\":{\"original\":\"https://img.test/live-a.jpg\"}}",
+          },
+          cardAttachmentsJson: [
+            "{\"id\":\"card_done_1\",\"cardType\":\"image_card\",\"type\":\"render_searched_image\",\"image\":{\"original\":\"https://img.test/done-a.jpg\"}}",
+            "{\"id\":\"card_done_2\",\"cardType\":\"image_card\",\"type\":\"render_searched_image\",\"image\":{\"original\":\"https://img.test/done-b.jpg\"}}",
+          ],
+        },
+      },
+    })
+
+    expect(cards).toHaveLength(3)
+    expect(cards.some((item) => item.id === "card_live_1")).toBe(true)
+    expect(cards.some((item) => item.id === "card_done_1")).toBe(true)
+    expect(cards.some((item) => item.id === "card_done_2")).toBe(true)
+  })
+
+  it("extracts image card from cardAttachmentParsed payload", () => {
+    const cards = extractCardAttachmentsFromRawChunk({
+      type: "response.tool_usage_card",
+      cardAttachmentParsed: {
+        id: "card_parsed_1",
+        cardType: "image_card",
+        image: {
+          original: "https://img.test/parsed-a.jpg",
+          thumbnail: "https://img.test/parsed-a-thumb.jpg",
+          title: "parsed",
+        },
+      },
+    })
+
+    expect(cards).toHaveLength(1)
+    expect(cards[0]?.id).toBe("card_parsed_1")
+    expect(cards[0]?.image?.original).toBe("https://img.test/parsed-a.jpg")
+  })
+
+  it("extracts cards from concatenated gateway json chunks", () => {
+    const rawChunk =
+      JSON.stringify({
+        result: {
+          response: {
+            cardAttachment: {
+              jsonData:
+                "{\"id\":\"card_concat_1\",\"cardType\":\"image_card\",\"type\":\"render_searched_image\",\"image\":{\"original\":\"https://img.test/concat-a.jpg\"}}",
+            },
+          },
+        },
+      }) +
+      JSON.stringify({
+        result: {
+          response: {
+            cardAttachmentsJson: [
+              {
+                id: "card_concat_2",
+                cardType: "image_card",
+                type: "render_searched_image",
+                image: {
+                  original: "https://img.test/concat-b.jpg",
+                },
+              },
+            ],
+          },
+        },
+      })
+
+    const cards = extractCardAttachmentsFromRawChunk(rawChunk)
+
+    expect(cards).toHaveLength(2)
+    expect(cards.some((item) => item.id === "card_concat_1")).toBe(true)
+    expect(cards.some((item) => item.id === "card_concat_2")).toBe(true)
   })
 })
 
@@ -371,6 +551,105 @@ describe("extractReasoningEventsFromRawChunk", () => {
           webSearchResultsCount: 3,
           isThinking: false,
           responseId: "resp_1",
+        },
+      },
+    ])
+  })
+
+  it("extracts wrapped ui layout from gateway result.response payload", () => {
+    const events = extractReasoningEventsFromRawChunk({
+      result: {
+        response: {
+          uiLayout: {
+            reasoningUiLayout: "UNIFIED",
+            willThinkLong: false,
+            rolloutIds: ["Grok", "Agent 1"],
+          },
+          responseId: "resp_wrapped_4",
+          isThinking: true,
+        },
+      },
+    })
+
+    expect(events).toEqual([
+      {
+        kind: "ui_layout",
+        layout: {
+          reasoningUiLayout: "UNIFIED",
+          willThinkLong: false,
+          effort: undefined,
+          rolloutIds: ["Grok", "Agent 1"],
+        },
+        isThinking: true,
+        responseId: "resp_wrapped_4",
+      },
+    ])
+  })
+
+  it("extracts wrapped tool usage from gateway result.response payload", () => {
+    const events = extractReasoningEventsFromRawChunk({
+      result: {
+        response: {
+          messageTag: "tool_usage_card",
+          responseId: "resp_wrapped_5",
+          rolloutId: "Agent 1",
+          isThinking: true,
+          toolUsageCard: {
+            toolUsageCardId: "tool_wrapped_1",
+            webSearch: {
+              args: {
+                query: "刘美贤",
+              },
+            },
+          },
+        },
+      },
+    })
+
+    expect(events).toEqual([
+      {
+        kind: "tool_usage",
+        usage: {
+          toolUsageCardId: "tool_wrapped_1",
+          toolName: "webSearch",
+          args: {
+            query: "刘美贤",
+          },
+          rolloutId: "Agent 1",
+          messageTag: "tool_usage_card",
+          isThinking: true,
+          responseId: "resp_wrapped_5",
+        },
+      },
+    ])
+  })
+
+  it("extracts wrapped tool result from gateway result.response payload", () => {
+    const events = extractReasoningEventsFromRawChunk({
+      result: {
+        response: {
+          messageTag: "raw_function_result",
+          responseId: "resp_wrapped_6",
+          rolloutId: "Agent 1",
+          toolUsageCardId: "tool_wrapped_1",
+          isThinking: false,
+          webSearchResults: {
+            results: [{ url: "https://a.test" }, { url: "https://b.test" }],
+          },
+        },
+      },
+    })
+
+    expect(events).toEqual([
+      {
+        kind: "tool_result",
+        result: {
+          toolUsageCardId: "tool_wrapped_1",
+          rolloutId: "Agent 1",
+          messageTag: "raw_function_result",
+          webSearchResultsCount: 2,
+          isThinking: false,
+          responseId: "resp_wrapped_6",
         },
       },
     ])

@@ -1,0 +1,2178 @@
+{
+    "result": {
+        "conversation": {
+            "conversationId": "182c6b13-509d-4119-a14d-6655949cb014",
+            "title": "New conversation",
+            "starred": false,
+            "createTime": "2026-02-28T06:08:45.343598Z",
+            "modifyTime": "2026-02-28T06:08:45.344524Z",
+            "systemPromptName": "",
+            "temporary": false,
+            "mediaTypes": [],
+            "workspaces": [],
+            "taskResult": null
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "userResponse": {
+                "responseId": "17d6a536-0980-4874-ae31-aa013b28ee2e",
+                "message": "给我找找刘美贤的照片",
+                "sender": "human",
+                "createTime": "2026-02-28T06:08:45.370Z",
+                "manual": false,
+                "partial": false,
+                "shared": false,
+                "query": "",
+                "queryType": "",
+                "webSearchResults": [],
+                "xpostIds": [],
+                "xposts": [],
+                "generatedImageUrls": [],
+                "imageAttachments": [],
+                "fileAttachments": [],
+                "cardAttachmentsJson": [],
+                "fileUris": [],
+                "fileAttachmentsMetadata": [],
+                "isControl": false,
+                "steps": [],
+                "imageEditUris": [],
+                "mediaTypes": [],
+                "webpageUrls": [],
+                "metadata": {},
+                "citedWebSearchResults": [],
+                "toolResponses": [],
+                "model": "grok-4",
+                "ragResults": [],
+                "citedRagResults": [],
+                "searchProductResults": [],
+                "connectorSearchResults": [],
+                "collectionSearchResults": [],
+                "highlightsStories": [],
+                "streamErrors": []
+            },
+            "isThinking": false,
+            "isSoftStop": false,
+            "responseId": "17d6a536-0980-4874-ae31-aa013b28ee2e"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "uiLayout": {
+                "reasoningUiLayout": "UNIFIED",
+                "willThinkLong": false,
+                "rolloutIds": []
+            },
+            "isThinking": false,
+            "isSoftStop": false,
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "llmInfo": {
+                "modelHash": "XdbUWuS9HUfHiPZgLHh4V8ulh5n+17RNBcm3uIi32ho="
+            },
+            "isThinking": false,
+            "isSoftStop": false,
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "Thinking about your request",
+            "isThinking": true,
+            "isSoftStop": false,
+            "messageTag": "header",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "llmInfo": {
+                "modelHash": "XdbUWuS9HUfHiPZgLHh4V8ulh5n+17RNBcm3uIi32ho="
+            },
+            "isThinking": true,
+            "isSoftStop": false,
+            "messageTag": "header",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "\u003cxai:tool_usage_card\u003e\n  \u003cxai:tool_usage_card_id\u003ed7909735-75ac-4f84-a12b-e9da3eae8b11\u003c/xai:tool_usage_card_id\u003e\n  \u003cxai:tool_name\u003eweb_search\u003c/xai:tool_name\u003e\n  \u003cxai:tool_args\u003e\u003c![CDATA[{\"query\":\"刘美贤\",\"num_results\":\"10\"}]]\u003e\u003c/xai:tool_args\u003e\n\u003c/xai:tool_usage_card\u003e",
+            "isThinking": true,
+            "isSoftStop": false,
+            "messageTag": "tool_usage_card",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a",
+            "toolUsageCardId": "d7909735-75ac-4f84-a12b-e9da3eae8b11",
+            "toolUsageCard": {
+                "toolUsageCardId": "d7909735-75ac-4f84-a12b-e9da3eae8b11",
+                "webSearch": {
+                    "args": {
+                        "query": "刘美贤"
+                    }
+                }
+            }
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "\u003cxai:tool_usage_card\u003e\n  \u003cxai:tool_usage_card_id\u003e5ee70e88-8705-4d41-8097-bd3c9cb1cf2e\u003c/xai:tool_usage_card_id\u003e\n  \u003cxai:tool_name\u003esearch_images\u003c/xai:tool_name\u003e\n  \u003cxai:tool_args\u003e\u003c![CDATA[{\"image_description\":\"刘美贤\",\"number_of_images\":\"6\"}]]\u003e\u003c/xai:tool_args\u003e\n\u003c/xai:tool_usage_card\u003e",
+            "isThinking": true,
+            "isSoftStop": false,
+            "messageTag": "tool_usage_card",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a",
+            "toolUsageCardId": "5ee70e88-8705-4d41-8097-bd3c9cb1cf2e",
+            "toolUsageCard": {
+                "toolUsageCardId": "5ee70e88-8705-4d41-8097-bd3c9cb1cf2e",
+                "imageSearch": {
+                    "args": {
+                        "imageDescription": "刘美贤"
+                    }
+                }
+            }
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "\u003cxai:tool_usage_card\u003e\n  \u003cxai:tool_usage_card_id\u003e60d4f8c9-6908-42cb-a122-7b1f14e9667b\u003c/xai:tool_usage_card_id\u003e\n  \u003cxai:tool_name\u003esearch_images\u003c/xai:tool_name\u003e\n  \u003cxai:tool_args\u003e\u003c![CDATA[{\"image_description\":\"刘美贤 照片\",\"number_of_images\":\"6\"}]]\u003e\u003c/xai:tool_args\u003e\n\u003c/xai:tool_usage_card\u003e",
+            "isThinking": true,
+            "isSoftStop": false,
+            "messageTag": "tool_usage_card",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a",
+            "toolUsageCardId": "60d4f8c9-6908-42cb-a122-7b1f14e9667b",
+            "toolUsageCard": {
+                "toolUsageCardId": "60d4f8c9-6908-42cb-a122-7b1f14e9667b",
+                "imageSearch": {
+                    "args": {
+                        "imageDescription": "刘美贤 照片"
+                    }
+                }
+            }
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "webSearchResults": {
+                "results": [
+                    {
+                        "url": "https://zh.wikipedia.org/zh-hans/%E5%88%98%E7%BE%8E%E8%B4%A4",
+                        "title": "刘美贤- 维基百科，自由的百科全书",
+                        "preview": "刘美贤（英语：Alysa Liu，2005年8月8日—），美国花样滑冰唯一金牌大满贯运动员。她是全美锦标赛史上最年轻的女子单人滑冠军。",
+                        "searchEngineText": "",
+                        "description": "",
+                        "siteName": "",
+                        "metadataTitle": "",
+                        "creator": "",
+                        "image": "",
+                        "favicon": "",
+                        "citationId": ""
+                    },
+                    {
+                        "url": "https://www.instagram.com/alysaxliu",
+                        "title": "刘美贤 Alysa Liu (@alysaxliu)",
+                        "preview": "6M Followers, 670 Following, 166 Posts - 刘美贤 Alysa Liu (@alysaxliu) on Instagram: \"Digital memory lane of a girl in the world. Oakland \"",
+                        "searchEngineText": "",
+                        "description": "",
+                        "siteName": "",
+                        "metadataTitle": "",
+                        "creator": "",
+                        "image": "",
+                        "favicon": "",
+                        "citationId": ""
+                    },
+                    {
+                        "url": "https://baike.baidu.com/item/%E5%88%98%E7%BE%8E%E8%B4%A4/23271179",
+                        "title": "刘美贤_百度百科",
+                        "preview": "刘美贤（Alysa Liu），2005年8月8日出生于美国加利福尼亚州克洛维斯，祖籍四川，美国华裔花样滑冰运动员，主攻女子单人滑，效力于美国国家花样滑冰队。2010年，刘美贤在奥克兰 ...",
+                        "searchEngineText": "",
+                        "description": "",
+                        "siteName": "",
+                        "metadataTitle": "",
+                        "creator": "",
+                        "image": "",
+                        "favicon": "",
+                        "citationId": ""
+                    },
+                    {
+                        "url": "https://www.youtube.com/watch?v=T1LC3XioiQA",
+                        "title": "刘美贤颠覆了女子花滑传统，她不再是从珠宝盒里弹出来的公主形象，而是恣意展示力量和快乐。她的浣熊发型、她笑的时候露出来的唇钉都在宣示对自我的掌控。作为代孕的孩子",
+                        "preview": "刘美贤颠覆了女子花滑传统，她不再是从珠宝盒里弹出来的公主形象，而是恣意展示力量和快乐。她的浣熊发型、她笑的时候露出来的唇钉都在宣示对自我的掌控 ...",
+                        "searchEngineText": "",
+                        "description": "",
+                        "siteName": "",
+                        "metadataTitle": "",
+                        "creator": "",
+                        "image": "",
+                        "favicon": "",
+                        "citationId": ""
+                    },
+                    {
+                        "url": "https://www.olympics.com/zh/milano-cortina-2026/videos/alysa-liu-on-choosing-her-own-destiny-in-skating",
+                        "title": "刘美贤谈主导“自己的命运”",
+                        "preview": "2022年选择退役两年后，刘美贤重返赛场并且一举夺得世锦赛冠军。她在接受Olympics.com采访时畅谈了自己对艺术的感受，以及对2026年米兰科尔蒂纳冬奥会的期待。",
+                        "searchEngineText": "",
+                        "description": "",
+                        "siteName": "",
+                        "metadataTitle": "",
+                        "creator": "",
+                        "image": "",
+                        "favicon": "",
+                        "citationId": ""
+                    },
+                    {
+                        "url": "https://www.youtube.com/watch?v=6GXVvvn2_WI",
+                        "title": "RFA专访刘美贤之父刘俊：放养、尊重让孩子感觉有爱｜艰难人生历程：仍需扛起民运旗子",
+                        "preview": "自由亚洲电台专访奥运女子花样滑冰冠军刘美贤之父刘俊。刘俊说她的女儿在八岁就能跳两圈半，九、十岁就能三圈跳，因此他坚持不懈培养并投入上百万美金的 ...",
+                        "searchEngineText": "",
+                        "description": "",
+                        "siteName": "",
+                        "metadataTitle": "",
+                        "creator": "",
+                        "image": "",
+                        "favicon": "",
+                        "citationId": ""
+                    },
+                    {
+                        "url": "https://www.bbc.com/zhongwen/articles/ckgl099nzdro/simp",
+                        "title": "2026冬奥会：“华裔”选手谷爱凌与刘美贤为何在社群媒体上引发分裂意见",
+                        "preview": "刘美贤的父亲是1989年天安门事件后逃离中国的政治活动人士，刘美贤代表美国出赛。而谷爱凌的母亲为了深造移居美国，谷爱凌童年时期常在暑假期间回北京探亲， ...",
+                        "searchEngineText": "",
+                        "description": "",
+                        "siteName": "",
+                        "metadataTitle": "",
+                        "creator": "",
+                        "image": "",
+                        "favicon": "",
+                        "citationId": ""
+                    },
+                    {
+                        "url": "https://www.olympics.com/zh/milano-cortina-2026/videos/alysa-liu-beats-japanese-trio-for-women-single-skating-gold-milano-cortina-2026",
+                        "title": "刘美贤力压日本三将夺得女子单人滑金牌| 米兰科尔蒂纳2026",
+                        "preview": "美国队的刘美贤在当晚奉献出最佳自由滑表现，以个人总分新高将奥运金牌收入囊中，为自己的世锦赛冠军头衔再添荣誉。日本三届世锦赛冠军坂本花织在职业生涯最后一场比赛中 ...",
+                        "searchEngineText": "",
+                        "description": "",
+                        "siteName": "",
+                        "metadataTitle": "",
+                        "creator": "",
+                        "image": "",
+                        "favicon": "",
+                        "citationId": ""
+                    },
+                    {
+                        "url": "https://www.youtube.com/watch?v=vgCHPWx-Yu4",
+                        "title": "【書齋夜話】487：刘美贤是“八九六四”第二代，美国的传奇，华人的骄傲。专访她的父亲，刘俊律师（2026-2-26）",
+                        "preview": "Alysa Liu，刘美娴，美国女子滑冰史上唯一的大满贯，全美锦标赛，世界锦标赛，奥运的金牌获得者。她的成就来自美国的自由，是华人的骄傲。刘美贤是“八九六 ...",
+                        "searchEngineText": "",
+                        "description": "",
+                        "siteName": "",
+                        "metadataTitle": "",
+                        "creator": "",
+                        "image": "",
+                        "favicon": "",
+                        "citationId": ""
+                    },
+                    {
+                        "url": "https://www.rfa.org/mandarin/zhengzhi/2026/02/26/olympics-figure-skating-alysaliu-father",
+                        "title": "奥运冠军刘美贤的成长之路刘俊：我是最穷的律师",
+                        "preview": "2 days ago—奥运女子花样滑冰冠军刘美贤的成长故事，成为全球关注焦点。RFA专访刘美贤的父亲刘俊，谈他如何发掘女儿的天赋，以及一路走来的心路历程。",
+                        "searchEngineText": "",
+                        "description": "",
+                        "siteName": "",
+                        "metadataTitle": "",
+                        "creator": "",
+                        "image": "",
+                        "favicon": "",
+                        "citationId": ""
+                    }
+                ]
+            },
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "raw_function_result",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a",
+            "toolUsageCardId": "d7909735-75ac-4f84-a12b-e9da3eae8b11"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "raw_function_result",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a",
+            "toolUsageCardId": "d7909735-75ac-4f84-a12b-e9da3eae8b11"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "cardAttachment": {
+                "jsonData": "{\"id\":\"b029d0\",\"type\":\"render_searched_image\",\"cardType\":\"image_card\",\"image\":{\"thumbnail\":\"https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSAbbLhDqoVOofek4nLcpTQcVg-iGV1EzOrYA\u0026s\",\"source\":\"中央社\",\"title\":\"劉美賢冬奧花滑奪金父親拒中招攬稱金錢買不到操守等價值| 國際| 中央社CNA\",\"link\":\"https://www.cna.com.tw/news/aopl/202602250006.aspx\",\"original\":\"https://imgcdn.cna.com.tw/www/WebPhotos/800/20260225/1024x683_wmkn_207453520113_0.jpg\",\"original_width\":800,\"original_height\":534,\"image_id\":\"BI17v\"},\"size\":\"LARGE\"}"
+            },
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "\u003cgrok:render card_id=\"b029d0\" card_type=\"image_card\" type=\"render_searched_image\"\u003e\u003cargument name=\"image_id\"\u003eBI17v\u003c/argument\u003e\u003cargument name=\"size\"\u003e\"LARGE\"\u003c/argument\u003e\u003c/grok:render\u003e",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "\n",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "cardAttachment": {
+                "jsonData": "{\"id\":\"87936a\",\"type\":\"render_searched_image\",\"cardType\":\"image_card\",\"image\":{\"thumbnail\":\"https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQD5FA7ipbpRryVLSNqHPBttCdvXEtJxH6EgA\u0026s\",\"source\":\"大紀元\",\"title\":\"退役三年美华裔天才花滑女孩赢得世界冠军| 美国| 花样滑冰| 溜冰| 大纪元\",\"link\":\"https://www.epochtimes.com/gb/25/3/29/n14469906.htm\",\"original\":\"https://i.epochtimes.com/assets/uploads/2025/03/id14469917-AFP__20250329__38CV3FC__v1__Preview__Mondiaux2025DePatinageArtistiqueProgrammeLibreF.jpg\",\"original_width\":1200,\"original_height\":801,\"image_id\":\"8Fykc\"},\"size\":\"LARGE\"}"
+            },
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "\u003cgrok:render card_id=\"87936a\" card_type=\"image_card\" type=\"render_searched_image\"\u003e\u003cargument name=\"image_id\"\u003e8Fykc\u003c/argument\u003e\u003cargument name=\"size\"\u003e\"LARGE\"\u003c/argument\u003e\u003c/grok:render\u003e",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "\n",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "cardAttachment": {
+                "jsonData": "{\"id\":\"0c61f9\",\"type\":\"render_searched_image\",\"cardType\":\"image_card\",\"image\":{\"thumbnail\":\"https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQGQaHJYAlDH-00Ge8cldJZFgmDBRm9zfEjXw\u0026s\",\"source\":\"www.ntdtv.com\",\"title\":\"刘美贤冬奥会花滑夺冠终结美国24年金牌荒| 米兰冬奥会| 花样滑冰| 刘俊| 新唐人电视台\",\"link\":\"https://www.ntdtv.com/gb/2026/02/20/a104068670.html\",\"original\":\"https://i.ntdtv.com/assets/uploads/2026/02/id104068675-GettyImages-2262541275.jpg\",\"original_width\":1200,\"original_height\":675,\"image_id\":\"Dzktn\"},\"size\":\"LARGE\"}"
+            },
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "\u003cgrok:render card_id=\"0c61f9\" card_type=\"image_card\" type=\"render_searched_image\"\u003e\u003cargument name=\"image_id\"\u003eDzktn\u003c/argument\u003e\u003cargument name=\"size\"\u003e\"LARGE\"\u003c/argument\u003e\u003c/grok:render\u003e",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "\n",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "cardAttachment": {
+                "jsonData": "{\"id\":\"6f95ce\",\"type\":\"render_searched_image\",\"cardType\":\"image_card\",\"image\":{\"thumbnail\":\"https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSxfQH183nxysTjyNOv7PKBDp8VEuTKDa_h5Q\u0026s\",\"source\":\"大紀元\",\"title\":\"刘美贤自由滑夺冠终结美国二十多年金牌荒| 冬奥会| 奖牌| 米兰| 大纪元\",\"link\":\"https://www.epochtimes.com/gb/26/2/19/n14701789.htm\",\"original\":\"https://i.epochtimes.com/assets/uploads/2026/02/id14701860-GettyImages-2262539603.jpg\",\"original_width\":5806,\"original_height\":3871,\"image_id\":\"vckbV\"},\"size\":\"LARGE\"}"
+            },
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "\u003cgrok:render card_id=\"6f95ce\" card_type=\"image_card\" type=\"render_searched_image\"\u003e\u003cargument name=\"image_id\"\u003evckbV\u003c/argument\u003e\u003cargument name=\"size\"\u003e\"LARGE\"\u003c/argument\u003e\u003c/grok:render\u003e",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "\n",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "cardAttachment": {
+                "jsonData": "{\"id\":\"26ab74\",\"type\":\"render_searched_image\",\"cardType\":\"image_card\",\"image\":{\"thumbnail\":\"https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSkAUt9V_HfeDT1GS6K0opZDYBdjL_SsO2F-g\u0026s\",\"source\":\"中央社\",\"title\":\"劉美賢華麗回歸冬奧逆轉奪金天安門民運人士之女寫勵志傳奇| 運動| 中央社CNA\",\"link\":\"https://www.cna.com.tw/news/aspt/202602200063.aspx\",\"original\":\"https://imgcdn.cna.com.tw/www/WebPhotos/800/20260220/1024x683_wmkn_594363882460_0.jpg\",\"original_width\":800,\"original_height\":534,\"image_id\":\"uUr1R\"},\"size\":\"LARGE\"}"
+            },
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "\u003cgrok:render card_id=\"26ab74\" card_type=\"image_card\" type=\"render_searched_image\"\u003e\u003cargument name=\"image_id\"\u003euUr1R\u003c/argument\u003e\u003cargument name=\"size\"\u003e\"LARGE\"\u003c/argument\u003e\u003c/grok:render\u003e",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "\n",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "cardAttachment": {
+                "jsonData": "{\"id\":\"97d901\",\"type\":\"render_searched_image\",\"cardType\":\"image_card\",\"image\":{\"thumbnail\":\"https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQbeXmglaGxIs7fUewByJ6oNjRMG_rhMqbd5Q\u0026s\",\"source\":\"www.ntdtv.com\",\"title\":\"刘美贤回到家乡奥克兰受到英雄般欢迎（视频） | Alysa Liu | 奥克兰的本土英雄| 花样滑冰| 新唐人电视台\",\"link\":\"https://www.ntdtv.com/gb/2026/02/27/a104071024.html\",\"original\":\"https://i.ntdtv.com/assets/uploads/2026/02/id104069340-GettyImages-2261973039.jpg\",\"original_width\":1200,\"original_height\":675,\"image_id\":\"CHqLe\"},\"size\":\"LARGE\"}"
+            },
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "\u003cgrok:render card_id=\"97d901\" card_type=\"image_card\" type=\"render_searched_image\"\u003e\u003cargument name=\"image_id\"\u003eCHqLe\u003c/argument\u003e\u003cargument name=\"size\"\u003e\"LARGE\"\u003c/argument\u003e\u003c/grok:render\u003e",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "\n",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "cardAttachment": {
+                "jsonData": "{\"id\":\"7936e7\",\"type\":\"render_searched_image\",\"cardType\":\"image_card\",\"image\":{\"thumbnail\":\"https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRF0MaY7SveW2ukI0eMLz85sQNyG6ieKJj6mg\u0026s\",\"source\":\"亚洲电视新闻\",\"title\":\"刘美贤惊艳冬奥！ 美国女单花滑24年后再登顶– 亚洲电视新闻\",\"link\":\"https://atvnewsonline.com/%E4%BD%93%E8%82%B2/%E5%88%98%E7%BE%8E%E8%B4%A4%E6%83%8A%E8%89%B3%E5%86%AC%E5%A5%A5%EF%BC%81-%E7%BE%8E%E5%9B%BD%E5%A5%B3%E5%8D%95%E8%8A%B1%E6%BB%9124%E5%B9%B4%E5%90%8E%E5%86%8D%E7%99%BB%E9%A1%B6/\",\"original\":\"https://atvnewsonline.com/wp-content/uploads/2026/02/2026-02-19T222459Z_447984130_UP1EM2J1Q9L5B_RTRMADP_3_OLYMPICS-2026-FIGURESKATING.jpg\",\"original_width\":1200,\"original_height\":792,\"image_id\":\"7cHeG\"},\"size\":\"LARGE\"}"
+            },
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "\u003cgrok:render card_id=\"7936e7\" card_type=\"image_card\" type=\"render_searched_image\"\u003e\u003cargument name=\"image_id\"\u003e7cHeG\u003c/argument\u003e\u003cargument name=\"size\"\u003e\"LARGE\"\u003c/argument\u003e\u003c/grok:render\u003e",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "\n\n",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "刘",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "美",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "贤",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "（",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "A",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "ly",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "sa",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": " Liu",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "，美国",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "华",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "裔",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "花",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "样",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "滑",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "冰",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "运动员",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "，",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "200",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "5",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "年生",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "）",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "最近",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "在",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "202",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "6",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "米",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "兰",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "-",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "科尔",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "蒂",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "纳",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "冬",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "奥",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "会上",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "大",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "放",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "异",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "彩",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "，",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "拿",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "下",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "女子",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "单",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "人",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "滑",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "金",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "牌",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "和",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "团体",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "赛",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "金",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "牌",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "，成为",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "美国",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "花",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "滑",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "史上",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "首位",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "金",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "牌",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "大",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "满",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "贯",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "女",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "单",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "选手",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "！",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "  \n\n",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "以上",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "是",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "她",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "近期",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "在",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "冬",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "奥",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "会",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "领",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "奖",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "台",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "、",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "冰",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "场",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "挥",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "舞",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "美国",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "国",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "旗",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "、",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "咬",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "金",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "牌",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "庆祝",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "等",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "经典",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "照片",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "，",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "超级",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "有",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "感染",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "力",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "～",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "  \n\n",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "想",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "看",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "更多",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "日常",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "照",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "或",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "滑",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "冰",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "视频",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "，可以",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "去",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "她的",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "Instagram",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": " @",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "al",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "ys",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "ax",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "liu",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "（",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "600",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "多",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "万",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "粉丝",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "），",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "里面",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "更新",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "很",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "勤",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "！",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "如果",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "需要",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "特定",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "风格",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "的",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "照片",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "再",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "告诉我",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "哦",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "～",
+            "isThinking": false,
+            "isSoftStop": false,
+            "messageTag": "final",
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "",
+            "isThinking": false,
+            "isSoftStop": true,
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "modelResponse": {
+                "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a",
+                "message": "\u003cgrok:render card_id=\"b029d0\" card_type=\"image_card\" type=\"render_searched_image\"\u003e\u003cargument name=\"image_id\"\u003eBI17v\u003c/argument\u003e\u003cargument name=\"size\"\u003e\"LARGE\"\u003c/argument\u003e\u003c/grok:render\u003e\n\u003cgrok:render card_id=\"87936a\" card_type=\"image_card\" type=\"render_searched_image\"\u003e\u003cargument name=\"image_id\"\u003e8Fykc\u003c/argument\u003e\u003cargument name=\"size\"\u003e\"LARGE\"\u003c/argument\u003e\u003c/grok:render\u003e\n\u003cgrok:render card_id=\"0c61f9\" card_type=\"image_card\" type=\"render_searched_image\"\u003e\u003cargument name=\"image_id\"\u003eDzktn\u003c/argument\u003e\u003cargument name=\"size\"\u003e\"LARGE\"\u003c/argument\u003e\u003c/grok:render\u003e\n\u003cgrok:render card_id=\"6f95ce\" card_type=\"image_card\" type=\"render_searched_image\"\u003e\u003cargument name=\"image_id\"\u003evckbV\u003c/argument\u003e\u003cargument name=\"size\"\u003e\"LARGE\"\u003c/argument\u003e\u003c/grok:render\u003e\n\u003cgrok:render card_id=\"26ab74\" card_type=\"image_card\" type=\"render_searched_image\"\u003e\u003cargument name=\"image_id\"\u003euUr1R\u003c/argument\u003e\u003cargument name=\"size\"\u003e\"LARGE\"\u003c/argument\u003e\u003c/grok:render\u003e\n\u003cgrok:render card_id=\"97d901\" card_type=\"image_card\" type=\"render_searched_image\"\u003e\u003cargument name=\"image_id\"\u003eCHqLe\u003c/argument\u003e\u003cargument name=\"size\"\u003e\"LARGE\"\u003c/argument\u003e\u003c/grok:render\u003e\n\u003cgrok:render card_id=\"7936e7\" card_type=\"image_card\" type=\"render_searched_image\"\u003e\u003cargument name=\"image_id\"\u003e7cHeG\u003c/argument\u003e\u003cargument name=\"size\"\u003e\"LARGE\"\u003c/argument\u003e\u003c/grok:render\u003e\n\n刘美贤（Alysa Liu，美国华裔花样滑冰运动员，2005年生）最近在2026米兰-科尔蒂纳冬奥会上大放异彩，拿下女子单人滑金牌和团体赛金牌，成为美国花滑史上首位金牌大满贯女单选手！  \n\n以上是她近期在冬奥会领奖台、冰场挥舞美国国旗、咬金牌庆祝等经典照片，超级有感染力～  \n\n想看更多日常照或滑冰视频，可以去她的Instagram @alysaxliu（600多万粉丝），里面更新很勤！如果需要特定风格的照片再告诉我哦～",
+                "sender": "ASSISTANT",
+                "createTime": "2026-02-28T06:09:16.397Z",
+                "parentResponseId": "17d6a536-0980-4874-ae31-aa013b28ee2e",
+                "manual": false,
+                "partial": false,
+                "shared": false,
+                "query": "",
+                "queryType": "",
+                "webSearchResults": [
+                    {
+                        "url": "https://zh.wikipedia.org/zh-hans/%E5%88%98%E7%BE%8E%E8%B4%A4",
+                        "title": "刘美贤- 维基百科，自由的百科全书",
+                        "preview": "刘美贤（英语：Alysa Liu，2005年8月8日—），美国花样滑冰唯一金牌大满贯运动员。她是全美锦标赛史上最年轻的女子单人滑冠军。",
+                        "searchEngineText": "",
+                        "description": "",
+                        "siteName": "",
+                        "metadataTitle": "",
+                        "creator": "",
+                        "image": "",
+                        "favicon": "",
+                        "citationId": ""
+                    },
+                    {
+                        "url": "https://www.instagram.com/alysaxliu",
+                        "title": "刘美贤 Alysa Liu (@alysaxliu)",
+                        "preview": "6M Followers, 670 Following, 166 Posts - 刘美贤 Alysa Liu (@alysaxliu) on Instagram: \"Digital memory lane of a girl in the world. Oakland \"",
+                        "searchEngineText": "",
+                        "description": "",
+                        "siteName": "",
+                        "metadataTitle": "",
+                        "creator": "",
+                        "image": "",
+                        "favicon": "",
+                        "citationId": ""
+                    },
+                    {
+                        "url": "https://baike.baidu.com/item/%E5%88%98%E7%BE%8E%E8%B4%A4/23271179",
+                        "title": "刘美贤_百度百科",
+                        "preview": "刘美贤（Alysa Liu），2005年8月8日出生于美国加利福尼亚州克洛维斯，祖籍四川，美国华裔花样滑冰运动员，主攻女子单人滑，效力于美国国家花样滑冰队。2010年，刘美贤在奥克兰 ...",
+                        "searchEngineText": "",
+                        "description": "",
+                        "siteName": "",
+                        "metadataTitle": "",
+                        "creator": "",
+                        "image": "",
+                        "favicon": "",
+                        "citationId": ""
+                    },
+                    {
+                        "url": "https://www.youtube.com/watch?v=T1LC3XioiQA",
+                        "title": "刘美贤颠覆了女子花滑传统，她不再是从珠宝盒里弹出来的公主形象，而是恣意展示力量和快乐。她的浣熊发型、她笑的时候露出来的唇钉都在宣示对自我的掌控。作为代孕的孩子",
+                        "preview": "刘美贤颠覆了女子花滑传统，她不再是从珠宝盒里弹出来的公主形象，而是恣意展示力量和快乐。她的浣熊发型、她笑的时候露出来的唇钉都在宣示对自我的掌控 ...",
+                        "searchEngineText": "",
+                        "description": "",
+                        "siteName": "",
+                        "metadataTitle": "",
+                        "creator": "",
+                        "image": "",
+                        "favicon": "",
+                        "citationId": ""
+                    },
+                    {
+                        "url": "https://www.olympics.com/zh/milano-cortina-2026/videos/alysa-liu-on-choosing-her-own-destiny-in-skating",
+                        "title": "刘美贤谈主导“自己的命运”",
+                        "preview": "2022年选择退役两年后，刘美贤重返赛场并且一举夺得世锦赛冠军。她在接受Olympics.com采访时畅谈了自己对艺术的感受，以及对2026年米兰科尔蒂纳冬奥会的期待。",
+                        "searchEngineText": "",
+                        "description": "",
+                        "siteName": "",
+                        "metadataTitle": "",
+                        "creator": "",
+                        "image": "",
+                        "favicon": "",
+                        "citationId": ""
+                    },
+                    {
+                        "url": "https://www.youtube.com/watch?v=6GXVvvn2_WI",
+                        "title": "RFA专访刘美贤之父刘俊：放养、尊重让孩子感觉有爱｜艰难人生历程：仍需扛起民运旗子",
+                        "preview": "自由亚洲电台专访奥运女子花样滑冰冠军刘美贤之父刘俊。刘俊说她的女儿在八岁就能跳两圈半，九、十岁就能三圈跳，因此他坚持不懈培养并投入上百万美金的 ...",
+                        "searchEngineText": "",
+                        "description": "",
+                        "siteName": "",
+                        "metadataTitle": "",
+                        "creator": "",
+                        "image": "",
+                        "favicon": "",
+                        "citationId": ""
+                    },
+                    {
+                        "url": "https://www.bbc.com/zhongwen/articles/ckgl099nzdro/simp",
+                        "title": "2026冬奥会：“华裔”选手谷爱凌与刘美贤为何在社群媒体上引发分裂意见",
+                        "preview": "刘美贤的父亲是1989年天安门事件后逃离中国的政治活动人士，刘美贤代表美国出赛。而谷爱凌的母亲为了深造移居美国，谷爱凌童年时期常在暑假期间回北京探亲， ...",
+                        "searchEngineText": "",
+                        "description": "",
+                        "siteName": "",
+                        "metadataTitle": "",
+                        "creator": "",
+                        "image": "",
+                        "favicon": "",
+                        "citationId": ""
+                    },
+                    {
+                        "url": "https://www.olympics.com/zh/milano-cortina-2026/videos/alysa-liu-beats-japanese-trio-for-women-single-skating-gold-milano-cortina-2026",
+                        "title": "刘美贤力压日本三将夺得女子单人滑金牌| 米兰科尔蒂纳2026",
+                        "preview": "美国队的刘美贤在当晚奉献出最佳自由滑表现，以个人总分新高将奥运金牌收入囊中，为自己的世锦赛冠军头衔再添荣誉。日本三届世锦赛冠军坂本花织在职业生涯最后一场比赛中 ...",
+                        "searchEngineText": "",
+                        "description": "",
+                        "siteName": "",
+                        "metadataTitle": "",
+                        "creator": "",
+                        "image": "",
+                        "favicon": "",
+                        "citationId": ""
+                    },
+                    {
+                        "url": "https://www.youtube.com/watch?v=vgCHPWx-Yu4",
+                        "title": "【書齋夜話】487：刘美贤是“八九六四”第二代，美国的传奇，华人的骄傲。专访她的父亲，刘俊律师（2026-2-26）",
+                        "preview": "Alysa Liu，刘美娴，美国女子滑冰史上唯一的大满贯，全美锦标赛，世界锦标赛，奥运的金牌获得者。她的成就来自美国的自由，是华人的骄傲。刘美贤是“八九六 ...",
+                        "searchEngineText": "",
+                        "description": "",
+                        "siteName": "",
+                        "metadataTitle": "",
+                        "creator": "",
+                        "image": "",
+                        "favicon": "",
+                        "citationId": ""
+                    },
+                    {
+                        "url": "https://www.rfa.org/mandarin/zhengzhi/2026/02/26/olympics-figure-skating-alysaliu-father",
+                        "title": "奥运冠军刘美贤的成长之路刘俊：我是最穷的律师",
+                        "preview": "2 days ago—奥运女子花样滑冰冠军刘美贤的成长故事，成为全球关注焦点。RFA专访刘美贤的父亲刘俊，谈他如何发掘女儿的天赋，以及一路走来的心路历程。",
+                        "searchEngineText": "",
+                        "description": "",
+                        "siteName": "",
+                        "metadataTitle": "",
+                        "creator": "",
+                        "image": "",
+                        "favicon": "",
+                        "citationId": ""
+                    }
+                ],
+                "xpostIds": [],
+                "xposts": [],
+                "generatedImageUrls": [],
+                "imageAttachments": [],
+                "fileAttachments": [],
+                "cardAttachmentsJson": [
+                    "{\"id\":\"b029d0\",\"type\":\"render_searched_image\",\"cardType\":\"image_card\",\"image\":{\"thumbnail\":\"https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSAbbLhDqoVOofek4nLcpTQcVg-iGV1EzOrYA\u0026s\",\"source\":\"中央社\",\"title\":\"劉美賢冬奧花滑奪金父親拒中招攬稱金錢買不到操守等價值| 國際| 中央社CNA\",\"link\":\"https://www.cna.com.tw/news/aopl/202602250006.aspx\",\"original\":\"https://imgcdn.cna.com.tw/www/WebPhotos/800/20260225/1024x683_wmkn_207453520113_0.jpg\",\"original_width\":800,\"original_height\":534,\"image_id\":\"BI17v\"},\"size\":\"LARGE\"}",
+                    "{\"id\":\"87936a\",\"type\":\"render_searched_image\",\"cardType\":\"image_card\",\"image\":{\"thumbnail\":\"https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQD5FA7ipbpRryVLSNqHPBttCdvXEtJxH6EgA\u0026s\",\"source\":\"大紀元\",\"title\":\"退役三年美华裔天才花滑女孩赢得世界冠军| 美国| 花样滑冰| 溜冰| 大纪元\",\"link\":\"https://www.epochtimes.com/gb/25/3/29/n14469906.htm\",\"original\":\"https://i.epochtimes.com/assets/uploads/2025/03/id14469917-AFP__20250329__38CV3FC__v1__Preview__Mondiaux2025DePatinageArtistiqueProgrammeLibreF.jpg\",\"original_width\":1200,\"original_height\":801,\"image_id\":\"8Fykc\"},\"size\":\"LARGE\"}",
+                    "{\"id\":\"0c61f9\",\"type\":\"render_searched_image\",\"cardType\":\"image_card\",\"image\":{\"thumbnail\":\"https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQGQaHJYAlDH-00Ge8cldJZFgmDBRm9zfEjXw\u0026s\",\"source\":\"www.ntdtv.com\",\"title\":\"刘美贤冬奥会花滑夺冠终结美国24年金牌荒| 米兰冬奥会| 花样滑冰| 刘俊| 新唐人电视台\",\"link\":\"https://www.ntdtv.com/gb/2026/02/20/a104068670.html\",\"original\":\"https://i.ntdtv.com/assets/uploads/2026/02/id104068675-GettyImages-2262541275.jpg\",\"original_width\":1200,\"original_height\":675,\"image_id\":\"Dzktn\"},\"size\":\"LARGE\"}",
+                    "{\"id\":\"6f95ce\",\"type\":\"render_searched_image\",\"cardType\":\"image_card\",\"image\":{\"thumbnail\":\"https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSxfQH183nxysTjyNOv7PKBDp8VEuTKDa_h5Q\u0026s\",\"source\":\"大紀元\",\"title\":\"刘美贤自由滑夺冠终结美国二十多年金牌荒| 冬奥会| 奖牌| 米兰| 大纪元\",\"link\":\"https://www.epochtimes.com/gb/26/2/19/n14701789.htm\",\"original\":\"https://i.epochtimes.com/assets/uploads/2026/02/id14701860-GettyImages-2262539603.jpg\",\"original_width\":5806,\"original_height\":3871,\"image_id\":\"vckbV\"},\"size\":\"LARGE\"}",
+                    "{\"id\":\"26ab74\",\"type\":\"render_searched_image\",\"cardType\":\"image_card\",\"image\":{\"thumbnail\":\"https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSkAUt9V_HfeDT1GS6K0opZDYBdjL_SsO2F-g\u0026s\",\"source\":\"中央社\",\"title\":\"劉美賢華麗回歸冬奧逆轉奪金天安門民運人士之女寫勵志傳奇| 運動| 中央社CNA\",\"link\":\"https://www.cna.com.tw/news/aspt/202602200063.aspx\",\"original\":\"https://imgcdn.cna.com.tw/www/WebPhotos/800/20260220/1024x683_wmkn_594363882460_0.jpg\",\"original_width\":800,\"original_height\":534,\"image_id\":\"uUr1R\"},\"size\":\"LARGE\"}",
+                    "{\"id\":\"97d901\",\"type\":\"render_searched_image\",\"cardType\":\"image_card\",\"image\":{\"thumbnail\":\"https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQbeXmglaGxIs7fUewByJ6oNjRMG_rhMqbd5Q\u0026s\",\"source\":\"www.ntdtv.com\",\"title\":\"刘美贤回到家乡奥克兰受到英雄般欢迎（视频） | Alysa Liu | 奥克兰的本土英雄| 花样滑冰| 新唐人电视台\",\"link\":\"https://www.ntdtv.com/gb/2026/02/27/a104071024.html\",\"original\":\"https://i.ntdtv.com/assets/uploads/2026/02/id104069340-GettyImages-2261973039.jpg\",\"original_width\":1200,\"original_height\":675,\"image_id\":\"CHqLe\"},\"size\":\"LARGE\"}",
+                    "{\"id\":\"7936e7\",\"type\":\"render_searched_image\",\"cardType\":\"image_card\",\"image\":{\"thumbnail\":\"https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRF0MaY7SveW2ukI0eMLz85sQNyG6ieKJj6mg\u0026s\",\"source\":\"亚洲电视新闻\",\"title\":\"刘美贤惊艳冬奥！ 美国女单花滑24年后再登顶– 亚洲电视新闻\",\"link\":\"https://atvnewsonline.com/%E4%BD%93%E8%82%B2/%E5%88%98%E7%BE%8E%E8%B4%A4%E6%83%8A%E8%89%B3%E5%86%AC%E5%A5%A5%EF%BC%81-%E7%BE%8E%E5%9B%BD%E5%A5%B3%E5%8D%95%E8%8A%B1%E6%BB%9124%E5%B9%B4%E5%90%8E%E5%86%8D%E7%99%BB%E9%A1%B6/\",\"original\":\"https://atvnewsonline.com/wp-content/uploads/2026/02/2026-02-19T222459Z_447984130_UP1EM2J1Q9L5B_RTRMADP_3_OLYMPICS-2026-FIGURESKATING.jpg\",\"original_width\":1200,\"original_height\":792,\"image_id\":\"7cHeG\"},\"size\":\"LARGE\"}"
+                ],
+                "fileUris": [],
+                "fileAttachmentsMetadata": [],
+                "isControl": false,
+                "steps": [],
+                "imageEditUris": [],
+                "mediaTypes": [],
+                "webpageUrls": [],
+                "metadata": {
+                    "deepsearchPreset": "",
+                    "llm_info": {
+                        "modelHash": "XdbUWuS9HUfHiPZgLHh4V8ulh5n+17RNBcm3uIi32ho="
+                    },
+                    "request_metadata": {
+                        "effort": "high",
+                        "mode": "expert",
+                        "model": "grok-4"
+                    },
+                    "request_trace_id": "cf9e08a9774ccda58ac17acd543e9adf",
+                    "ui_layout": {
+                        "reasoningUiLayout": "UNIFIED",
+                        "willThinkLong": false
+                    }
+                },
+                "uiLayout": {
+                    "reasoningUiLayout": "UNIFIED",
+                    "willThinkLong": false,
+                    "rolloutIds": []
+                },
+                "thinkingStartTime": "2026-02-28T06:08:45.644Z",
+                "thinkingEndTime": "2026-02-28T06:09:13.608Z",
+                "citedWebSearchResults": [],
+                "toolResponses": [],
+                "model": "grok-4",
+                "requestMetadata": {
+                    "model": "grok-4",
+                    "mode": "MODEL_MODE_EXPERT",
+                    "effort": "HIGH"
+                },
+                "ragResults": [],
+                "citedRagResults": [],
+                "searchProductResults": [],
+                "connectorSearchResults": [],
+                "collectionSearchResults": [],
+                "highlightsStories": [],
+                "streamErrors": []
+            },
+            "isThinking": false,
+            "isSoftStop": false,
+            "responseId": "38f85e85-6a9c-42f0-80b5-99c990c3f17a"
+        }
+    }
+}{
+    "result": {
+        "title": {
+            "newTitle": "刘美贤冬奥金牌照片"
+        }
+    }
+}
