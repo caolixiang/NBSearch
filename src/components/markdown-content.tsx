@@ -3,6 +3,7 @@
 import {
   Children,
   isValidElement,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -240,7 +241,8 @@ function escapeMarkdownText(value: string): string {
 }
 
 function wrapMarkdownUrl(url: string): string {
-  return `<${url.trim()}>`
+  // Avoid angle-bracket wrapping — causes issues in nested [![alt](src)](href) syntax
+  return url.trim().replace(/[()\s]/g, (ch) => `%${ch.charCodeAt(0).toString(16).toUpperCase()}`)
 }
 
 function toImageCardMeta(card: ChatCardAttachmentPayload): ImageCardMeta | null {
@@ -299,14 +301,16 @@ export function expandGrokRenderTags(content: string, cards: Record<string, Imag
     if (!card) {
       return ""
     }
-    const imageUrl = card.image?.original || card.image?.thumbnail || card.url
+    // Prefer thumbnail (Google image proxy) for display — it's CORS-friendly.
+    // Source-site original URLs often block cross-origin/hotlinked loads.
+    const imageUrl = card.image?.thumbnail || card.image?.original || card.url
     if (!imageUrl) {
       return ""
     }
 
     const alt = escapeMarkdownText(card.image?.title || card.image?.source || "Generated Image") || "Generated Image"
     const imageMarkdown = `![${alt}](${wrapMarkdownUrl(imageUrl)})`
-    const targetUrl = card.image?.link || card.url
+    const targetUrl = card.image?.link || card.image?.original || card.url
     return targetUrl ? `[${imageMarkdown}](${wrapMarkdownUrl(targetUrl)})` : imageMarkdown
   }
 
@@ -650,6 +654,37 @@ export function normalizeAssistantMarkdown(content: string): string {
   normalized = normalized.replace(/(^|\n)(#{1,6}\s[^\n-]+)-\s?/g, "$1$2\n- ")
   normalized = normalized.replace(/([\u4E00-\u9FFF）)])-(?=[\u4E00-\u9FFF0-9A-Za-z])/g, "$1\n- ")
   normalized = normalized.replace(/([^\n])(?=\d+\.\s)/g, "$1\n")
+  // --- Image markdown repair ---
+  // Step 1: Unwrap single-line linked images: [![alt](img)](link) → ![alt](img)
+  normalized = normalized.replace(
+    /\[(!\[[^\]]*\]\([^)]+\))\]\([^)]+\)/g,
+    "$1"
+  )
+  // Step 2: Fix multi-line linked images: [![alt\ntext](img)](link) → ![alt text](img)
+  normalized = normalized.replace(
+    /\[!\[([\s\S]*?)\]\(([^)]+)\)\]\([^)]+\)/g,
+    (_, alt, imgSrc) => {
+      const cleanAlt = alt.replace(/[\n\r]+/g, " ").replace(/\s+/g, " ").trim()
+      return `![${cleanAlt}](${imgSrc})`
+    }
+  )
+  // Step 3: Fix multi-line plain images: ![alt\ntext](url) → ![alt text](url)
+  normalized = normalized.replace(
+    /!\[([\s\S]*?)\]\((https?:\/\/[^)]+)\)/g,
+    (_, alt, url) => {
+      if (!alt.includes("\n")) return `![${alt}](${url})`
+      const cleanAlt = alt.replace(/[\n\r]+/g, " ").replace(/\s+/g, " ").trim()
+      return `![${cleanAlt}](${url})`
+    }
+  )
+  // Step 4: Fix URLs with spaces: ![alt](https://encrypted - tbn0...) → remove spaces in URL
+  normalized = normalized.replace(
+    /(!\[[^\]]*\]\()(https?:\/\/[^)]+)(\))/g,
+    (_, prefix, url, suffix) => {
+      const fixedUrl = url.replace(/\s+/g, "")
+      return `${prefix}${fixedUrl}${suffix}`
+    }
+  )
   normalized = normalized.replace(/\n{3,}/g, "\n\n")
   return normalized.trim()
 }
@@ -1152,15 +1187,24 @@ function humanizeToolName(value: string): string {
   if (isXSearchToolName(trimmed)) {
     return "已搜索 X"
   }
-  if (trimmed.includes("search")) {
-    return "已搜索网络"
+  if (trimmed.toLowerCase().includes("search")) {
+    return "已搜索的网络"
   }
   return trimmed.replace(/[_-]+/g, " ")
 }
 
-function resolveStructuredEntryLabel(toolName: string, visited: boolean): string {
+function resolveStructuredEntryLabel(toolName: string, visited: boolean, status?: string): string {
   if (visited) {
     return "已浏览网页"
+  }
+  if (isImageSearchToolName(toolName)) {
+    return status === "completed" ? "已搜索图像" : "搜索图像"
+  }
+  if (isXSearchToolName(toolName)) {
+    return status === "completed" ? "已搜索 X" : "搜索 X"
+  }
+  if (toolName.toLowerCase().includes("search")) {
+    return status === "completed" ? "已搜索的网络" : "搜索网页"
   }
   return humanizeToolName(toolName)
 }
@@ -1282,33 +1326,115 @@ function buildStructuredReasoningSummary(events: ChatReasoningEventDetail[]): St
   }
 }
 
-function AgentPixelAvatar({
+function AgentCanvasOrb({
   paletteIndex,
   active,
+  thinking,
   size = "md",
 }: {
   paletteIndex: number
   active: boolean
+  thinking: boolean
   size?: "sm" | "md" | "lg"
 }) {
-  const palette = AGENT_PIXEL_PALETTES[Math.abs(paletteIndex) % AGENT_PIXEL_PALETTES.length] as readonly string[]
-  const [p0, p1, p2, p3] = palette
-  const orbStyle = {
-    backgroundImage: `conic-gradient(from 210deg, ${p0}, ${p1}, ${p2}, ${p3}, ${p0})`,
-  } as const
+  const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  const rafRef = useRef<number | null>(null)
+  const tickRef = useRef(0)
+
+  // Grok uses golden angle (137.508°) to distribute base hues
+  const baseHue = useMemo(() => (137.508 * (paletteIndex + 1)) % 360, [paletteIndex])
+
+  // Build 8×8 color grid using HSL variations around baseHue
+  const buildGrid = useCallback(
+    (time: number) => {
+      const grid: string[][] = []
+      for (let y = 0; y < 8; y++) {
+        const row: string[] = []
+        for (let x = 0; x < 8; x++) {
+          const dx = x - 3.5
+          const dy = y - 3.5
+          const dist = Math.sqrt(dx * dx + dy * dy)
+          if (dist > 3.6) {
+            row.push("transparent")
+            continue
+          }
+          // Per-cell hue offset (golden angle per cell position)
+          const cellHash = Math.imul(x * 7 + y * 13 + paletteIndex * 31, 2654435761) >>> 0
+          const hueOffset = ((cellHash & 0xff) / 255) * 60 - 30 // ±30° variation
+          // During animation: shift hue based on time and position
+          const timeShift = thinking ? Math.sin(time * 0.003 + x * 0.7 + y * 0.5) * 25 : 0
+          const hue = (baseHue + hueOffset + timeShift + 360) % 360
+          // Saturation/lightness vary by distance from center
+          const satBase = 75 + (cellHash >> 8 & 0xf)
+          const litBase = 45 + ((cellHash >> 12 & 0xf) - 8) + (1 - dist / 3.6) * 12
+          row.push(`hsl(${hue.toFixed(1)}, ${satBase}%, ${litBase.toFixed(1)}%)`)
+        }
+        grid.push(row)
+      }
+      return grid
+    },
+    [baseHue, paletteIndex, thinking]
+  )
+
+  // Draw grid to canvas
+  const draw = useCallback(
+    (ctx: CanvasRenderingContext2D, time: number) => {
+      ctx.clearRect(0, 0, 64, 64)
+      const grid = buildGrid(time)
+      for (let y = 0; y < 8; y++) {
+        for (let x = 0; x < 8; x++) {
+          const color = grid[y]?.[x]
+          if (!color || color === "transparent") continue
+          ctx.fillStyle = color
+          ctx.fillRect(x * 8, y * 8, 8, 8)
+        }
+      }
+    },
+    [buildGrid]
+  )
+
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext("2d")
+    if (!ctx) return
+
+    if (thinking) {
+      const loop = () => {
+        tickRef.current += 16
+        draw(ctx, tickRef.current)
+        rafRef.current = requestAnimationFrame(loop)
+      }
+      loop()
+      return () => {
+        if (rafRef.current) cancelAnimationFrame(rafRef.current)
+      }
+    } else {
+      draw(ctx, 0)
+    }
+  }, [draw, thinking])
+
+  const pxSize = size === "sm" ? 18 : size === "lg" ? 28 : 20
 
   return (
     <span
       className={cn(
-        "relative inline-flex shrink-0 items-center justify-center rounded-full",
-        size === "sm" ? "size-6" : size === "lg" ? "size-9" : "size-7",
+        "relative inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full",
         active ? "ring-2 ring-foreground/20 ring-offset-2 ring-offset-background" : ""
       )}
+      style={{ width: pxSize, height: pxSize }}
       aria-hidden="true"
     >
-      <span className="absolute inset-0 rounded-full border border-black/15 bg-white" />
-      <span style={orbStyle} className="absolute inset-[1.2px] rounded-full" />
-      <span className="absolute inset-[2.2px] rounded-full border border-white/35 bg-transparent" />
+      <canvas
+        ref={canvasRef}
+        width={64}
+        height={64}
+        style={{
+          width: pxSize,
+          height: pxSize,
+          imageRendering: "pixelated" as const,
+        }}
+      />
     </span>
   )
 }
@@ -1341,15 +1467,12 @@ function AgentIconOrb({
       aria-hidden="true"
     >
       {active ? <span className="absolute -inset-[2.5px] rounded-full think-agent-active-halo" /> : null}
-      <span
-        style={shellStyle}
-        className={cn(
-          "absolute rounded-full border",
-          size === "sm" ? "inset-[0.75px]" : size === "lg" ? "inset-[0.5px]" : "inset-[0.65px]",
-          thinking ? "think-agent-orb-shell" : ""
-        )}
+      <AgentCanvasOrb
+        paletteIndex={paletteIndex}
+        active={active}
+        thinking={thinking}
+        size={size}
       />
-      <AgentPixelAvatar paletteIndex={paletteIndex} active={active} size={size} />
     </span>
   )
 }
@@ -1616,7 +1739,10 @@ function StructuredReasoningPanel({
     return () => window.cancelAnimationFrame(raf)
   }, [effectiveThinking, summary.entries.length])
 
-  const summaryLabel = effectiveThinking ? "思考中" : "思考过程"
+  const hasAgentItems = agents.length > 1
+  const summaryLabel = hasAgentItems
+    ? (effectiveThinking ? "代理人思维方式" : "代理人思维方式")
+    : (effectiveThinking ? "思考中" : "思考过程")
   const durationLabel = durationSeconds > 0 || effectiveThinking ? ` · ${durationSeconds || 0}s` : ""
   const hasAnyRecords = summary.entries.length > 0
   const showPanel = effectiveThinking || hasAnyRecords
@@ -1630,7 +1756,7 @@ function StructuredReasoningPanel({
     <div className="my-2 w-full">
       <button
         type="button"
-        className="inline-flex items-center gap-2 text-muted-foreground"
+        className="inline-flex items-center gap-1.5 text-muted-foreground"
         onClick={() => {
           if (effectiveThinking) {
             return
@@ -1644,15 +1770,22 @@ function StructuredReasoningPanel({
             bodyExpanded ? "rotate-90" : ""
           )}
         />
-        <AgentAvatarStack agents={agents} activeAgentKey={activeAgentKey} thinking={effectiveThinking} />
-        <span
-          className={cn(
-            "text-[0.92rem] font-medium",
-            effectiveThinking ? "text-foreground/80" : "text-muted-foreground"
-          )}
-        >
-          {summaryLabel}
-          {durationLabel}
+        <span className={cn(
+          "inline-flex items-center gap-1.5 rounded-full py-1 px-2.5 transition-all duration-300",
+          effectiveThinking
+            ? "border border-border/40 bg-background/60 shadow-sm backdrop-blur-md"
+            : "border-transparent bg-transparent py-0 px-0"
+        )}>
+          <AgentAvatarStack agents={agents} activeAgentKey={activeAgentKey} thinking={effectiveThinking} />
+          <span
+            className={cn(
+              "text-sm font-medium whitespace-nowrap",
+              effectiveThinking ? "text-foreground/80" : "text-muted-foreground"
+            )}
+          >
+            {summaryLabel}
+            <span className="text-muted-foreground">{durationLabel}</span>
+          </span>
         </span>
       </button>
       <div
@@ -1670,7 +1803,7 @@ function StructuredReasoningPanel({
           )}
         >
           {displayEntries.length > 0 ? (
-            <div className={cn(effectiveThinking ? "flex min-h-[12.5rem] flex-col justify-end space-y-2" : "space-y-2")}>
+            <div className={cn(effectiveThinking ? "flex min-h-[12.5rem] flex-col justify-end gap-2" : "space-y-2")}>
               {displayEntries.map((entry, index) => {
                 const active =
                   effectiveThinking && entry.status === "running" && toAgentKey(entry.rolloutId) === activeAgentKey
@@ -1682,8 +1815,8 @@ function StructuredReasoningPanel({
                   <div
                     key={key}
                     className={cn(
-                      "flex items-start justify-between gap-3 py-1 transition-all duration-300",
-                      effectiveThinking ? "animate-in slide-in-from-bottom-2 duration-300 fade-in-50 think-stream-row" : "",
+                      "flex items-start justify-between gap-3 py-1 transition-all duration-200",
+                      effectiveThinking ? "think-stream-row" : "",
                       effectiveThinking && ageFromNewest >= 2
                         ? "think-stream-row-oldest"
                         : effectiveThinking && ageFromNewest === 1
@@ -1695,19 +1828,6 @@ function StructuredReasoningPanel({
                     )}
                   >
                     <div className="flex min-w-0 items-start gap-2.5">
-                      <span className="mt-0.5 inline-flex shrink-0 items-center justify-center">
-                        {descriptor.isPrimary ? (
-                          <GrokPrimaryOrb active={active} thinking={effectiveThinking} />
-                        ) : (
-                          <AgentIconOrb
-                            paletteIndex={descriptor.paletteIndex}
-                            active={active}
-                            thinking={effectiveThinking}
-                            size="sm"
-                            animationDelayMs={index * 110}
-                          />
-                        )}
-                      </span>
                       <span className="mt-1 inline-flex size-4 shrink-0 items-center justify-center text-muted-foreground">
                         {entry.visited ? (
                           <Globe className="size-4" />
@@ -1718,12 +1838,12 @@ function StructuredReasoningPanel({
                         )}
                       </span>
                       <div className="min-w-0">
-                        <p className="text-[0.78rem] text-muted-foreground">
-                          {descriptor.label} · {resolveStructuredEntryLabel(entry.toolName, entry.visited)}
+                        <p className="text-[13px] leading-5 text-muted-foreground">
+                          {resolveStructuredEntryLabel(entry.toolName, entry.visited, entry.status)}
                         </p>
                         <p
                           className={cn(
-                            "break-all text-[0.9rem] leading-6 text-foreground",
+                            "break-all text-sm font-medium leading-6 text-foreground",
                             entry.visited ? "italic" : ""
                           )}
                         >
@@ -1731,9 +1851,26 @@ function StructuredReasoningPanel({
                         </p>
                       </div>
                     </div>
-                    <div className="flex shrink-0 items-center gap-2 pt-0.5">
+                    <div className="flex shrink-0 items-center gap-1.5 pt-0.5">
                       {typeof entry.resultsCount === "number" ? (
-                        <span className="text-[0.78rem] text-muted-foreground">{entry.resultsCount} 结果</span>
+                        <span className="inline-flex items-center rounded border border-foreground/[0.06] px-1.5 py-0.5 text-[13px] tabular-nums text-muted-foreground">
+                          {entry.resultsCount} 结果
+                        </span>
+                      ) : null}
+                      {effectiveThinking ? (
+                        <span className="inline-flex shrink-0 items-center justify-center">
+                          {descriptor.isPrimary ? (
+                            <GrokPrimaryOrb active={active} thinking={effectiveThinking} />
+                          ) : (
+                            <AgentIconOrb
+                              paletteIndex={descriptor.paletteIndex}
+                              active={active}
+                              thinking={effectiveThinking}
+                              size="sm"
+                              animationDelayMs={index * 110}
+                            />
+                          )}
+                        </span>
                       ) : null}
                       {active ? <span className="size-1.5 animate-pulse rounded-full bg-foreground/60" /> : null}
                     </div>
@@ -2280,15 +2417,42 @@ export function MarkdownContent({
     () => expandGrokRenderTags(parsed.content, mergedCards),
     [mergedCards, parsed.content]
   )
+
+  // Throttle content updates during streaming to prevent image flickering.
+  // ReactMarkdown recreates <img> DOM elements on each re-render; limiting
+  // re-renders to ~8fps during streaming eliminates the visible flash.
+  const latestContentRef = useRef(expandedContent)
+  latestContentRef.current = expandedContent
+  const [throttledContent, setThrottledContent] = useState(expandedContent)
+  useEffect(() => {
+    if (!streaming) {
+      setThrottledContent(expandedContent)
+      return
+    }
+    // Flush immediately on first render, then throttle
+    setThrottledContent(expandedContent)
+    const id = setInterval(() => {
+      setThrottledContent(latestContentRef.current)
+    }, 120)
+    return () => clearInterval(id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [streaming])
+  // Also flush when streaming stops
+  useEffect(() => {
+    if (!streaming) {
+      setThrottledContent(latestContentRef.current)
+    }
+  }, [streaming, expandedContent])
+
   const hasStructuredReasoning = reasoningEvents.length > 0
   const shouldShowStructuredReasoning = hasStructuredReasoning
   const shouldRenderLegacyThink = !hasStructuredReasoning
   const sections = useMemo(
     () =>
-      parseThinkSections(expandedContent, {
+      parseThinkSections(throttledContent, {
         treatUnclosedThinkAsThinking: streaming,
       }),
-    [expandedContent, streaming]
+    [throttledContent, streaming]
   )
   const visibleSections = useMemo(
     () =>

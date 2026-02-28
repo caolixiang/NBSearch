@@ -16,6 +16,7 @@ import {
   buildConversationId,
   buildUserMessage,
   extractCardAttachmentsFromRawChunk,
+  extractChunkIsThinking,
   extractGatewayFinalMessageFromRawChunk,
   extractGatewayResponseIdFromRawChunk,
   extractGatewayTextDeltaFromRawChunk,
@@ -167,6 +168,11 @@ export class GrokChatService implements ChatService {
       const collectedCards: ChatCardAttachmentPayload[] = []
       const collectedCardIds = new Set<string>()
 
+      // Track thinking state: image_search tools never send raw_function_result,
+      // so we detect thinking->output transition and emit synthetic tool_results.
+      let wasThinking = false
+      const pendingToolUsageCardIds = new Set<string>()
+
       const appendWebSearchMeta = (items: WebSearchToolMeta[]) => {
         for (const item of items) {
           const dedupeKey = `${item.query}\u0000${item.numResults}`
@@ -218,7 +224,11 @@ export class GrokChatService implements ChatService {
           }
           buffer = buffer.slice(lastEnd)
 
-          // Process each parsed JSON object
+          // Process each parsed JSON object — batch events per network chunk
+          // to minimize React re-renders (prevents image flickering)
+          let chunkDelta = ""
+          const chunkReasoningEvents: ChatStreamEvent[] = []
+
           for (const segment of segments) {
             let parsed: unknown
             try {
@@ -227,11 +237,41 @@ export class GrokChatService implements ChatService {
               continue
             }
 
-            // Extract text delta
+            // Detect thinking -> output transition
+            const chunkIsThinking = extractChunkIsThinking(parsed)
+            if (chunkIsThinking === true) {
+              wasThinking = true
+            } else if (chunkIsThinking === false && wasThinking && pendingToolUsageCardIds.size > 0) {
+              for (const id of pendingToolUsageCardIds) {
+                chunkReasoningEvents.push({
+                  type: "reasoning",
+                  detail: {
+                    kind: "tool_result",
+                    result: { toolUsageCardId: id, isThinking: false },
+                  },
+                })
+              }
+              pendingToolUsageCardIds.clear()
+              wasThinking = false
+            }
+
+            // Extract reasoning events
+            const reasoningEvents = extractReasoningEventsFromRawChunk(parsed)
+            for (const detail of reasoningEvents) {
+              if (detail.kind === "tool_usage") {
+                pendingToolUsageCardIds.add(detail.usage.toolUsageCardId)
+              }
+              if (detail.kind === "tool_result" && detail.result.toolUsageCardId) {
+                pendingToolUsageCardIds.delete(detail.result.toolUsageCardId)
+              }
+              chunkReasoningEvents.push({ type: "reasoning", detail })
+            }
+
+            // Accumulate text delta (emit once after all segments)
             const delta = extractGatewayTextDeltaFromRawChunk(parsed)
             if (delta) {
               assistantText += delta
-              onEvent({ type: "delta", textDelta: delta })
+              chunkDelta += delta
             }
 
             // Extract response ID
@@ -252,15 +292,17 @@ export class GrokChatService implements ChatService {
               upstreamConversationTitle = nextTitle
             }
 
-            // Extract web search meta & cards
+            // Extract web search meta & cards (collect only)
             appendWebSearchMeta(extractWebSearchToolMetaFromRawChunk(parsed))
             appendCards(extractCardAttachmentsFromRawChunk(parsed))
+          }
 
-            // Extract reasoning events
-            const reasoningEvents = extractReasoningEventsFromRawChunk(parsed)
-            for (const detail of reasoningEvents) {
-              onEvent({ type: "reasoning", detail })
-            }
+          // Emit batched events — React 18 batches these into a single render
+          for (const event of chunkReasoningEvents) {
+            onEvent(event)
+          }
+          if (chunkDelta) {
+            onEvent({ type: "delta", textDelta: chunkDelta })
           }
         }
       } finally {

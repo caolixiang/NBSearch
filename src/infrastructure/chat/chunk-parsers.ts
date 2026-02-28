@@ -918,3 +918,29 @@ export function buildUserMessage(text: string): ChatMessage {
     status: "completed",
   }
 }
+
+/**
+ * Extract the `isThinking` boolean from a raw Grok chunk.
+ * Returns `true`, `false`, or `null` if not present.
+ */
+export function extractChunkIsThinking(rawChunk: unknown): boolean | null {
+  if (!isRecord(rawChunk)) {
+    return null
+  }
+  // Direct: { isThinking: boolean }
+  if (typeof rawChunk.isThinking === "boolean") {
+    return rawChunk.isThinking
+  }
+  // Wrapped: { result: { response: { isThinking: boolean } } }
+  const result = isRecord(rawChunk.result) ? rawChunk.result : null
+  const response = result && isRecord(result.response) ? result.response : null
+  if (response && typeof response.isThinking === "boolean") {
+    return response.isThinking
+  }
+  // Direct response: { response: { isThinking: boolean } }
+  const directResponse = isRecord(rawChunk.response) ? rawChunk.response : null
+  if (directResponse && typeof directResponse.isThinking === "boolean") {
+    return directResponse.isThinking
+  }
+  return null
+}

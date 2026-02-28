@@ -166,8 +166,8 @@ describe("expandGrokRenderTags", () => {
       }
     )
 
-    expect(expanded).toContain("![sample](<https://img.test/a.jpg>)")
-    expect(expanded).toContain("](<https://source.test>)")
+    expect(expanded).toContain("![sample](https://img.test/a.jpg)")
+    expect(expanded).toContain("](https://source.test)")
   })
 
   it("replaces self-closing grok:render tags with markdown image links", () => {
@@ -186,7 +186,7 @@ describe("expandGrokRenderTags", () => {
       }
     )
 
-    expect(expanded).toContain("![sample](<https://img.test/a.jpg>)")
+    expect(expanded).toContain("![sample](https://img.test/a.jpg)")
   })
 
   it("appends image cards when content has no grok render placeholders", () => {
@@ -203,7 +203,7 @@ describe("expandGrokRenderTags", () => {
     })
 
     expect(expanded).toContain("正文内容")
-    expect(expanded).toContain("![fallback](<https://img.test/fallback-a.jpg>)")
+    expect(expanded).toContain("![fallback](https://img.test/fallback-a.jpg)")
   })
 
   it("does not append fallback cards when markdown already contains images", () => {
@@ -236,7 +236,7 @@ describe("expandGrokRenderTags", () => {
       },
     })
 
-    expect(expanded).toContain("![fallback-c](<https://img.test/fallback-c.jpg>)")
+    expect(expanded).toContain("![fallback-c](https://img.test/fallback-c.jpg)")
   })
 
   it("does not show fallback cards before think section is closed", () => {
@@ -269,6 +269,6 @@ describe("expandGrokRenderTags", () => {
     })
 
     expect(expanded).toContain("</think>")
-    expect(expanded).toContain("![fallback-e](<https://img.test/fallback-e.jpg>)")
+    expect(expanded).toContain("![fallback-e](https://img.test/fallback-e.jpg)")
   })
 })
