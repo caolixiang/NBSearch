@@ -970,17 +970,29 @@ function AgentOrb({
 
   return (
     <span
-      style={style}
       className={cn(
-        "relative inline-flex shrink-0 items-center justify-center rounded-full border border-white/85 shadow-[0_0_0_1px_rgba(17,24,39,0.08)]",
+        "relative inline-flex shrink-0 items-center justify-center rounded-full",
         size === "sm" ? "size-6" : "size-7",
-        thinking ? "think-agent-orb" : "",
-        active ? "ring-2 ring-emerald-400/70 ring-offset-1 ring-offset-background" : ""
+        active ? "ring-2 ring-foreground/18 ring-offset-2 ring-offset-background" : ""
       )}
       aria-hidden="true"
     >
-      <span className="absolute inset-[22%] rounded-sm bg-white/18" />
-      <span className="absolute inset-x-[18%] top-[45%] h-[10%] rounded bg-white/15" />
+      <span
+        style={style}
+        className={cn(
+          "absolute inset-0 rounded-full opacity-95",
+          thinking ? "think-agent-orb-shell" : ""
+        )}
+      />
+      <span className="absolute inset-[1.5px] rounded-full bg-background/92 backdrop-blur-[1px]" />
+      <span
+        className={cn(
+          "absolute inset-[4px] rounded-full bg-foreground/92 shadow-[inset_0_0_0_0.5px_rgba(255,255,255,0.16)]",
+          active ? "think-agent-core-active" : ""
+        )}
+      />
+      <span className="absolute inset-[36%] rounded-[3px] bg-background/90" />
+      <span className="absolute inset-x-[31%] top-[48%] h-[8%] rounded-full bg-background/68" />
     </span>
   )
 }
@@ -990,11 +1002,13 @@ function GrokPrimaryOrb({ active }: { active: boolean }) {
     <span
       className={cn(
         "inline-flex shrink-0 items-center justify-center rounded-full",
-        active ? "ring-2 ring-emerald-400/70 ring-offset-1 ring-offset-background" : ""
+        active ? "ring-2 ring-foreground/18 ring-offset-2 ring-offset-background" : ""
       )}
       aria-hidden="true"
     >
-      <GrokAvatar size="sm" />
+      <span className={cn("rounded-full", active ? "think-grok-orb" : "")}>
+        <GrokAvatar size="sm" />
+      </span>
     </span>
   )
 }
@@ -1150,9 +1164,9 @@ function StructuredReasoningPanel({
         <AgentAvatarStack agents={agents} activeAgentKey={activeAgentKey} thinking />
         <span className="text-[0.95rem] font-medium">思考中</span>
       </div>
-      <div className="relative mt-2 min-h-[13.5rem]">
+      <div className="relative mt-2 min-h-[13.5rem] overflow-hidden">
         {displayEntries.length > 0 ? (
-          <div className="space-y-3">
+          <div className="flex min-h-[13.5rem] flex-col justify-end space-y-3">
             {displayEntries.map((entry, index) => {
               const active = entry.status === "running" && toAgentKey(entry.rolloutId) === activeAgentKey
               const entryAgentKey = toAgentKey(entry.rolloutId)
@@ -1161,7 +1175,10 @@ function StructuredReasoningPanel({
               return (
                 <div
                   key={key}
-                  className="animate-in slide-in-from-bottom-2 duration-300 fade-in-50 flex items-start justify-between gap-4"
+                  className={cn(
+                    "animate-in slide-in-from-bottom-2 duration-300 fade-in-50 flex items-start justify-between gap-4",
+                    "think-stream-row"
+                  )}
                 >
                   <div className="flex min-w-0 items-start gap-2.5">
                     <span className="mt-0.5 inline-flex shrink-0 items-center justify-center">
@@ -1198,7 +1215,7 @@ function StructuredReasoningPanel({
                     {typeof entry.resultsCount === "number" ? (
                       <span className="text-[0.88rem] text-muted-foreground">{entry.resultsCount} 结果</span>
                     ) : null}
-                    {active ? <span className="size-1.5 animate-pulse rounded-full bg-emerald-500" /> : null}
+                    {active ? <span className="size-1.5 animate-pulse rounded-full bg-foreground/60" /> : null}
                   </div>
                 </div>
               )
@@ -1211,6 +1228,8 @@ function StructuredReasoningPanel({
             <div className="h-5 w-4/5 animate-pulse rounded bg-secondary/60" />
           </div>
         )}
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-8 bg-gradient-to-b from-background via-background/88 to-transparent" />
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-background via-background/84 to-transparent" />
       </div>
     </div>
   )
