@@ -72,52 +72,63 @@ describe("extractResponseNewTitleFromRawChunk", () => {
 
     expect(title).toBe("")
   })
-
-  it("extracts newTitle from gateway result envelope", () => {
-    const title = extractResponseNewTitleFromRawChunk({
-      result: {
-        title: {
-          newTitle: "Friendly greeting",
-        },
-      },
-    })
-
-    expect(title).toBe("Friendly greeting")
-  })
 })
 
 describe("gateway raw chunk extractors", () => {
-  it("extracts token/message/responseId from gateway response envelope", () => {
+  it("extracts token/message/responseId from responses stream events", () => {
     const rawChunk = {
-      result: {
-        response: {
-          token: "你",
-          responseId: "resp_env_1",
-          modelResponse: {
-            message: "你好！",
-            responseId: "resp_model_1",
-          },
-        },
-      },
+      type: "response.output_text.delta",
+      delta: "你",
+      response_id: "resp_stream_1",
     }
 
     expect(extractGatewayTextDeltaFromRawChunk(rawChunk)).toBe("你")
-    expect(extractGatewayFinalMessageFromRawChunk(rawChunk)).toBe("你好！")
-    expect(extractGatewayResponseIdFromRawChunk(rawChunk)).toBe("resp_env_1")
+    expect(extractGatewayResponseIdFromRawChunk(rawChunk)).toBe("resp_stream_1")
   })
 
-  it("falls back to modelResponse.responseId when envelope responseId is missing", () => {
+  it("extracts final message and response id from response.completed event", () => {
     const rawChunk = {
-      result: {
-        response: {
-          modelResponse: {
-            responseId: "resp_model_only",
+      type: "response.completed",
+      response: {
+        id: "resp_completed_1",
+        output: [
+          {
+            type: "message",
+            content: [
+              {
+                type: "output_text",
+                text: "你好！",
+              },
+            ],
           },
-        },
+        ],
       },
     }
 
-    expect(extractGatewayResponseIdFromRawChunk(rawChunk)).toBe("resp_model_only")
+    expect(extractGatewayFinalMessageFromRawChunk(rawChunk)).toBe("你好！")
+    expect(extractGatewayResponseIdFromRawChunk(rawChunk)).toBe("resp_completed_1")
+  })
+
+  it("extracts final message from response.output_text.done event", () => {
+    const rawChunk = {
+      type: "response.output_text.done",
+      text: "最终答案",
+      response_id: "resp_done_1",
+    }
+
+    expect(extractGatewayFinalMessageFromRawChunk(rawChunk)).toBe("最终答案")
+    expect(extractGatewayResponseIdFromRawChunk(rawChunk)).toBe("resp_done_1")
+  })
+
+  it("extracts response id from response.created payload", () => {
+    const rawChunk = {
+      type: "response.created",
+      response: {
+        id: "resp_created_1",
+      },
+    }
+
+    expect(extractGatewayResponseIdFromRawChunk(rawChunk)).toBe("resp_created_1")
   })
 })
 
@@ -152,62 +163,47 @@ describe("extractWebSearchToolMetaFromRawChunk", () => {
 })
 
 describe("extractCardAttachmentsFromRawChunk", () => {
-  it("extracts image cards from cardAttachment jsonData", () => {
+  it("extracts generated images from response.completed image_generation", () => {
     const cards = extractCardAttachmentsFromRawChunk({
-      result: {
-        response: {
-          cardAttachment: {
-            jsonData:
-              "{\"id\":\"card_1\",\"cardType\":\"image_card\",\"type\":\"render_searched_image\",\"image\":{\"original\":\"https://img.test/a.jpg\",\"thumbnail\":\"https://img.test/t.jpg\",\"title\":\"A\"}}",
-          },
+      type: "response.completed",
+      response: {
+        id: "resp_1",
+        image_generation: {
+          data: [{ url: "https://img.test/a.jpg" }, { url: "https://img.test/b.jpg" }],
         },
       },
     })
 
-    expect(cards).toEqual([
-      {
-        id: "card_1",
-        cardType: "image_card",
-        type: "render_searched_image",
-        image: {
-          original: "https://img.test/a.jpg",
-          thumbnail: "https://img.test/t.jpg",
-          title: "A",
-          link: undefined,
-          source: undefined,
-        },
-        url: undefined,
-      },
-    ])
+    expect(cards).toHaveLength(2)
+    expect(cards[0]?.type).toBe("generated_image")
+    expect(cards[0]?.image?.original).toBe("https://img.test/a.jpg")
+    expect(cards[1]?.image?.original).toBe("https://img.test/b.jpg")
+  })
+
+  it("extracts generated images from current top-level data payload", () => {
+    const cards = extractCardAttachmentsFromRawChunk({
+      type: "response.completed",
+      data: [{ url: "https://img.test/a.jpg" }, { url: "https://img.test/b.jpg" }],
+    })
+
+    expect(cards).toHaveLength(2)
+    expect(cards[0]?.type).toBe("generated_image")
+    expect(cards[0]?.image?.original).toBe("https://img.test/a.jpg")
+    expect(cards[1]?.image?.original).toBe("https://img.test/b.jpg")
   })
 })
 
 describe("extractReasoningEventsFromRawChunk", () => {
-  it("extracts ui layout + tool usage + tool result events", () => {
+  it("extracts ui layout from response.created", () => {
     const events = extractReasoningEventsFromRawChunk({
-      result: {
-        response: {
-          isThinking: true,
-          responseId: "resp_1",
-          rolloutId: "Agent 1",
-          uiLayout: {
-            reasoningUiLayout: "UNIFIED",
-            willThinkLong: true,
-            effort: "HIGH",
-            rolloutIds: ["Grok", "Agent 1"],
-          },
-          toolUsageCard: {
-            toolUsageCardId: "tool_1",
-            webSearch: {
-              args: {
-                query: "hello",
-              },
-            },
-          },
-          toolUsageCardId: "tool_1",
-          webSearchResults: {
-            results: [{ url: "https://a.test" }, { url: "https://b.test" }],
-          },
+      type: "response.created",
+      response: {
+        id: "resp_1",
+        uiLayout: {
+          reasoningUiLayout: "UNIFIED",
+          willThinkLong: true,
+          effort: "HIGH",
+          rolloutIds: ["Grok", "Agent 1"],
         },
       },
     })
@@ -221,9 +217,61 @@ describe("extractReasoningEventsFromRawChunk", () => {
           effort: "HIGH",
           rolloutIds: ["Grok", "Agent 1"],
         },
-        isThinking: true,
+        isThinking: undefined,
         responseId: "resp_1",
       },
+    ])
+  })
+
+  it("extracts tool usage from response.output_item.added", () => {
+    const events = extractReasoningEventsFromRawChunk({
+      type: "response.output_item.added",
+      response_id: "resp_1",
+      item: {
+        type: "function_call",
+        id: "fc_1",
+        name: "web_search",
+        arguments: "{\"query\":\"hello\"}",
+        rollout_id: "Agent 1",
+      },
+    })
+
+    expect(events).toEqual([
+      {
+        kind: "tool_usage",
+        usage: {
+          toolUsageCardId: "fc_1",
+          toolName: "web_search",
+          args: {
+            query: "hello",
+          },
+          rolloutId: "Agent 1",
+          messageTag: undefined,
+          isThinking: undefined,
+          responseId: "resp_1",
+        },
+      },
+    ])
+  })
+
+  it("extracts tool usage from response.tool_usage_card", () => {
+    const events = extractReasoningEventsFromRawChunk({
+      type: "response.tool_usage_card",
+      response_id: "resp_1",
+      isThinking: true,
+      messageTag: "tool_usage_card",
+      rolloutId: "Agent 1",
+      toolUsageCard: {
+        toolUsageCardId: "tool_1",
+        webSearch: {
+          args: {
+            query: "hello",
+          },
+        },
+      },
+    })
+
+    expect(events).toEqual([
       {
         kind: "tool_usage",
         usage: {
@@ -233,19 +281,34 @@ describe("extractReasoningEventsFromRawChunk", () => {
             query: "hello",
           },
           rolloutId: "Agent 1",
-          messageTag: undefined,
+          messageTag: "tool_usage_card",
           isThinking: true,
           responseId: "resp_1",
         },
       },
+    ])
+  })
+
+  it("extracts tool result count from raw_function_result payload", () => {
+    const events = extractReasoningEventsFromRawChunk({
+      type: "response.tool_usage_card",
+      response_id: "resp_1",
+      isThinking: false,
+      messageTag: "raw_function_result",
+      rolloutId: "Agent 1",
+      toolUsageCardId: "tool_1",
+      webSearchResults: [{ url: "https://a.test" }, { url: "https://b.test" }],
+    })
+
+    expect(events).toEqual([
       {
         kind: "tool_result",
         result: {
           toolUsageCardId: "tool_1",
           rolloutId: "Agent 1",
-          messageTag: undefined,
+          messageTag: "raw_function_result",
           webSearchResultsCount: 2,
-          isThinking: true,
+          isThinking: false,
           responseId: "resp_1",
         },
       },
