@@ -14,6 +14,7 @@ import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import type { ChatCardAttachmentPayload, ChatReasoningEventDetail } from "@/domain/chat/types"
 import { cn } from "@/lib/utils"
+import { GrokLogo } from "./claude-logo"
 import { GrokLottieIcon, HoverAnimationProvider, type GrokLottieName } from "./grok-lottie"
 
 type TextSection = {
@@ -75,10 +76,14 @@ const AGENT_PIXEL_PALETTES = [
 const AGENT_STACK_RING_COLORS = ["#9ca3af", "#22c55e", "#f97316", "#9ca3af", "#60a5fa"] as const
 
 const AGENT_STACK_ICON_SEQUENCE: GrokLottieName[] = [
+  "rewind",
   "waveform",
   "square_pen",
   "square_code",
   "search",
+  "folder",
+  "image",
+  "pin",
 ]
 
 function resolveAgentIconName(paletteIndex: number): GrokLottieName {
@@ -1057,8 +1062,8 @@ function GrokPrimaryOrb({ active, thinking }: { active: boolean; thinking: boole
         {active ? <span className="absolute -inset-[2.5px] rounded-full think-agent-active-halo" /> : null}
         <span className={cn("absolute inset-0 rounded-full bg-[#9ca3af]", thinking ? "think-agent-orb-shell" : "")} />
         <span className="absolute inset-[1.4px] rounded-full border border-white/20 bg-black" />
-        <span className={cn("relative z-[1] text-white", active ? "think-grok-orb" : "")}>
-          <GrokLottieIcon name="waveform" size={14} />
+        <span className={cn("relative z-[1] inline-flex items-center justify-center text-white", active ? "think-grok-orb" : "")}>
+          <GrokLogo className="size-3.5" />
         </span>
       </span>
     </HoverAnimationProvider>
@@ -1079,25 +1084,16 @@ function AgentAvatarStack({
   return (
     <span className="inline-flex items-center -space-x-1.5">
       {visibleAgents.map((agent, index) =>
-        thinking ? (
-          agent.isPrimary ? (
-            <GrokPrimaryOrb key={agent.key} active={agent.key === activeAgentKey} thinking={thinking} />
-          ) : (
-            <AgentIconOrb
-              key={agent.key}
-              paletteIndex={agent.paletteIndex}
-              active={agent.key === activeAgentKey}
-              thinking={thinking}
-            size="sm"
-            animationDelayMs={index * 130}
-            />
-          )
+        agent.isPrimary ? (
+          <GrokPrimaryOrb key={agent.key} active={agent.key === activeAgentKey} thinking={thinking} />
         ) : (
-          <AgentPixelAvatar
+          <AgentIconOrb
             key={agent.key}
             paletteIndex={agent.paletteIndex}
             active={agent.key === activeAgentKey}
+            thinking={thinking}
             size="sm"
+            animationDelayMs={index * 130}
           />
         )
       )}
@@ -1178,7 +1174,6 @@ function StructuredReasoningPanel({
   isThinking: boolean
 }) {
   const summary = useMemo(() => buildStructuredReasoningSummary(events), [events])
-  const displayEntries = useMemo(() => summary.entries.slice(-3), [summary.entries])
   const agents = useMemo(() => collectRolloutAgents(summary.rolloutIds), [summary.rolloutIds])
   const agentByKey = useMemo(() => {
     const map = new Map<string, AgentDescriptor>()
@@ -1188,6 +1183,14 @@ function StructuredReasoningPanel({
     return map
   }, [agents])
   const [activeTick, setActiveTick] = useState(0)
+  const [expanded, setExpanded] = useState(isThinking)
+  const [durationSeconds, setDurationSeconds] = useState(0)
+  const startedAtRef = useRef<number | null>(isThinking ? Date.now() : null)
+  const previousThinkingRef = useRef(isThinking)
+  const displayEntries = useMemo(
+    () => (isThinking ? summary.entries.slice(-3) : summary.entries),
+    [isThinking, summary.entries]
+  )
 
   const activeAgentKey = useMemo(() => {
     for (let index = summary.entries.length - 1; index >= 0; index -= 1) {
@@ -1206,6 +1209,23 @@ function StructuredReasoningPanel({
   }, [activeTick, agents, summary.entries])
 
   useEffect(() => {
+    if (isThinking) {
+      if (!startedAtRef.current) {
+        startedAtRef.current = Date.now()
+      }
+      setExpanded(true)
+    } else if (startedAtRef.current) {
+      const elapsed = Math.max(1, Math.round((Date.now() - startedAtRef.current) / 1000))
+      setDurationSeconds(elapsed)
+    }
+
+    if (previousThinkingRef.current && !isThinking) {
+      setExpanded(false)
+    }
+    previousThinkingRef.current = isThinking
+  }, [isThinking])
+
+  useEffect(() => {
     if (!isThinking || agents.length <= 1) {
       return
     }
@@ -1215,89 +1235,135 @@ function StructuredReasoningPanel({
     return () => window.clearInterval(timer)
   }, [agents.length, isThinking])
 
-  if (!isThinking) {
-    return null
-  }
+  useEffect(() => {
+    if (!isThinking || !startedAtRef.current) {
+      return
+    }
+
+    const syncElapsed = () => {
+      if (!startedAtRef.current) {
+        return
+      }
+      const elapsed = Math.max(1, Math.floor((Date.now() - startedAtRef.current) / 1000))
+      setDurationSeconds(elapsed)
+    }
+
+    syncElapsed()
+    const timer = window.setInterval(syncElapsed, 1000)
+    return () => window.clearInterval(timer)
+  }, [isThinking])
+
+  const summaryLabel = isThinking ? "思考中" : "思考过程"
+  const durationLabel = durationSeconds > 0 || isThinking ? ` · ${durationSeconds || 0}s` : ""
 
   return (
     <div className="my-2 w-full">
-      <div className="inline-flex items-center gap-2 text-muted-foreground">
-        <AgentAvatarStack agents={agents} activeAgentKey={activeAgentKey} thinking />
-        <span className="text-[0.95rem] font-medium">思考中</span>
-      </div>
-      <div className="relative mt-2 min-h-[14rem] overflow-hidden">
-        {displayEntries.length > 0 ? (
-          <div className="flex min-h-[14rem] flex-col justify-end space-y-3">
-            {displayEntries.map((entry, index) => {
-              const active = entry.status === "running" && toAgentKey(entry.rolloutId) === activeAgentKey
-              const entryAgentKey = toAgentKey(entry.rolloutId)
-              const descriptor = agentByKey.get(entryAgentKey) || resolveAgentDescriptorByKey(agents, entryAgentKey)
-              const key = `${entry.key}:${index}`
-              const ageFromNewest = displayEntries.length - 1 - index
-              return (
-                <div
-                  key={key}
-                  className={cn(
-                    "animate-in slide-in-from-bottom-2 duration-300 fade-in-50 flex items-start justify-between gap-4",
-                    "think-stream-row",
-                    ageFromNewest >= 2
-                      ? "think-stream-row-oldest"
-                      : ageFromNewest === 1
-                        ? "think-stream-row-middle"
-                        : "think-stream-row-newest",
-                    active ? "think-stream-row-active" : ""
-                  )}
-                >
-                  <div className="flex min-w-0 items-start gap-2.5">
-                    <span className="mt-0.5 inline-flex shrink-0 items-center justify-center">
-                      {descriptor.isPrimary ? (
-                        <GrokPrimaryOrb active={active} thinking />
-                      ) : (
-                        <AgentIconOrb
-                          paletteIndex={descriptor.paletteIndex}
-                          active={active}
-                          thinking
-                          size="sm"
-                          animationDelayMs={index * 110}
-                        />
-                      )}
-                    </span>
-                    <span className="mt-1 inline-flex size-5 shrink-0 items-center justify-center text-muted-foreground">
-                      {entry.visited ? <Globe className="size-5" /> : <Search className="size-5" />}
-                    </span>
-                    <div className="min-w-0">
-                      <p className="text-[0.9rem] text-muted-foreground">
-                        {descriptor.label} · {entry.visited ? "已浏览网页" : "已经搜索网络"}
-                      </p>
-                      <p
-                        className={cn(
-                          "break-all text-[0.98rem] leading-7 text-foreground",
-                          entry.visited ? "italic" : ""
+      <button
+        type="button"
+        className="inline-flex items-center gap-2 text-muted-foreground"
+        onClick={() => setExpanded((value) => !value)}
+      >
+        <ChevronRight
+          className={cn(
+            "size-4 shrink-0 text-muted-foreground/85 transition-transform duration-200",
+            expanded ? "rotate-90" : ""
+          )}
+        />
+        <AgentAvatarStack agents={agents} activeAgentKey={activeAgentKey} thinking={isThinking} />
+        <span className={cn("text-[0.95rem] font-medium", isThinking ? "text-foreground/80" : "text-muted-foreground")}>
+          {summaryLabel}
+          {durationLabel}
+        </span>
+      </button>
+      <div
+        className={cn(
+          "transition-all duration-200 ease-out",
+          expanded ? "mt-2 opacity-100" : "max-h-0 overflow-hidden opacity-0"
+        )}
+      >
+        <div className={cn(isThinking ? "relative min-h-[14rem] overflow-hidden" : "max-h-[65vh] overflow-auto pr-2")}>
+          {displayEntries.length > 0 ? (
+            <div className={cn(isThinking ? "flex min-h-[14rem] flex-col justify-end space-y-3" : "space-y-3")}>
+              {displayEntries.map((entry, index) => {
+                const active =
+                  isThinking && entry.status === "running" && toAgentKey(entry.rolloutId) === activeAgentKey
+                const entryAgentKey = toAgentKey(entry.rolloutId)
+                const descriptor = agentByKey.get(entryAgentKey) || resolveAgentDescriptorByKey(agents, entryAgentKey)
+                const key = `${entry.key}:${index}`
+                const ageFromNewest = displayEntries.length - 1 - index
+                return (
+                  <div
+                    key={key}
+                    className={cn(
+                      "flex items-start justify-between gap-4",
+                      isThinking ? "animate-in slide-in-from-bottom-2 duration-300 fade-in-50 think-stream-row" : "",
+                      isThinking && ageFromNewest >= 2
+                        ? "think-stream-row-oldest"
+                        : isThinking && ageFromNewest === 1
+                          ? "think-stream-row-middle"
+                          : isThinking
+                            ? "think-stream-row-newest"
+                            : "",
+                      active ? "think-stream-row-active" : ""
+                    )}
+                  >
+                    <div className="flex min-w-0 items-start gap-2.5">
+                      <span className="mt-0.5 inline-flex shrink-0 items-center justify-center">
+                        {descriptor.isPrimary ? (
+                          <GrokPrimaryOrb active={active} thinking={isThinking} />
+                        ) : (
+                          <AgentIconOrb
+                            paletteIndex={descriptor.paletteIndex}
+                            active={active}
+                            thinking={isThinking}
+                            size="sm"
+                            animationDelayMs={index * 110}
+                          />
                         )}
-                      >
-                        {entry.text}
-                      </p>
+                      </span>
+                      <span className="mt-1 inline-flex size-5 shrink-0 items-center justify-center text-muted-foreground">
+                        {entry.visited ? <Globe className="size-5" /> : <Search className="size-5" />}
+                      </span>
+                      <div className="min-w-0">
+                        <p className="text-[0.9rem] text-muted-foreground">
+                          {descriptor.label} · {entry.visited ? "已浏览网页" : "已经搜索网络"}
+                        </p>
+                        <p
+                          className={cn(
+                            "break-all text-[0.98rem] leading-7 text-foreground",
+                            entry.visited ? "italic" : ""
+                          )}
+                        >
+                          {entry.text}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2 pt-0.5">
+                      {typeof entry.resultsCount === "number" ? (
+                        <span className="text-[0.88rem] text-muted-foreground">{entry.resultsCount} 结果</span>
+                      ) : null}
+                      {active ? <span className="size-1.5 animate-pulse rounded-full bg-foreground/60" /> : null}
                     </div>
                   </div>
-                  <div className="flex shrink-0 items-center gap-2 pt-0.5">
-                    {typeof entry.resultsCount === "number" ? (
-                      <span className="text-[0.88rem] text-muted-foreground">{entry.resultsCount} 结果</span>
-                    ) : null}
-                    {active ? <span className="size-1.5 animate-pulse rounded-full bg-foreground/60" /> : null}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        ) : (
-          <div className="space-y-2 pt-2">
-            <div className="h-3 w-1/3 animate-pulse rounded bg-secondary/70" />
-            <div className="h-5 w-full animate-pulse rounded bg-secondary/60" />
-            <div className="h-5 w-4/5 animate-pulse rounded bg-secondary/60" />
-          </div>
-        )}
-        <div className="pointer-events-none absolute inset-x-0 top-0 h-8 bg-gradient-to-b from-background via-background/88 to-transparent" />
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-background via-background/84 to-transparent" />
+                )
+              })}
+            </div>
+          ) : isThinking ? (
+            <div className="space-y-2 pt-2">
+              <div className="h-3 w-1/3 animate-pulse rounded bg-secondary/70" />
+              <div className="h-5 w-full animate-pulse rounded bg-secondary/60" />
+              <div className="h-5 w-4/5 animate-pulse rounded bg-secondary/60" />
+            </div>
+          ) : (
+            <p className="pt-2 text-[0.9rem] text-muted-foreground">暂无思考记录</p>
+          )}
+          {isThinking ? (
+            <>
+              <div className="pointer-events-none absolute inset-x-0 top-0 h-8 bg-gradient-to-b from-background via-background/88 to-transparent" />
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-background via-background/84 to-transparent" />
+            </>
+          ) : null}
+        </div>
       </div>
     </div>
   )
@@ -1596,14 +1662,20 @@ function ThinkBlock({
 
                 if (entry.kind === "agent") {
                   const active = thinking && entry.agentKey === activeAgentKey
+                  const isPrimaryAgent = entry.agentKey === "grok_primary"
                   return (
                     <div key={entry.key} className="space-y-2.5">
                       <div className="flex items-center gap-2 pl-0.5 text-[0.95rem] font-semibold text-foreground">
-                        <AgentPixelAvatar
-                          paletteIndex={entry.paletteIndex}
-                          active={active}
-                          size="lg"
-                        />
+                        {isPrimaryAgent ? (
+                          <GrokPrimaryOrb active={active} thinking={thinking} />
+                        ) : (
+                          <AgentIconOrb
+                            paletteIndex={entry.paletteIndex}
+                            active={active}
+                            thinking={thinking}
+                            size="lg"
+                          />
+                        )}
                         <span>{entry.agentLabel}</span>
                         <ChevronDown className="size-4 text-muted-foreground" />
                       </div>
@@ -1675,8 +1747,8 @@ export function MarkdownContent({
     [mergedCards, parsed.content]
   )
   const hasStructuredReasoning = reasoningEvents.length > 0
-  const shouldShowStructuredReasoning = streaming && hasStructuredReasoning && reasoningActive
-  const shouldRenderLegacyThink = streaming && !hasStructuredReasoning
+  const shouldShowStructuredReasoning = hasStructuredReasoning
+  const shouldRenderLegacyThink = !hasStructuredReasoning
   const sections = useMemo(
     () =>
       parseThinkSections(expandedContent, {
