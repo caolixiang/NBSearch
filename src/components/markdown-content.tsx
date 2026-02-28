@@ -13,6 +13,7 @@ import {
 import { ChevronDown, Globe, Search } from "lucide-react"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
+import type { ChatCardAttachmentPayload, ChatReasoningEventDetail } from "@/domain/chat/types"
 import { cn } from "@/lib/utils"
 import { GrokAvatar } from "./claude-logo"
 
@@ -66,11 +67,11 @@ type ThinkTimelineEntry =
     }
 
 const AGENT_ORB_BACKGROUNDS = [
-  "radial-gradient(circle at 30% 30%, #22c55e 0%, #10b981 35%, #06b6d4 72%, #2563eb 100%)",
-  "radial-gradient(circle at 35% 25%, #14b8a6 0%, #0ea5e9 40%, #6366f1 72%, #4f46e5 100%)",
-  "radial-gradient(circle at 38% 25%, #06b6d4 0%, #3b82f6 40%, #8b5cf6 72%, #7c3aed 100%)",
-  "radial-gradient(circle at 36% 24%, #10b981 0%, #22c55e 42%, #0ea5e9 78%, #2563eb 100%)",
-  "radial-gradient(circle at 35% 22%, #84cc16 0%, #22c55e 38%, #06b6d4 70%, #3b82f6 100%)",
+  "radial-gradient(circle at 32% 28%, #1f2937 0%, #111827 58%, #030712 100%)",
+  "radial-gradient(circle at 32% 28%, #f59e0b 0%, #ea580c 58%, #9a3412 100%)",
+  "radial-gradient(circle at 34% 28%, #15803d 0%, #166534 58%, #052e16 100%)",
+  "radial-gradient(circle at 34% 28%, #a855f7 0%, #7c3aed 58%, #4c1d95 100%)",
+  "radial-gradient(circle at 34% 28%, #dc2626 0%, #991b1b 58%, #450a0a 100%)",
 ]
 
 type WebSearchToolMeta = {
@@ -78,8 +79,43 @@ type WebSearchToolMeta = {
   numResults: number
 }
 
+type ImageCardMeta = {
+  id: string
+  cardType?: string
+  type?: string
+  url?: string
+  image?: {
+    thumbnail?: string
+    original?: string
+    title?: string
+    link?: string
+    source?: string
+  }
+}
+
 type AssistantToolMeta = {
   webSearch: WebSearchToolMeta[]
+  cards: Record<string, ImageCardMeta>
+}
+
+type StructuredReasoningEntry = {
+  key: string
+  toolUsageCardId: string
+  rolloutId: string
+  text: string
+  visited: boolean
+  toolName: string
+  resultsCount?: number
+  status: "running" | "completed"
+}
+
+type StructuredReasoningSummary = {
+  entries: StructuredReasoningEntry[]
+  rolloutIds: string[]
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
 function mergeConsecutiveThinkSections(sections: MarkdownSection[]): MarkdownSection[] {
@@ -125,7 +161,7 @@ function mergeConsecutiveThinkSections(sections: MarkdownSection[]): MarkdownSec
 }
 
 function extractAssistantToolMeta(raw: string): { content: string; meta: AssistantToolMeta } {
-  const meta: AssistantToolMeta = { webSearch: [] }
+  const meta: AssistantToolMeta = { webSearch: [], cards: {} }
   if (!raw) {
     return { content: "", meta }
   }
@@ -137,26 +173,55 @@ function extractAssistantToolMeta(raw: string): { content: string; meta: Assista
       continue
     }
     try {
-      const parsed = JSON.parse(payload) as { webSearch?: unknown }
-      if (!Array.isArray(parsed.webSearch)) {
-        continue
+      const parsed = JSON.parse(payload) as { webSearch?: unknown; cards?: unknown }
+      if (Array.isArray(parsed.webSearch)) {
+        for (const item of parsed.webSearch) {
+          if (!item || typeof item !== "object") {
+            continue
+          }
+          const row = item as { query?: unknown; numResults?: unknown }
+          const query = typeof row.query === "string" ? row.query.trim() : ""
+          const numResults =
+            typeof row.numResults === "number"
+              ? row.numResults
+              : typeof row.numResults === "string"
+                ? Number.parseInt(row.numResults, 10)
+                : NaN
+          if (!query || !Number.isFinite(numResults) || numResults <= 0) {
+            continue
+          }
+          meta.webSearch.push({ query, numResults })
+        }
       }
-      for (const item of parsed.webSearch) {
-        if (!item || typeof item !== "object") {
-          continue
+
+      if (Array.isArray(parsed.cards)) {
+        for (const item of parsed.cards) {
+          if (!item || typeof item !== "object") {
+            continue
+          }
+          const row = item as ImageCardMeta
+          const id = typeof row.id === "string" ? row.id.trim() : ""
+          if (!id) {
+            continue
+          }
+          meta.cards[id] = {
+            id,
+            cardType: typeof row.cardType === "string" ? row.cardType : undefined,
+            type: typeof row.type === "string" ? row.type : undefined,
+            url: typeof row.url === "string" ? row.url : undefined,
+            image:
+              row.image && typeof row.image === "object"
+                ? {
+                    thumbnail:
+                      typeof row.image.thumbnail === "string" ? row.image.thumbnail : undefined,
+                    original: typeof row.image.original === "string" ? row.image.original : undefined,
+                    title: typeof row.image.title === "string" ? row.image.title : undefined,
+                    link: typeof row.image.link === "string" ? row.image.link : undefined,
+                    source: typeof row.image.source === "string" ? row.image.source : undefined,
+                  }
+                : undefined,
+          }
         }
-        const row = item as { query?: unknown; numResults?: unknown }
-        const query = typeof row.query === "string" ? row.query.trim() : ""
-        const numResults =
-          typeof row.numResults === "number"
-            ? row.numResults
-            : typeof row.numResults === "string"
-              ? Number.parseInt(row.numResults, 10)
-              : NaN
-        if (!query || !Number.isFinite(numResults) || numResults <= 0) {
-          continue
-        }
-        meta.webSearch.push({ query, numResults })
       }
     } catch {
       continue
@@ -169,8 +234,83 @@ function extractAssistantToolMeta(raw: string): { content: string; meta: Assista
   }
 }
 
+function escapeMarkdownText(value: string): string {
+  return value.replace(/[[\]\\]/g, "\\$&").replace(/\n+/g, " ").trim()
+}
+
+function wrapMarkdownUrl(url: string): string {
+  return `<${url.trim()}>`
+}
+
+function toImageCardMeta(card: ChatCardAttachmentPayload): ImageCardMeta | null {
+  const id = typeof card.id === "string" ? card.id.trim() : ""
+  if (!id) {
+    return null
+  }
+
+  return {
+    id,
+    cardType: card.cardType,
+    type: card.type,
+    url: card.url,
+    image: card.image
+      ? {
+          thumbnail: card.image.thumbnail,
+          original: card.image.original,
+          title: card.image.title,
+          link: card.image.link,
+          source: card.image.source,
+        }
+      : undefined,
+  }
+}
+
+function collectCardsFromReasoningEvents(events: ChatReasoningEventDetail[]): Record<string, ImageCardMeta> {
+  const cards: Record<string, ImageCardMeta> = {}
+
+  for (const detail of events) {
+    if (detail.kind !== "card_attachment") {
+      continue
+    }
+    const meta = toImageCardMeta(detail.card)
+    if (!meta) {
+      continue
+    }
+    cards[meta.id] = meta
+  }
+
+  return cards
+}
+
+export function expandGrokRenderTags(content: string, cards: Record<string, ImageCardMeta>): string {
+  if (!content.trim()) {
+    return ""
+  }
+
+  return content.replace(/<grok:render\b[^>]*card_id="([^"]+)"[^>]*>[\s\S]*?<\/grok:render>/gi, (_, cardId) => {
+    const normalizedCardId = typeof cardId === "string" ? cardId.trim() : ""
+    const card = normalizedCardId ? cards[normalizedCardId] : undefined
+    const imageUrl = card?.image?.original || card?.image?.thumbnail || card?.url
+    if (!imageUrl) {
+      return ""
+    }
+
+    const alt = escapeMarkdownText(card?.image?.title || card?.image?.source || "Generated Image") || "Generated Image"
+    const imageMarkdown = `![${alt}](${wrapMarkdownUrl(imageUrl)})`
+    const targetUrl = card?.image?.link || card?.url
+    return targetUrl ? `[${imageMarkdown}](${wrapMarkdownUrl(targetUrl)})` : imageMarkdown
+  })
+}
+
 function isImageMarkdownLine(line: string): boolean {
-  return /^\s*!\[[^\]]*]\([^)]+\)\s*$/.test(line.trim())
+  const value = line.trim()
+  if (!value) {
+    return false
+  }
+  return (
+    /^\s*!\[[^\]]*]\((?:<[^>]+>|[^)]+)\)\s*$/.test(value) ||
+    /^\s*\[!\[[^\]]*]\((?:<[^>]+>|[^)]+)\)]\((?:<[^>]+>|[^)]+)\)\s*$/.test(value)
+  )
 }
 
 function mergeConsecutiveImageLines(content: string): string {
@@ -229,6 +369,8 @@ export function normalizeAssistantMarkdown(content: string): string {
 
   let normalized = content.replace(/\r\n?/g, "\n")
   normalized = normalized.replace(/<tool-meta>[\s\S]*?<\/tool-meta>/gi, "")
+  normalized = normalized.replace(/<grok:render\b[\s\S]*?<\/grok:render>/gi, "")
+  normalized = normalized.replace(/<argument\b[\s\S]*?<\/argument>/gi, "")
   normalized = normalized.replace(/<\/think>/gi, "")
   normalized = mergeConsecutiveImageLines(normalized)
   normalized = normalized.replace(/([^\n])(?=#{1,6}\s?)/g, "$1\n")
@@ -623,6 +765,191 @@ function findLatestAgentKey(timeline: ThinkTimelineEntry[]): string {
   return "grok_primary"
 }
 
+function normalizeRolloutId(value: string | undefined): string {
+  const trimmed = (value || "").trim()
+  return trimmed || "Grok"
+}
+
+function readStringListFromUnknown(value: unknown): string[] {
+  if (typeof value === "string") {
+    const trimmed = value.trim()
+    return trimmed ? [trimmed] : []
+  }
+  if (!Array.isArray(value)) {
+    return []
+  }
+  return value
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
+
+function readToolUsageQueries(args: Record<string, unknown>): string[] {
+  const values: string[] = []
+  const seen = new Set<string>()
+  const append = (next: string) => {
+    const trimmed = next.trim()
+    if (!trimmed || seen.has(trimmed)) {
+      return
+    }
+    seen.add(trimmed)
+    values.push(trimmed)
+  }
+
+  for (const key of ["query", "q", "url", "keyword"]) {
+    for (const row of readStringListFromUnknown(args[key])) {
+      append(row)
+    }
+  }
+
+  for (const key of ["queries", "q", "urls", "keywords"]) {
+    for (const row of readStringListFromUnknown(args[key])) {
+      append(row)
+    }
+  }
+
+  if (values.length > 0) {
+    return values
+  }
+
+  for (const value of Object.values(args)) {
+    for (const row of readStringListFromUnknown(value)) {
+      append(row)
+      if (values.length >= 2) {
+        return values
+      }
+    }
+  }
+
+  return values
+}
+
+function humanizeToolName(value: string): string {
+  const trimmed = value.trim()
+  if (!trimmed) {
+    return "tool"
+  }
+  if (trimmed.includes("search")) {
+    return "已搜索网络"
+  }
+  return trimmed.replace(/[_-]+/g, " ")
+}
+
+function buildStructuredReasoningSummary(events: ChatReasoningEventDetail[]): StructuredReasoningSummary {
+  const entries: StructuredReasoningEntry[] = []
+  const entryByKey = new Map<string, StructuredReasoningEntry>()
+  const entryByToolUsageCardId = new Map<string, StructuredReasoningEntry[]>()
+  const rolloutIds: string[] = []
+  const rolloutSeen = new Set<string>()
+
+  const appendRollout = (rolloutId: string | undefined) => {
+    const normalized = normalizeRolloutId(rolloutId)
+    if (rolloutSeen.has(normalized)) {
+      return
+    }
+    rolloutSeen.add(normalized)
+    rolloutIds.push(normalized)
+  }
+
+  for (const detail of events) {
+    if (detail.kind === "ui_layout") {
+      const ids = Array.isArray(detail.layout.rolloutIds) ? detail.layout.rolloutIds : []
+      if (ids.length > 0) {
+        for (const rolloutId of ids) {
+          appendRollout(rolloutId)
+        }
+      }
+      continue
+    }
+
+    if (detail.kind === "card_attachment") {
+      continue
+    }
+
+    if (detail.kind === "tool_usage") {
+      appendRollout(detail.usage.rolloutId)
+
+      const queries = readToolUsageQueries(detail.usage.args)
+      const lines = queries.length > 0 ? queries : [humanizeToolName(detail.usage.toolName)]
+      const scopedEntries: StructuredReasoningEntry[] = []
+
+      lines.forEach((line, queryIndex) => {
+        const key = `${detail.usage.toolUsageCardId}:${queryIndex}`
+        if (entryByKey.has(key)) {
+          return
+        }
+        const nextEntry: StructuredReasoningEntry = {
+          key,
+          toolUsageCardId: detail.usage.toolUsageCardId,
+          rolloutId: normalizeRolloutId(detail.usage.rolloutId),
+          text: line,
+          visited: isLikelyUrl(line),
+          toolName: detail.usage.toolName,
+          status: "running",
+        }
+        entryByKey.set(key, nextEntry)
+        scopedEntries.push(nextEntry)
+        entries.push(nextEntry)
+      })
+
+      if (scopedEntries.length > 0) {
+        entryByToolUsageCardId.set(detail.usage.toolUsageCardId, scopedEntries)
+      }
+
+      continue
+    }
+
+    if (detail.kind === "tool_result") {
+      appendRollout(detail.result.rolloutId)
+      const toolUsageCardId = detail.result.toolUsageCardId
+      if (!toolUsageCardId) {
+        continue
+      }
+
+      const scopedEntries = entryByToolUsageCardId.get(toolUsageCardId)
+      if (scopedEntries && scopedEntries.length > 0) {
+        scopedEntries.forEach((entry) => {
+          entry.status = "completed"
+          if (typeof detail.result.webSearchResultsCount === "number") {
+            entry.resultsCount = detail.result.webSearchResultsCount
+          }
+        })
+        continue
+      }
+
+      const fallbackKey = `${toolUsageCardId}:result`
+      if (entryByKey.has(fallbackKey)) {
+        continue
+      }
+      const fallbackEntry: StructuredReasoningEntry = {
+        key: fallbackKey,
+        toolUsageCardId,
+        rolloutId: normalizeRolloutId(detail.result.rolloutId),
+        text: "已搜索网络",
+        visited: false,
+        toolName: "web_search",
+        status: "completed",
+        resultsCount:
+          typeof detail.result.webSearchResultsCount === "number"
+            ? detail.result.webSearchResultsCount
+            : undefined,
+      }
+      entryByKey.set(fallbackKey, fallbackEntry)
+      entryByToolUsageCardId.set(toolUsageCardId, [fallbackEntry])
+      entries.push(fallbackEntry)
+    }
+  }
+
+  if (rolloutIds.length === 0) {
+    rolloutIds.push("Grok")
+  }
+
+  return {
+    entries,
+    rolloutIds,
+  }
+}
+
 function AgentOrb({
   paletteIndex,
   active,
@@ -705,6 +1032,152 @@ function AgentAvatarStack({
         </span>
       ) : null}
     </span>
+  )
+}
+
+function collectRolloutAgents(rolloutIds: string[]): AgentDescriptor[] {
+  const agents: AgentDescriptor[] = []
+  const seen = new Set<string>()
+
+  const append = (next: AgentDescriptor) => {
+    if (seen.has(next.key)) {
+      return
+    }
+    seen.add(next.key)
+    agents.push(next)
+  }
+
+  append({
+    key: "grok_primary",
+    label: "Grok",
+    paletteIndex: 0,
+    isPrimary: true,
+  })
+
+  rolloutIds.forEach((rolloutId, index) => {
+    const normalized = rolloutId.trim()
+    if (!normalized || normalized.toLowerCase() === "grok") {
+      return
+    }
+    const known = parseAgentMeta(normalized, index)
+    if (known) {
+      append(known)
+      return
+    }
+    append({
+      key: normalized.toLowerCase().replace(/\s+/g, "_"),
+      label: normalized,
+      paletteIndex: (index + 1) % AGENT_ORB_BACKGROUNDS.length,
+    })
+  })
+
+  return agents
+}
+
+function toAgentKey(rolloutId: string): string {
+  const normalized = rolloutId.trim().toLowerCase()
+  if (!normalized || normalized === "grok") {
+    return "grok_primary"
+  }
+  return normalized.replace(/\s+/g, "_")
+}
+
+function StructuredReasoningPanel({
+  events,
+  isThinking,
+}: {
+  events: ChatReasoningEventDetail[]
+  isThinking: boolean
+}) {
+  const summary = useMemo(() => buildStructuredReasoningSummary(events), [events])
+  const displayEntries = useMemo(() => summary.entries.slice(-3), [summary.entries])
+  const agents = useMemo(() => collectRolloutAgents(summary.rolloutIds), [summary.rolloutIds])
+  const [activeTick, setActiveTick] = useState(0)
+
+  const activeAgentKey = useMemo(() => {
+    for (let index = summary.entries.length - 1; index >= 0; index -= 1) {
+      const entry = summary.entries[index]
+      if (!entry) {
+        continue
+      }
+      if (entry.status === "running") {
+        return toAgentKey(entry.rolloutId)
+      }
+    }
+    if (agents.length > 0) {
+      return agents[activeTick % agents.length]?.key || "grok_primary"
+    }
+    return "grok_primary"
+  }, [activeTick, agents, summary.entries])
+
+  useEffect(() => {
+    if (!isThinking || agents.length <= 1) {
+      return
+    }
+    const timer = window.setInterval(() => {
+      setActiveTick((value) => value + 1)
+    }, 900)
+    return () => window.clearInterval(timer)
+  }, [agents.length, isThinking])
+
+  if (!isThinking) {
+    return null
+  }
+
+  return (
+    <div className="my-2 w-full">
+      <div className="inline-flex items-center gap-2 text-muted-foreground">
+        <AgentAvatarStack agents={agents} activeAgentKey={activeAgentKey} thinking />
+        <span className="text-[0.95rem] font-medium">思考中</span>
+      </div>
+      <div className="mt-2 min-h-[11.5rem]">
+        {displayEntries.length > 0 ? (
+          <div className="space-y-3">
+            {displayEntries.map((entry, index) => {
+              const active = entry.status === "running" && toAgentKey(entry.rolloutId) === activeAgentKey
+              const key = `${entry.key}:${index}`
+              return (
+                <div
+                  key={key}
+                  className="animate-in slide-in-from-bottom-2 duration-300 fade-in-50 flex items-start justify-between gap-4"
+                >
+                  <div className="flex min-w-0 items-start gap-2.5">
+                    <span className="mt-0.5 inline-flex size-5 shrink-0 items-center justify-center text-muted-foreground">
+                      {entry.visited ? <Globe className="size-5" /> : <Search className="size-5" />}
+                    </span>
+                    <div className="min-w-0">
+                      <p className="text-[0.9rem] text-muted-foreground">
+                        {entry.rolloutId} · {entry.visited ? "已浏览网页" : "已经搜索网络"}
+                      </p>
+                      <p
+                        className={cn(
+                          "break-all text-[0.98rem] leading-7 text-foreground",
+                          entry.visited ? "italic" : ""
+                        )}
+                      >
+                        {entry.text}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2 pt-0.5">
+                    {typeof entry.resultsCount === "number" ? (
+                      <span className="text-[0.88rem] text-muted-foreground">{entry.resultsCount} 结果</span>
+                    ) : null}
+                    {active ? <span className="size-1.5 animate-pulse rounded-full bg-emerald-500" /> : null}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        ) : (
+          <div className="space-y-2 pt-2">
+            <div className="h-3 w-1/3 animate-pulse rounded bg-secondary/70" />
+            <div className="h-5 w-full animate-pulse rounded bg-secondary/60" />
+            <div className="h-5 w-4/5 animate-pulse rounded bg-secondary/60" />
+          </div>
+        )}
+      </div>
+    </div>
   )
 }
 
@@ -1039,23 +1512,61 @@ function ThinkBlock({
   )
 }
 
-export function MarkdownContent({ content, streaming = false }: { content: string; streaming?: boolean }) {
+export function MarkdownContent({
+  content,
+  streaming = false,
+  reasoningEvents = [],
+  reasoningActive = false,
+}: {
+  content: string
+  streaming?: boolean
+  reasoningEvents?: ChatReasoningEventDetail[]
+  reasoningActive?: boolean
+}) {
   const parsed = useMemo(() => extractAssistantToolMeta(content), [content])
+  const liveCards = useMemo(() => collectCardsFromReasoningEvents(reasoningEvents), [reasoningEvents])
+  const mergedCards = useMemo(
+    () => ({
+      ...parsed.meta.cards,
+      ...liveCards,
+    }),
+    [liveCards, parsed.meta.cards]
+  )
+  const expandedContent = useMemo(
+    () => expandGrokRenderTags(parsed.content, mergedCards),
+    [mergedCards, parsed.content]
+  )
+  const hasStructuredReasoning = reasoningEvents.length > 0
+  const shouldShowStructuredReasoning = streaming && hasStructuredReasoning && reasoningActive
+  const shouldRenderLegacyThink = streaming && !hasStructuredReasoning
   const sections = useMemo(
     () =>
-      parseThinkSections(parsed.content, {
+      parseThinkSections(expandedContent, {
         treatUnclosedThinkAsThinking: streaming,
       }),
-    [parsed.content, streaming]
+    [expandedContent, streaming]
+  )
+  const visibleSections = useMemo(
+    () =>
+      sections.filter((section) => {
+        if (section.type === "text") {
+          return true
+        }
+        return shouldRenderLegacyThink
+      }),
+    [sections, shouldRenderLegacyThink]
   )
 
-  if (sections.length === 0) {
+  if (!shouldShowStructuredReasoning && visibleSections.length === 0) {
     return null
   }
 
   return (
     <div className="space-y-1 text-foreground">
-      {sections.map((section, index) => {
+      {shouldShowStructuredReasoning ? (
+        <StructuredReasoningPanel events={reasoningEvents} isThinking={reasoningActive} />
+      ) : null}
+      {visibleSections.map((section, index) => {
         if (section.type === "think") {
           return (
             <ThinkBlock
@@ -1063,7 +1574,10 @@ export function MarkdownContent({ content, streaming = false }: { content: strin
               content={section.value}
               open={section.open}
               thinking={section.thinking}
-              toolMeta={parsed.meta}
+              toolMeta={{
+                webSearch: parsed.meta.webSearch,
+                cards: mergedCards,
+              }}
             />
           )
         }

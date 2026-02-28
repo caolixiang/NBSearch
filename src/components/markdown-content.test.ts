@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test"
-import { normalizeAssistantMarkdown, parseThinkSections } from "./markdown-content"
+import { expandGrokRenderTags, normalizeAssistantMarkdown, parseThinkSections } from "./markdown-content"
 
 describe("parseThinkSections", () => {
   it("splits think block and normal markdown content", () => {
@@ -66,5 +66,35 @@ describe("normalizeAssistantMarkdown", () => {
   it("drops dangling closing think tag", () => {
     const normalized = normalizeAssistantMarkdown("</think> **bold**")
     expect(normalized).toBe("**bold**")
+  })
+
+  it("drops unresolved grok:render tags", () => {
+    const normalized = normalizeAssistantMarkdown(
+      '<grok:render card_id="abc" card_type="image_card"></grok:render>\n\n正文'
+    )
+    expect(normalized).toBe("正文")
+  })
+})
+
+describe("expandGrokRenderTags", () => {
+  it("replaces grok:render tags with markdown image links", () => {
+    const expanded = expandGrokRenderTags(
+      '<grok:render card_id="abc" card_type="image_card" type="render_searched_image"></grok:render>',
+      {
+        abc: {
+          id: "abc",
+          cardType: "image_card",
+          type: "render_searched_image",
+          image: {
+            original: "https://img.test/a.jpg",
+            title: "sample",
+            link: "https://source.test",
+          },
+        },
+      }
+    )
+
+    expect(expanded).toContain("![sample](<https://img.test/a.jpg>)")
+    expect(expanded).toContain("](<https://source.test>)")
   })
 })

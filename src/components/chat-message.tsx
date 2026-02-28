@@ -1,6 +1,7 @@
 "use client"
 
 import { User } from "lucide-react"
+import type { ChatReasoningEventDetail } from "@/domain/chat/types"
 import { cn } from "@/lib/utils"
 import { GrokAvatar } from "./claude-logo"
 import { MarkdownContent } from "./markdown-content"
@@ -9,6 +10,8 @@ export interface RenderChatMessage {
   id: string
   role: "user" | "assistant"
   content: string
+  reasoningEvents?: ChatReasoningEventDetail[]
+  reasoningActive?: boolean
 }
 
 export function ChatMessage({ message }: { message: RenderChatMessage }) {
@@ -29,7 +32,12 @@ export function ChatMessage({ message }: { message: RenderChatMessage }) {
         {isUser ? (
           <p className="text-sm leading-relaxed whitespace-pre-wrap">{message.content}</p>
         ) : (
-          <MarkdownContent content={message.content} streaming={isStreamingAssistant} />
+          <MarkdownContent
+            content={message.content}
+            streaming={isStreamingAssistant}
+            reasoningEvents={message.reasoningEvents}
+            reasoningActive={message.reasoningActive}
+          />
         )}
       </div>
       {isUser && (

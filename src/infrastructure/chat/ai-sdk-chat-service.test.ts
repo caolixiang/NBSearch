@@ -2,6 +2,8 @@ import { describe, expect, it } from "bun:test"
 import type { ChatMessage } from "../../domain/chat/types"
 import {
   buildAnthropicMessages,
+  extractCardAttachmentsFromRawChunk,
+  extractReasoningEventsFromRawChunk,
   extractWebSearchToolMetaFromRawChunk,
   extractResponseNewTitleFromRawChunk,
   resolveConversationTitle,
@@ -96,6 +98,108 @@ describe("extractWebSearchToolMetaFromRawChunk", () => {
       },
     })
     expect(rows).toEqual([{ query: "bar", numResults: 5 }])
+  })
+})
+
+describe("extractCardAttachmentsFromRawChunk", () => {
+  it("extracts image cards from cardAttachment jsonData", () => {
+    const cards = extractCardAttachmentsFromRawChunk({
+      result: {
+        response: {
+          cardAttachment: {
+            jsonData:
+              "{\"id\":\"card_1\",\"cardType\":\"image_card\",\"type\":\"render_searched_image\",\"image\":{\"original\":\"https://img.test/a.jpg\",\"thumbnail\":\"https://img.test/t.jpg\",\"title\":\"A\"}}",
+          },
+        },
+      },
+    })
+
+    expect(cards).toEqual([
+      {
+        id: "card_1",
+        cardType: "image_card",
+        type: "render_searched_image",
+        image: {
+          original: "https://img.test/a.jpg",
+          thumbnail: "https://img.test/t.jpg",
+          title: "A",
+          link: undefined,
+          source: undefined,
+        },
+        url: undefined,
+      },
+    ])
+  })
+})
+
+describe("extractReasoningEventsFromRawChunk", () => {
+  it("extracts ui layout + tool usage + tool result events", () => {
+    const events = extractReasoningEventsFromRawChunk({
+      result: {
+        response: {
+          isThinking: true,
+          responseId: "resp_1",
+          rolloutId: "Agent 1",
+          uiLayout: {
+            reasoningUiLayout: "UNIFIED",
+            willThinkLong: true,
+            effort: "HIGH",
+            rolloutIds: ["Grok", "Agent 1"],
+          },
+          toolUsageCard: {
+            toolUsageCardId: "tool_1",
+            webSearch: {
+              args: {
+                query: "hello",
+              },
+            },
+          },
+          toolUsageCardId: "tool_1",
+          webSearchResults: {
+            results: [{ url: "https://a.test" }, { url: "https://b.test" }],
+          },
+        },
+      },
+    })
+
+    expect(events).toEqual([
+      {
+        kind: "ui_layout",
+        layout: {
+          reasoningUiLayout: "UNIFIED",
+          willThinkLong: true,
+          effort: "HIGH",
+          rolloutIds: ["Grok", "Agent 1"],
+        },
+        isThinking: true,
+        responseId: "resp_1",
+      },
+      {
+        kind: "tool_usage",
+        usage: {
+          toolUsageCardId: "tool_1",
+          toolName: "webSearch",
+          args: {
+            query: "hello",
+          },
+          rolloutId: "Agent 1",
+          messageTag: undefined,
+          isThinking: true,
+          responseId: "resp_1",
+        },
+      },
+      {
+        kind: "tool_result",
+        result: {
+          toolUsageCardId: "tool_1",
+          rolloutId: "Agent 1",
+          messageTag: undefined,
+          webSearchResultsCount: 2,
+          isThinking: true,
+          responseId: "resp_1",
+        },
+      },
+    ])
   })
 })
 

@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { AppRuntime } from "@/app/contracts"
-import type { ChatMessage as DomainChatMessage } from "@/domain/chat/types"
+import type {
+  ChatMessage as DomainChatMessage,
+  ChatReasoningEventDetail,
+} from "@/domain/chat/types"
 import type { ModelOption } from "@/domain/models/types"
 import type { ConversationRecord } from "@/domain/storage/repository"
 import { ChatInput } from "@/components/chat-input"
@@ -56,6 +59,67 @@ function hasOpenThinkTag(value: string): boolean {
   return openIndex > closeIndex
 }
 
+function readThinkingStateFromReasoning(detail: ChatReasoningEventDetail): boolean | undefined {
+  if (detail.kind === "ui_layout") {
+    return typeof detail.isThinking === "boolean" ? detail.isThinking : undefined
+  }
+  if (detail.kind === "tool_usage") {
+    return typeof detail.usage.isThinking === "boolean" ? detail.usage.isThinking : undefined
+  }
+  if (detail.kind === "tool_result") {
+    return typeof detail.result.isThinking === "boolean" ? detail.result.isThinking : undefined
+  }
+  return undefined
+}
+
+function appendReasoningEvent(
+  previous: ChatReasoningEventDetail[],
+  detail: ChatReasoningEventDetail
+): ChatReasoningEventDetail[] {
+  if (detail.kind === "ui_layout") {
+    const filtered = previous.filter((item) => item.kind !== "ui_layout")
+    return [...filtered, detail]
+  }
+
+  if (detail.kind === "tool_usage") {
+    const index = previous.findIndex(
+      (item) => item.kind === "tool_usage" && item.usage.toolUsageCardId === detail.usage.toolUsageCardId
+    )
+    if (index < 0) {
+      return [...previous, detail]
+    }
+    const next = previous.slice()
+    next[index] = detail
+    return next
+  }
+
+  if (detail.kind === "tool_result") {
+    const key = detail.result.toolUsageCardId || ""
+    if (!key) {
+      return [...previous, detail]
+    }
+    const index = previous.findIndex(
+      (item) => item.kind === "tool_result" && item.result.toolUsageCardId === key
+    )
+    if (index < 0) {
+      return [...previous, detail]
+    }
+    const next = previous.slice()
+    next[index] = detail
+    return next
+  }
+
+  const index = previous.findIndex(
+    (item) => item.kind === "card_attachment" && item.card.id === detail.card.id
+  )
+  if (index < 0) {
+    return [...previous, detail]
+  }
+  const next = previous.slice()
+  next[index] = detail
+  return next
+}
+
 export function ChatShell({ runtime }: { runtime: AppRuntime }) {
   const repository = runtime.services.repository
   const chatService = runtime.services.chat
@@ -65,6 +129,8 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
   const [messages, setMessages] = useState<DomainChatMessage[]>([])
   const [isStreaming, setIsStreaming] = useState(false)
   const [streamingAssistantText, setStreamingAssistantText] = useState("")
+  const [streamingReasoningEvents, setStreamingReasoningEvents] = useState<ChatReasoningEventDetail[]>([])
+  const [streamingReasoningActive, setStreamingReasoningActive] = useState(false)
   const [lastError, setLastError] = useState("")
   const [modelError, setModelError] = useState("")
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
@@ -76,13 +142,12 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     return resolveSelectedModel(models, [readStoredSelectedModel(), runtime.config.defaultModel])
   })
   const [isRefreshingModels, setIsRefreshingModels] = useState(false)
-  const [chatInputHeight, setChatInputHeight] = useState(170)
 
   const abortRef = useRef<AbortController | null>(null)
   const activeConversationIdRef = useRef<string | null>(null)
   const messagesScrollRef = useRef<HTMLDivElement | null>(null)
   const shouldAutoScrollRef = useRef(true)
-  const wasThinkStreamingRef = useRef(false)
+  const leadAnchorMessageIdRef = useRef<string | null>(null)
 
   useEffect(() => {
     activeConversationIdRef.current = activeConversationId
@@ -103,16 +168,20 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       .map(toRenderMessage)
       .filter((item): item is RenderChatMessage => item !== null)
 
-    if (streamingAssistantText.trim()) {
+    if (isStreaming) {
       rendered.push({
         id: "streaming_assistant",
         role: "assistant",
         content: streamingAssistantText,
+        reasoningEvents: streamingReasoningEvents,
+        reasoningActive: streamingReasoningActive,
       })
     }
 
     return rendered
-  }, [messages, streamingAssistantText])
+  }, [isStreaming, messages, streamingAssistantText, streamingReasoningActive, streamingReasoningEvents])
+
+  const isThinkingStreaming = isStreaming && (streamingReasoningActive || hasOpenThinkTag(streamingAssistantText))
 
   const refreshModelOptions = useCallback(
     async (silent = false): Promise<void> => {
@@ -221,45 +290,44 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
   }, [loadMessages, refreshConversations])
 
   useEffect(() => {
-    const thinkStreaming = isStreaming && hasOpenThinkTag(streamingAssistantText)
-    if (!shouldAutoScrollRef.current && !thinkStreaming) {
-      wasThinkStreamingRef.current = false
-      return
-    }
     const node = messagesScrollRef.current
     if (!node) {
-      wasThinkStreamingRef.current = thinkStreaming
       return
     }
-
-    const enteringThinkStreaming = thinkStreaming && !wasThinkStreamingRef.current
-    if (enteringThinkStreaming) {
-      shouldAutoScrollRef.current = true
+    if (isThinkingStreaming && leadAnchorMessageIdRef.current) {
+      const raf = window.requestAnimationFrame(() => {
+        const anchorId = leadAnchorMessageIdRef.current
+        if (!anchorId) {
+          return
+        }
+        const anchor = node.querySelector<HTMLElement>(`[data-message-id="${anchorId}"]`)
+        if (!anchor) {
+          return
+        }
+        // Keep the latest user question pinned near top while thinking is streaming.
+        node.scrollTop = Math.max(0, anchor.offsetTop - 24)
+      })
+      return () => window.cancelAnimationFrame(raf)
     }
-
-    const dynamicOffset = Math.max(132, Math.round(chatInputHeight + 48))
-    const thinkLeadSpace = Math.max(dynamicOffset + 240, Math.round(node.clientHeight * 0.6))
-    const targetScrollTop = thinkStreaming
-      ? Math.max(0, node.scrollHeight - node.clientHeight - thinkLeadSpace)
-      : node.scrollHeight
-    node.scrollTop = targetScrollTop
-    wasThinkStreamingRef.current = thinkStreaming
-  }, [chatInputHeight, isStreaming, streamingAssistantText, visibleMessages])
+    if (!shouldAutoScrollRef.current) {
+      return
+    }
+    node.scrollTop = node.scrollHeight
+  }, [isThinkingStreaming, streamingAssistantText, visibleMessages])
 
   const handleMessagesScroll = useCallback(() => {
     const node = messagesScrollRef.current
     if (!node) {
       return
     }
-    const thinkStreaming = isStreaming && hasOpenThinkTag(streamingAssistantText)
-    if (thinkStreaming) {
-      // Keep autoscroll alive in think mode; we intentionally stay above bottom.
+    if (isThinkingStreaming && leadAnchorMessageIdRef.current) {
+      // Keep follow mode locked while anchor pin mode is active.
       shouldAutoScrollRef.current = true
       return
     }
     const distanceToBottom = node.scrollHeight - node.scrollTop - node.clientHeight
     shouldAutoScrollRef.current = distanceToBottom < 80
-  }, [isStreaming, streamingAssistantText])
+  }, [isThinkingStreaming])
 
   const handleSendMessage = useCallback(
     async (text: string): Promise<void> => {
@@ -270,6 +338,8 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
 
       setLastError("")
       setStreamingAssistantText("")
+      setStreamingReasoningEvents([])
+      setStreamingReasoningActive(false)
       setIsStreaming(true)
       shouldAutoScrollRef.current = true
 
@@ -287,6 +357,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
         createdAt: Date.now(),
         status: "completed",
       }
+      leadAnchorMessageIdRef.current = optimisticMessage.id
       setMessages((prev) => [...prev, optimisticMessage])
 
       const controller = new AbortController()
@@ -305,9 +376,21 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
               return
             }
 
+            if (event.type === "reasoning") {
+              setStreamingReasoningEvents((prev) => appendReasoningEvent(prev, event.detail))
+              const nextThinkingState = readThinkingStateFromReasoning(event.detail)
+              if (typeof nextThinkingState === "boolean") {
+                setStreamingReasoningActive(nextThinkingState)
+              }
+              return
+            }
+
             if (event.type === "completed") {
               setStreamingAssistantText("")
+              setStreamingReasoningEvents([])
+              setStreamingReasoningActive(false)
               setIsStreaming(false)
+              leadAnchorMessageIdRef.current = null
               void refreshConversations().then(() => {
                 if (activeConversationIdRef.current === conversationId) {
                   return loadMessages(conversationId)
@@ -318,7 +401,10 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
 
             if (event.type === "failed") {
               setStreamingAssistantText("")
+              setStreamingReasoningEvents([])
+              setStreamingReasoningActive(false)
               setIsStreaming(false)
+              leadAnchorMessageIdRef.current = null
               setLastError(event.message)
             }
           },
@@ -326,7 +412,10 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
         )
       } catch (error) {
         setStreamingAssistantText("")
+        setStreamingReasoningEvents([])
+        setStreamingReasoningActive(false)
         setIsStreaming(false)
+        leadAnchorMessageIdRef.current = null
         setLastError(error instanceof Error ? error.message : "chat_stream_error")
       } finally {
         abortRef.current = null
@@ -342,6 +431,9 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       }
       setLastError("")
       setStreamingAssistantText("")
+      setStreamingReasoningEvents([])
+      setStreamingReasoningActive(false)
+      leadAnchorMessageIdRef.current = null
       setActiveConversationId(conversationId)
       await loadMessages(conversationId)
     },
@@ -354,6 +446,9 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     }
     setLastError("")
     setStreamingAssistantText("")
+    setStreamingReasoningEvents([])
+    setStreamingReasoningActive(false)
+    leadAnchorMessageIdRef.current = null
     const activeConversationId = activeConversationIdRef.current
     if (activeConversationId) {
       const current = conversations.find((item) => item.id === activeConversationId)
@@ -394,6 +489,9 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       const list = await refreshConversations()
       setLastError("")
       setStreamingAssistantText("")
+      setStreamingReasoningEvents([])
+      setStreamingReasoningActive(false)
+      leadAnchorMessageIdRef.current = null
 
       if (activeConversationIdRef.current !== conversationId) {
         return
@@ -454,10 +552,12 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
           ) : (
             <div className="mx-auto max-w-3xl">
               {visibleMessages.map((message) => (
-                <ChatMessage key={message.id} message={message} />
+                <div key={message.id} data-message-id={message.id}>
+                  <ChatMessage message={message} />
+                </div>
               ))}
-              {isStreaming && !streamingAssistantText ? <TypingIndicator /> : null}
-              <div className={hasOpenThinkTag(streamingAssistantText) ? "h-10" : "h-4"} />
+              {isStreaming && !streamingAssistantText && !streamingReasoningActive ? <TypingIndicator /> : null}
+              <div className={isThinkingStreaming ? "h-10" : "h-4"} />
             </div>
           )}
         </div>
@@ -467,17 +567,14 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
             void handleSendMessage(text)
           }}
           onVoiceStart={() => setVoiceOpen(true)}
-          onHeightChange={(height) => {
-            if (!Number.isFinite(height) || height <= 0) {
-              return
-            }
-            setChatInputHeight(height)
-          }}
           isLoading={isStreaming}
           onStop={() => {
             abortRef.current?.abort()
             setIsStreaming(false)
             setStreamingAssistantText("")
+            setStreamingReasoningEvents([])
+            setStreamingReasoningActive(false)
+            leadAnchorMessageIdRef.current = null
           }}
         />
       </div>

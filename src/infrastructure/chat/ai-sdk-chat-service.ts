@@ -2,8 +2,11 @@ import { streamText, type ModelMessage } from "ai"
 import type { AppConfig } from "../../app/contracts"
 import type { ChatService } from "../../domain/chat/service"
 import type {
+  ChatCardAttachmentPayload,
   ChatAnchors,
   ChatMessage,
+  ChatReasoningEventDetail,
+  ChatReasoningLayout,
   ChatStreamEvent,
   SendChatTurnInput,
 } from "../../domain/chat/types"
@@ -37,6 +40,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 type WebSearchToolMeta = {
   query: string
   numResults: number
+}
+
+type AssistantToolMetaPayload = {
+  webSearch: WebSearchToolMeta[]
+  cards: ChatCardAttachmentPayload[]
 }
 
 function toPositiveInteger(value: unknown): number | null {
@@ -137,11 +145,252 @@ export function extractWebSearchToolMetaFromRawChunk(rawChunk: unknown): WebSear
   return []
 }
 
-function appendToolMeta(content: string, webSearch: WebSearchToolMeta[]): string {
-  if (webSearch.length === 0) {
+function readStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+  return value.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+}
+
+function readGatewayResponseEnvelope(rawChunk: unknown): Record<string, unknown> | null {
+  if (!isRecord(rawChunk)) {
+    return null
+  }
+  if (isRecord(rawChunk.result) && isRecord(rawChunk.result.response)) {
+    return rawChunk.result.response
+  }
+  if (isRecord(rawChunk.response)) {
+    return rawChunk.response
+  }
+  return null
+}
+
+function readReasoningLayout(rawChunk: unknown): {
+  layout: ChatReasoningLayout
+  isThinking?: boolean
+  responseId?: string
+} | null {
+  const envelope = readGatewayResponseEnvelope(rawChunk)
+  if (!envelope || !isRecord(envelope.uiLayout)) {
+    return null
+  }
+
+  const uiLayout = envelope.uiLayout
+  return {
+    layout: {
+      reasoningUiLayout:
+        typeof uiLayout.reasoningUiLayout === "string" ? uiLayout.reasoningUiLayout : undefined,
+      willThinkLong: typeof uiLayout.willThinkLong === "boolean" ? uiLayout.willThinkLong : undefined,
+      effort: typeof uiLayout.effort === "string" ? uiLayout.effort : undefined,
+      rolloutIds: readStringArray(uiLayout.rolloutIds),
+    },
+    isThinking: typeof envelope.isThinking === "boolean" ? envelope.isThinking : undefined,
+    responseId: typeof envelope.responseId === "string" ? envelope.responseId : undefined,
+  }
+}
+
+function readToolUsageCard(
+  value: unknown
+): { toolUsageCardId: string; toolName: string; args: Record<string, unknown> } | null {
+  if (!isRecord(value)) {
+    return null
+  }
+
+  const toolUsageCardId =
+    typeof value.toolUsageCardId === "string" && value.toolUsageCardId.trim()
+      ? value.toolUsageCardId.trim()
+      : ""
+  if (!toolUsageCardId) {
+    return null
+  }
+
+  for (const [key, nested] of Object.entries(value)) {
+    if (key === "toolUsageCardId" || !isRecord(nested) || !isRecord(nested.args)) {
+      continue
+    }
+    return {
+      toolUsageCardId,
+      toolName: key,
+      args: nested.args,
+    }
+  }
+
+  return null
+}
+
+function readToolUsageEvent(rawChunk: unknown): ChatReasoningEventDetail | null {
+  const envelope = readGatewayResponseEnvelope(rawChunk)
+  if (!envelope) {
+    return null
+  }
+
+  const toolUsage = readToolUsageCard(envelope.toolUsageCard)
+  if (!toolUsage) {
+    return null
+  }
+
+  return {
+    kind: "tool_usage",
+    usage: {
+      toolUsageCardId: toolUsage.toolUsageCardId,
+      toolName: toolUsage.toolName,
+      args: toolUsage.args,
+      rolloutId: typeof envelope.rolloutId === "string" ? envelope.rolloutId : undefined,
+      messageTag: typeof envelope.messageTag === "string" ? envelope.messageTag : undefined,
+      isThinking: typeof envelope.isThinking === "boolean" ? envelope.isThinking : undefined,
+      responseId: typeof envelope.responseId === "string" ? envelope.responseId : undefined,
+    },
+  }
+}
+
+function readToolResultEvent(rawChunk: unknown): ChatReasoningEventDetail | null {
+  const envelope = readGatewayResponseEnvelope(rawChunk)
+  if (!envelope || !isRecord(envelope.webSearchResults) || !Array.isArray(envelope.webSearchResults.results)) {
+    return null
+  }
+
+  return {
+    kind: "tool_result",
+    result: {
+      toolUsageCardId: typeof envelope.toolUsageCardId === "string" ? envelope.toolUsageCardId : undefined,
+      rolloutId: typeof envelope.rolloutId === "string" ? envelope.rolloutId : undefined,
+      messageTag: typeof envelope.messageTag === "string" ? envelope.messageTag : undefined,
+      webSearchResultsCount: envelope.webSearchResults.results.length,
+      isThinking: typeof envelope.isThinking === "boolean" ? envelope.isThinking : undefined,
+      responseId: typeof envelope.responseId === "string" ? envelope.responseId : undefined,
+    },
+  }
+}
+
+function parseCardAttachmentPayload(value: unknown): ChatCardAttachmentPayload | null {
+  if (typeof value !== "string") {
+    return null
+  }
+
+  try {
+    const parsed = JSON.parse(value) as unknown
+    if (!isRecord(parsed)) {
+      return null
+    }
+    const id = typeof parsed.id === "string" ? parsed.id.trim() : ""
+    if (!id) {
+      return null
+    }
+
+    const image = isRecord(parsed.image)
+      ? {
+          thumbnail: typeof parsed.image.thumbnail === "string" ? parsed.image.thumbnail : undefined,
+          original: typeof parsed.image.original === "string" ? parsed.image.original : undefined,
+          title: typeof parsed.image.title === "string" ? parsed.image.title : undefined,
+          link: typeof parsed.image.link === "string" ? parsed.image.link : undefined,
+          source: typeof parsed.image.source === "string" ? parsed.image.source : undefined,
+        }
+      : undefined
+
+    return {
+      id,
+      cardType: typeof parsed.cardType === "string" ? parsed.cardType : undefined,
+      type: typeof parsed.type === "string" ? parsed.type : undefined,
+      url: typeof parsed.url === "string" ? parsed.url : undefined,
+      image,
+    }
+  } catch {
+    return null
+  }
+}
+
+function collectCardAttachmentsFromEnvelope(value: unknown): ChatCardAttachmentPayload[] {
+  if (!isRecord(value)) {
+    return []
+  }
+
+  const cards: ChatCardAttachmentPayload[] = []
+  if (isRecord(value.cardAttachment) && typeof value.cardAttachment.jsonData === "string") {
+    const parsed = parseCardAttachmentPayload(value.cardAttachment.jsonData)
+    if (parsed) {
+      cards.push(parsed)
+    }
+  }
+
+  if (Array.isArray(value.cardAttachmentsJson)) {
+    for (const item of value.cardAttachmentsJson) {
+      const parsed = parseCardAttachmentPayload(item)
+      if (parsed) {
+        cards.push(parsed)
+      }
+    }
+  }
+
+  if (isRecord(value.modelResponse)) {
+    cards.push(...collectCardAttachmentsFromEnvelope(value.modelResponse))
+  }
+
+  return cards
+}
+
+export function extractCardAttachmentsFromRawChunk(rawChunk: unknown): ChatCardAttachmentPayload[] {
+  if (!isRecord(rawChunk)) {
+    return []
+  }
+
+  const nestedResult = isRecord(rawChunk.result) ? rawChunk.result : null
+  const nestedResponse = isRecord(rawChunk.response) ? rawChunk.response : null
+  const nestedResultResponse = nestedResult && isRecord(nestedResult.response) ? nestedResult.response : null
+  const candidates = [rawChunk, nestedResult, nestedResponse, nestedResultResponse]
+  const cards: ChatCardAttachmentPayload[] = []
+  const seen = new Set<string>()
+
+  for (const candidate of candidates) {
+    for (const card of collectCardAttachmentsFromEnvelope(candidate)) {
+      if (seen.has(card.id)) {
+        continue
+      }
+      seen.add(card.id)
+      cards.push(card)
+    }
+  }
+
+  return cards
+}
+
+export function extractReasoningEventsFromRawChunk(rawChunk: unknown): ChatReasoningEventDetail[] {
+  const events: ChatReasoningEventDetail[] = []
+
+  const layout = readReasoningLayout(rawChunk)
+  if (layout) {
+    events.push({
+      kind: "ui_layout",
+      layout: layout.layout,
+      isThinking: layout.isThinking,
+      responseId: layout.responseId,
+    })
+  }
+
+  const toolUsage = readToolUsageEvent(rawChunk)
+  if (toolUsage) {
+    events.push(toolUsage)
+  }
+
+  const toolResult = readToolResultEvent(rawChunk)
+  if (toolResult) {
+    events.push(toolResult)
+  }
+
+  for (const card of extractCardAttachmentsFromRawChunk(rawChunk)) {
+    events.push({
+      kind: "card_attachment",
+      card,
+    })
+  }
+
+  return events
+}
+
+function appendToolMeta(content: string, payload: AssistantToolMetaPayload): string {
+  if (payload.webSearch.length === 0 && payload.cards.length === 0) {
     return content
   }
-  const metaPayload = JSON.stringify({ webSearch })
+  const metaPayload = JSON.stringify(payload)
   return `${content}\n<tool-meta>${metaPayload}</tool-meta>`
 }
 
@@ -285,6 +534,8 @@ export class AiSdkChatService implements ChatService {
       let upstreamConversationTitle = ""
       const collectedWebSearchMeta: WebSearchToolMeta[] = []
       const collectedWebSearchSeen = new Set<string>()
+      const collectedCards: ChatCardAttachmentPayload[] = []
+      const collectedCardIds = new Set<string>()
       const appendWebSearchMeta = (items: WebSearchToolMeta[]) => {
         for (const item of items) {
           const dedupeKey = `${item.query}\u0000${item.numResults}`
@@ -293,6 +544,15 @@ export class AiSdkChatService implements ChatService {
           }
           collectedWebSearchSeen.add(dedupeKey)
           collectedWebSearchMeta.push(item)
+        }
+      }
+      const appendCards = (items: ChatCardAttachmentPayload[]) => {
+        for (const item of items) {
+          if (collectedCardIds.has(item.id)) {
+            continue
+          }
+          collectedCardIds.add(item.id)
+          collectedCards.push(item)
         }
       }
       const promptInput: { prompt: string } | { messages: ModelMessage[] } =
@@ -318,6 +578,14 @@ export class AiSdkChatService implements ChatService {
             upstreamConversationTitle = nextTitle
           }
           appendWebSearchMeta(extractWebSearchToolMetaFromRawChunk(chunk.rawValue))
+          appendCards(extractCardAttachmentsFromRawChunk(chunk.rawValue))
+          const reasoningEvents = extractReasoningEventsFromRawChunk(chunk.rawValue)
+          for (const detail of reasoningEvents) {
+            onEvent({
+              type: "reasoning",
+              detail,
+            })
+          }
         },
         providerOptions:
           resolved.provider === "gateway"
@@ -343,7 +611,11 @@ export class AiSdkChatService implements ChatService {
         (providerMetadata as { openai?: { responseId?: string | null } } | undefined)?.openai?.responseId ||
         response.id
       appendWebSearchMeta(extractWebSearchToolMetaFromResponse(response as unknown))
-      const assistantContent = appendToolMeta(assistantText, collectedWebSearchMeta)
+      appendCards(extractCardAttachmentsFromRawChunk(response as unknown))
+      const assistantContent = appendToolMeta(assistantText, {
+        webSearch: collectedWebSearchMeta,
+        cards: collectedCards,
+      })
 
       const assistantMessage: ChatMessage = {
         id: responseId || `asst_${crypto.randomUUID()}`,

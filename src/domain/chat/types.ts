@@ -28,6 +28,68 @@ export interface ChatUsage {
   totalTokens: number
 }
 
+export interface ChatReasoningLayout {
+  reasoningUiLayout?: string
+  willThinkLong?: boolean
+  effort?: string
+  rolloutIds: string[]
+}
+
+export interface ChatReasoningToolUsage {
+  toolUsageCardId: string
+  rolloutId?: string
+  toolName: string
+  args: Record<string, unknown>
+  messageTag?: string
+  isThinking?: boolean
+  responseId?: string
+}
+
+export interface ChatReasoningToolResult {
+  toolUsageCardId?: string
+  rolloutId?: string
+  messageTag?: string
+  webSearchResultsCount?: number
+  isThinking?: boolean
+  responseId?: string
+}
+
+export interface ChatCardImagePayload {
+  thumbnail?: string
+  original?: string
+  title?: string
+  link?: string
+  source?: string
+}
+
+export interface ChatCardAttachmentPayload {
+  id: string
+  cardType?: string
+  type?: string
+  url?: string
+  image?: ChatCardImagePayload
+}
+
+export type ChatReasoningEventDetail =
+  | {
+      kind: "ui_layout"
+      layout: ChatReasoningLayout
+      isThinking?: boolean
+      responseId?: string
+    }
+  | {
+      kind: "tool_usage"
+      usage: ChatReasoningToolUsage
+    }
+  | {
+      kind: "tool_result"
+      result: ChatReasoningToolResult
+    }
+  | {
+      kind: "card_attachment"
+      card: ChatCardAttachmentPayload
+    }
+
 export interface ChatTurnResult {
   assistantMessage: ChatMessage
   anchors: ChatAnchors
@@ -42,6 +104,10 @@ export type ChatStreamEvent =
   | {
       type: "delta"
       textDelta: string
+    }
+  | {
+      type: "reasoning"
+      detail: ChatReasoningEventDetail
     }
   | {
       type: "completed"

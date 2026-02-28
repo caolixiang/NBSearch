@@ -15,6 +15,19 @@
 当前阻塞：
 - Phase 8 打包在当前环境受网络限制，Rust crates 索引 `index.crates.io` 不可达，暂无法完成本地打包验证。
 
+## Grok 官方对齐清单（进行中）
+
+- [x] 结构化流事件打通：前端消费 `reasoning` 事件（`uiLayout / tool_usage / tool_result / card_attachment`）。
+- [x] 思考收起时机修正：收到 `isThinking=false` 后立即收起思考区，不等待正文结束。
+- [x] `tool-meta` 扩展：同时解析 `webSearch + cards`。
+- [x] `grok:render` 对齐：按 `cardAttachment` 映射图片，替换渲染标签并清理残留标签。
+- [x] 多代理展示切换：优先使用 `rolloutId / rolloutIds`，Grok 作为主代理人。
+- [x] 思考区交互：限制为“仅展示最新 3 条”，并保留稳定展示高度，避免闪烁。
+- [x] 搜索行为对齐：显示“已经搜索网络”与 `webSearchResults.results.length` 结果数。
+- [x] fast / 4.20 兼容：`rolloutIds=[]` 走单代理展示，有 `rolloutIds` 走多代理展示。
+- [x] 回归测试：新增协议解析与渲染测试并通过。
+- [ ] 像素级视觉细化：继续按抓包资源微调头像运动细节（SVG/Canvas 动画层）。
+
 ## 目标与边界
 
 - 目标：将当前 `Next.js` 项目迁移为 `Tauri + Vite + React` 桌面客户端。
