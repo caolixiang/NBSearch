@@ -973,7 +973,7 @@ function AgentOrb({
       style={style}
       className={cn(
         "relative inline-flex shrink-0 items-center justify-center rounded-full border border-white/85 shadow-[0_0_0_1px_rgba(17,24,39,0.08)]",
-        size === "sm" ? "size-7" : "size-6",
+        size === "sm" ? "size-6" : "size-7",
         thinking ? "think-agent-orb" : "",
         active ? "ring-2 ring-emerald-400/70 ring-offset-1 ring-offset-background" : ""
       )}
@@ -1082,6 +1082,19 @@ function toAgentKey(rolloutId: string): string {
   return normalized.replace(/\s+/g, "_")
 }
 
+function resolveAgentDescriptorByKey(agents: AgentDescriptor[], key: string): AgentDescriptor {
+  const found = agents.find((agent) => agent.key === key)
+  if (found) {
+    return found
+  }
+  return {
+    key,
+    label: key === "grok_primary" ? "Grok" : key.replace(/_/g, " "),
+    paletteIndex: 0,
+    isPrimary: key === "grok_primary",
+  }
+}
+
 function StructuredReasoningPanel({
   events,
   isThinking,
@@ -1092,6 +1105,13 @@ function StructuredReasoningPanel({
   const summary = useMemo(() => buildStructuredReasoningSummary(events), [events])
   const displayEntries = useMemo(() => summary.entries.slice(-3), [summary.entries])
   const agents = useMemo(() => collectRolloutAgents(summary.rolloutIds), [summary.rolloutIds])
+  const agentByKey = useMemo(() => {
+    const map = new Map<string, AgentDescriptor>()
+    for (const agent of agents) {
+      map.set(agent.key, agent)
+    }
+    return map
+  }, [agents])
   const [activeTick, setActiveTick] = useState(0)
 
   const activeAgentKey = useMemo(() => {
@@ -1130,11 +1150,13 @@ function StructuredReasoningPanel({
         <AgentAvatarStack agents={agents} activeAgentKey={activeAgentKey} thinking />
         <span className="text-[0.95rem] font-medium">思考中</span>
       </div>
-      <div className="mt-2 min-h-[11.5rem]">
+      <div className="relative mt-2 min-h-[13.5rem]">
         {displayEntries.length > 0 ? (
           <div className="space-y-3">
             {displayEntries.map((entry, index) => {
               const active = entry.status === "running" && toAgentKey(entry.rolloutId) === activeAgentKey
+              const entryAgentKey = toAgentKey(entry.rolloutId)
+              const descriptor = agentByKey.get(entryAgentKey) || resolveAgentDescriptorByKey(agents, entryAgentKey)
               const key = `${entry.key}:${index}`
               return (
                 <div
@@ -1142,12 +1164,25 @@ function StructuredReasoningPanel({
                   className="animate-in slide-in-from-bottom-2 duration-300 fade-in-50 flex items-start justify-between gap-4"
                 >
                   <div className="flex min-w-0 items-start gap-2.5">
-                    <span className="mt-0.5 inline-flex size-5 shrink-0 items-center justify-center text-muted-foreground">
+                    <span className="mt-0.5 inline-flex shrink-0 items-center justify-center">
+                      {descriptor.isPrimary ? (
+                        <GrokPrimaryOrb active={active} />
+                      ) : (
+                        <AgentOrb
+                          paletteIndex={descriptor.paletteIndex}
+                          active={active}
+                          thinking
+                          size="sm"
+                          animationDelayMs={index * 110}
+                        />
+                      )}
+                    </span>
+                    <span className="mt-1 inline-flex size-5 shrink-0 items-center justify-center text-muted-foreground">
                       {entry.visited ? <Globe className="size-5" /> : <Search className="size-5" />}
                     </span>
                     <div className="min-w-0">
                       <p className="text-[0.9rem] text-muted-foreground">
-                        {entry.rolloutId} · {entry.visited ? "已浏览网页" : "已经搜索网络"}
+                        {descriptor.label} · {entry.visited ? "已浏览网页" : "已经搜索网络"}
                       </p>
                       <p
                         className={cn(
