@@ -64,17 +64,41 @@ function hasOpenThinkTag(value: string): boolean {
   return openIndex > closeIndex
 }
 
-function readThinkingStateFromReasoning(detail: ChatReasoningEventDetail): boolean | undefined {
-  if (detail.kind === "ui_layout") {
-    return typeof detail.isThinking === "boolean" ? detail.isThinking : undefined
+function inferReasoningActive(events: ChatReasoningEventDetail[]): boolean {
+  const runningToolUsageCardIds = new Set<string>()
+  let explicitState: boolean | undefined
+
+  for (const detail of events) {
+    if (detail.kind === "ui_layout") {
+      if (typeof detail.isThinking === "boolean") {
+        explicitState = detail.isThinking
+      }
+      continue
+    }
+
+    if (detail.kind === "tool_usage") {
+      runningToolUsageCardIds.add(detail.usage.toolUsageCardId)
+      if (typeof detail.usage.isThinking === "boolean") {
+        explicitState = detail.usage.isThinking
+      }
+      continue
+    }
+
+    if (detail.kind === "tool_result") {
+      if (detail.result.toolUsageCardId) {
+        runningToolUsageCardIds.delete(detail.result.toolUsageCardId)
+      }
+      if (typeof detail.result.isThinking === "boolean") {
+        explicitState = detail.result.isThinking
+      }
+    }
   }
-  if (detail.kind === "tool_usage") {
-    return typeof detail.usage.isThinking === "boolean" ? detail.usage.isThinking : undefined
+
+  if (runningToolUsageCardIds.size > 0) {
+    return true
   }
-  if (detail.kind === "tool_result") {
-    return typeof detail.result.isThinking === "boolean" ? detail.result.isThinking : undefined
-  }
-  return undefined
+
+  return explicitState ?? false
 }
 
 function appendReasoningEvent(
@@ -423,15 +447,10 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
             }
 
             if (event.type === "reasoning") {
-              setStreamingReasoningEvents((prev) => {
-                const next = appendReasoningEvent(prev, event.detail)
-                streamingReasoningEventsRef.current = next
-                return next
-              })
-              const nextThinkingState = readThinkingStateFromReasoning(event.detail)
-              if (typeof nextThinkingState === "boolean") {
-                setStreamingReasoningActive(nextThinkingState)
-              }
+              const nextReasoningEvents = appendReasoningEvent(streamingReasoningEventsRef.current, event.detail)
+              streamingReasoningEventsRef.current = nextReasoningEvents
+              setStreamingReasoningEvents(nextReasoningEvents)
+              setStreamingReasoningActive(inferReasoningActive(nextReasoningEvents))
               return
             }
 

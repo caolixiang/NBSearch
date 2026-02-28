@@ -1169,6 +1169,10 @@ function StructuredReasoningPanel({
   isThinking: boolean
 }) {
   const summary = useMemo(() => buildStructuredReasoningSummary(events), [events])
+  const effectiveThinking = useMemo(
+    () => isThinking || summary.entries.some((entry) => entry.status === "running"),
+    [isThinking, summary.entries]
+  )
   const agents = useMemo(() => collectRolloutAgents(summary.rolloutIds), [summary.rolloutIds])
   const agentByKey = useMemo(() => {
     const map = new Map<string, AgentDescriptor>()
@@ -1178,13 +1182,14 @@ function StructuredReasoningPanel({
     return map
   }, [agents])
   const [activeTick, setActiveTick] = useState(0)
-  const [expanded, setExpanded] = useState(isThinking)
+  const [expanded, setExpanded] = useState(effectiveThinking)
   const [durationSeconds, setDurationSeconds] = useState(0)
-  const startedAtRef = useRef<number | null>(isThinking ? Date.now() : null)
-  const previousThinkingRef = useRef(isThinking)
+  const startedAtRef = useRef<number | null>(effectiveThinking ? Date.now() : null)
+  const previousThinkingRef = useRef(effectiveThinking)
+  const collapseTimerRef = useRef<number | null>(null)
   const displayEntries = useMemo(
-    () => (isThinking ? summary.entries.slice(-3) : summary.entries),
-    [isThinking, summary.entries]
+    () => (effectiveThinking ? summary.entries.slice(-3) : summary.entries),
+    [effectiveThinking, summary.entries]
   )
 
   const activeAgentKey = useMemo(() => {
@@ -1204,7 +1209,11 @@ function StructuredReasoningPanel({
   }, [activeTick, agents, summary.entries])
 
   useEffect(() => {
-    if (isThinking) {
+    if (effectiveThinking) {
+      if (collapseTimerRef.current) {
+        window.clearTimeout(collapseTimerRef.current)
+        collapseTimerRef.current = null
+      }
       if (!startedAtRef.current) {
         startedAtRef.current = Date.now()
       }
@@ -1214,24 +1223,36 @@ function StructuredReasoningPanel({
       setDurationSeconds(elapsed)
     }
 
-    if (previousThinkingRef.current && !isThinking) {
-      setExpanded(false)
+    if (previousThinkingRef.current && !effectiveThinking) {
+      collapseTimerRef.current = window.setTimeout(() => {
+        setExpanded(false)
+        collapseTimerRef.current = null
+      }, 450)
     }
-    previousThinkingRef.current = isThinking
-  }, [isThinking])
+    previousThinkingRef.current = effectiveThinking
+  }, [effectiveThinking])
+
+  useEffect(
+    () => () => {
+      if (collapseTimerRef.current) {
+        window.clearTimeout(collapseTimerRef.current)
+      }
+    },
+    []
+  )
 
   useEffect(() => {
-    if (!isThinking || agents.length <= 1) {
+    if (!effectiveThinking || agents.length <= 1) {
       return
     }
     const timer = window.setInterval(() => {
       setActiveTick((value) => value + 1)
     }, 1200)
     return () => window.clearInterval(timer)
-  }, [agents.length, isThinking])
+  }, [agents.length, effectiveThinking])
 
   useEffect(() => {
-    if (!isThinking || !startedAtRef.current) {
+    if (!effectiveThinking || !startedAtRef.current) {
       return
     }
 
@@ -1246,10 +1267,10 @@ function StructuredReasoningPanel({
     syncElapsed()
     const timer = window.setInterval(syncElapsed, 1000)
     return () => window.clearInterval(timer)
-  }, [isThinking])
+  }, [effectiveThinking])
 
-  const summaryLabel = isThinking ? "思考中" : "思考过程"
-  const durationLabel = durationSeconds > 0 || isThinking ? ` · ${durationSeconds || 0}s` : ""
+  const summaryLabel = effectiveThinking ? "思考中" : "思考过程"
+  const durationLabel = durationSeconds > 0 || effectiveThinking ? ` · ${durationSeconds || 0}s` : ""
 
   return (
     <div className="my-2 w-full">
@@ -1264,8 +1285,10 @@ function StructuredReasoningPanel({
             expanded ? "rotate-90" : ""
           )}
         />
-        <AgentAvatarStack agents={agents} activeAgentKey={activeAgentKey} thinking={isThinking} />
-        <span className={cn("text-[0.95rem] font-medium", isThinking ? "text-foreground/80" : "text-muted-foreground")}>
+        <AgentAvatarStack agents={agents} activeAgentKey={activeAgentKey} thinking={effectiveThinking} />
+        <span
+          className={cn("text-[0.95rem] font-medium", effectiveThinking ? "text-foreground/80" : "text-muted-foreground")}
+        >
           {summaryLabel}
           {durationLabel}
         </span>
@@ -1276,12 +1299,16 @@ function StructuredReasoningPanel({
           expanded ? "mt-2 opacity-100" : "max-h-0 overflow-hidden opacity-0"
         )}
       >
-        <div className={cn(isThinking ? "relative min-h-[14rem] overflow-hidden" : "max-h-[65vh] overflow-auto pr-2")}>
+        <div
+          className={cn(
+            effectiveThinking ? "relative min-h-[14rem] overflow-hidden" : "max-h-[65vh] overflow-auto pr-2"
+          )}
+        >
           {displayEntries.length > 0 ? (
-            <div className={cn(isThinking ? "flex min-h-[14rem] flex-col justify-end space-y-3" : "space-y-3")}>
+            <div className={cn(effectiveThinking ? "flex min-h-[14rem] flex-col justify-end space-y-3" : "space-y-3")}>
               {displayEntries.map((entry, index) => {
                 const active =
-                  isThinking && entry.status === "running" && toAgentKey(entry.rolloutId) === activeAgentKey
+                  effectiveThinking && entry.status === "running" && toAgentKey(entry.rolloutId) === activeAgentKey
                 const entryAgentKey = toAgentKey(entry.rolloutId)
                 const descriptor = agentByKey.get(entryAgentKey) || resolveAgentDescriptorByKey(agents, entryAgentKey)
                 const key = `${entry.key}:${index}`
@@ -1291,12 +1318,12 @@ function StructuredReasoningPanel({
                     key={key}
                     className={cn(
                       "flex items-start justify-between gap-4",
-                      isThinking ? "animate-in slide-in-from-bottom-2 duration-300 fade-in-50 think-stream-row" : "",
-                      isThinking && ageFromNewest >= 2
+                      effectiveThinking ? "animate-in slide-in-from-bottom-2 duration-300 fade-in-50 think-stream-row" : "",
+                      effectiveThinking && ageFromNewest >= 2
                         ? "think-stream-row-oldest"
-                        : isThinking && ageFromNewest === 1
+                        : effectiveThinking && ageFromNewest === 1
                           ? "think-stream-row-middle"
-                          : isThinking
+                          : effectiveThinking
                             ? "think-stream-row-newest"
                             : "",
                       active ? "think-stream-row-active" : ""
@@ -1305,12 +1332,12 @@ function StructuredReasoningPanel({
                     <div className="flex min-w-0 items-start gap-2.5">
                       <span className="mt-0.5 inline-flex shrink-0 items-center justify-center">
                         {descriptor.isPrimary ? (
-                          <GrokPrimaryOrb active={active} thinking={isThinking} />
+                          <GrokPrimaryOrb active={active} thinking={effectiveThinking} />
                         ) : (
                           <AgentIconOrb
                             paletteIndex={descriptor.paletteIndex}
                             active={active}
-                            thinking={isThinking}
+                            thinking={effectiveThinking}
                             size="sm"
                             animationDelayMs={index * 110}
                           />
@@ -1343,7 +1370,7 @@ function StructuredReasoningPanel({
                 )
               })}
             </div>
-          ) : isThinking ? (
+          ) : effectiveThinking ? (
             <div className="space-y-2 pt-2">
               <div className="h-3 w-1/3 animate-pulse rounded bg-secondary/70" />
               <div className="h-5 w-full animate-pulse rounded bg-secondary/60" />
@@ -1352,7 +1379,7 @@ function StructuredReasoningPanel({
           ) : (
             <p className="pt-2 text-[0.9rem] text-muted-foreground">暂无思考记录</p>
           )}
-          {isThinking ? (
+          {effectiveThinking ? (
             <>
               <div className="pointer-events-none absolute inset-x-0 top-0 h-8 bg-gradient-to-b from-background via-background/88 to-transparent" />
               <div className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-background via-background/84 to-transparent" />
@@ -1505,9 +1532,14 @@ function ThinkBlock({
   const [activeTick, setActiveTick] = useState(0)
   const startedAtRef = useRef<number | null>(thinking ? Date.now() : null)
   const previousThinkingRef = useRef(thinking)
+  const collapseTimerRef = useRef<number | null>(null)
 
   useEffect(() => {
     if (thinking) {
+      if (collapseTimerRef.current) {
+        window.clearTimeout(collapseTimerRef.current)
+        collapseTimerRef.current = null
+      }
       if (!startedAtRef.current) {
         startedAtRef.current = Date.now()
       }
@@ -1518,11 +1550,22 @@ function ThinkBlock({
     }
 
     if (previousThinkingRef.current && !thinking) {
-      // Collapse immediately once </think> appears; user can expand manually if needed.
-      setExpanded(false)
+      collapseTimerRef.current = window.setTimeout(() => {
+        setExpanded(false)
+        collapseTimerRef.current = null
+      }, 450)
     }
     previousThinkingRef.current = thinking
   }, [thinking])
+
+  useEffect(
+    () => () => {
+      if (collapseTimerRef.current) {
+        window.clearTimeout(collapseTimerRef.current)
+      }
+    },
+    []
+  )
 
   const items = useMemo(() => parseThinkItems(content), [content])
   const timeline = useMemo(() => buildThinkTimeline(items, toolMeta), [items, toolMeta])
