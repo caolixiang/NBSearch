@@ -2,6 +2,7 @@ import { createAnthropic } from "@ai-sdk/anthropic"
 import { createOpenAI } from "@ai-sdk/openai"
 import type { LanguageModel } from "ai"
 import type { AppConfig } from "../../app/contracts"
+import { hasTauriRuntime } from "../../app/runtime-info"
 
 export const GATEWAY_SESSION_ID_METADATA_KEY = "__gateway_session_id"
 
@@ -84,6 +85,30 @@ export function injectGatewaySessionId(rawBody: string): string {
   }
 }
 
+let tauriFetchPromise: Promise<typeof fetch | null> | null = null
+
+function createRuntimeFetch(baseFetch: typeof fetch): typeof fetch {
+  const wrapped = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    if (!hasTauriRuntime()) {
+      return baseFetch(input, init)
+    }
+
+    if (!tauriFetchPromise) {
+      tauriFetchPromise = import("@tauri-apps/plugin-http")
+        .then((module) => module.fetch as typeof fetch)
+        .catch(() => null)
+    }
+
+    const tauriFetch = await tauriFetchPromise
+    if (!tauriFetch) {
+      return baseFetch(input, init)
+    }
+
+    return tauriFetch(input, init)
+  }
+  return wrapped as unknown as typeof fetch
+}
+
 function createGatewayFetch(baseFetch: typeof fetch): typeof fetch {
   const wrapped = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const request = new Request(input, init)
@@ -97,10 +122,17 @@ function createGatewayFetch(baseFetch: typeof fetch): typeof fetch {
       return baseFetch(request)
     }
 
-    const rawBody = await request.text()
+    const rawBody = await request.clone().text()
     const nextBody = injectGatewaySessionId(rawBody)
-    const nextRequest = new Request(request, {
+    if (nextBody === rawBody) {
+      return baseFetch(request)
+    }
+
+    const nextRequest = new Request(request.url, {
+      method: request.method,
+      headers: request.headers,
       body: nextBody,
+      signal: request.signal,
     })
     return baseFetch(nextRequest)
   }
@@ -112,16 +144,19 @@ export class ProviderRouter {
   private readonly anthropicProvider
 
   constructor(private readonly config: AppConfig) {
+    const runtimeFetch = createRuntimeFetch(fetch)
+
     this.gatewayProvider = createOpenAI({
       apiKey: config.apiKey || "missing-key",
       baseURL: normalizeGatewayBaseUrl(config.apiBaseUrl),
       name: "gateway",
-      fetch: createGatewayFetch(fetch),
+      fetch: createGatewayFetch(runtimeFetch),
     })
 
     this.anthropicProvider = createAnthropic({
       apiKey: config.anthropicApiKey || "missing-key",
       baseURL: config.anthropicBaseUrl,
+      fetch: runtimeFetch,
     })
   }
 

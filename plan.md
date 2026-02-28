@@ -22,6 +22,7 @@
 - 明确声明：除 UI 外，路由、数据层、网络层、状态管理、存储层、工程结构与构建链路均可重写，不受现有实现约束。
 - 固定技术决策：
   - 仅使用 `AI SDK` 体系，不引入 `openai` 原生 SDK。
+  - Tauri 打包运行时网络请求统一经 `@tauri-apps/plugin-http`（避免 WebView 网络栈差异）。
   - 多模型通过 AI SDK provider 路由：
     - OpenAI-compatible provider -> 你的网关 `/v1/responses`
     - Anthropic provider -> Claude `/v1/messages`
