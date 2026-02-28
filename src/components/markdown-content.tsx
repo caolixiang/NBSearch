@@ -7,7 +7,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type CSSProperties,
   type ReactNode,
 } from "react"
 import { ChevronDown, Globe, Search } from "lucide-react"
@@ -15,7 +14,7 @@ import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import type { ChatCardAttachmentPayload, ChatReasoningEventDetail } from "@/domain/chat/types"
 import { cn } from "@/lib/utils"
-import { GrokAvatar } from "./claude-logo"
+import { GrokLottieIcon, HoverAnimationProvider, type GrokLottieName } from "./grok-lottie"
 
 type TextSection = {
   type: "text"
@@ -67,12 +66,56 @@ type ThinkTimelineEntry =
     }
 
 const AGENT_ORB_BACKGROUNDS = [
-  "radial-gradient(circle at 32% 28%, #1f2937 0%, #111827 58%, #030712 100%)",
-  "radial-gradient(circle at 32% 28%, #f59e0b 0%, #ea580c 58%, #9a3412 100%)",
-  "radial-gradient(circle at 34% 28%, #15803d 0%, #166534 58%, #052e16 100%)",
-  "radial-gradient(circle at 34% 28%, #a855f7 0%, #7c3aed 58%, #4c1d95 100%)",
-  "radial-gradient(circle at 34% 28%, #dc2626 0%, #991b1b 58%, #450a0a 100%)",
+  {
+    start: "#475569",
+    mid: "#1f2937",
+    end: "#020617",
+    accent: "#93c5fd",
+    spark: "#e2e8f0",
+  },
+  {
+    start: "#fb923c",
+    mid: "#c2410c",
+    end: "#431407",
+    accent: "#fdba74",
+    spark: "#ffedd5",
+  },
+  {
+    start: "#34d399",
+    mid: "#15803d",
+    end: "#052e16",
+    accent: "#86efac",
+    spark: "#dcfce7",
+  },
+  {
+    start: "#c084fc",
+    mid: "#7c3aed",
+    end: "#3b0764",
+    accent: "#d8b4fe",
+    spark: "#f3e8ff",
+  },
+  {
+    start: "#f87171",
+    mid: "#b91c1c",
+    end: "#450a0a",
+    accent: "#fca5a5",
+    spark: "#fee2e2",
+  },
 ]
+
+const AGENT_ICON_SEQUENCE: GrokLottieName[] = [
+  "search",
+  "folder",
+  "image",
+  "pin",
+  "square_code",
+  "square_pen",
+  "rewind",
+]
+
+function resolveAgentIconName(paletteIndex: number): GrokLottieName {
+  return AGENT_ICON_SEQUENCE[Math.abs(paletteIndex) % AGENT_ICON_SEQUENCE.length] || "search"
+}
 
 type WebSearchToolMeta = {
   query: string
@@ -963,55 +1006,62 @@ function AgentOrb({
   size?: "sm" | "md"
   animationDelayMs?: number
 }) {
-  const style: CSSProperties = {
-    backgroundImage: AGENT_ORB_BACKGROUNDS[paletteIndex % AGENT_ORB_BACKGROUNDS.length],
+  const palette = AGENT_ORB_BACKGROUNDS[Math.abs(paletteIndex) % AGENT_ORB_BACKGROUNDS.length]
+  const iconName = resolveAgentIconName(paletteIndex)
+  const iconSize = size === "sm" ? 14 : 16
+  const shellStyle = {
     animationDelay: `${animationDelayMs}ms`,
+    backgroundImage: `radial-gradient(circle at 22% 18%, ${palette.spark}88 0%, transparent 28%), linear-gradient(145deg, ${palette.start} 0%, ${palette.mid} 52%, ${palette.end} 100%)`,
   }
 
   return (
-    <span
-      className={cn(
-        "relative inline-flex shrink-0 items-center justify-center rounded-full",
-        size === "sm" ? "size-6" : "size-7",
-        active ? "ring-2 ring-foreground/18 ring-offset-2 ring-offset-background" : ""
-      )}
-      aria-hidden="true"
-    >
-      {active ? <span className="absolute -inset-[2.5px] rounded-full think-agent-active-halo" /> : null}
-      <span
-        style={style}
-        className={cn(
-          "absolute inset-0 rounded-full opacity-95",
-          thinking ? "think-agent-orb-shell" : ""
-        )}
-      />
-      <span className="absolute inset-[1.5px] rounded-full bg-background/92 backdrop-blur-[1px]" />
+    <HoverAnimationProvider value={{ isHovering: thinking && active }}>
       <span
         className={cn(
-          "absolute inset-[4px] rounded-full bg-foreground/92 shadow-[inset_0_0_0_0.5px_rgba(255,255,255,0.16)]",
-          active ? "think-agent-core-active" : ""
+          "relative inline-flex shrink-0 items-center justify-center rounded-full",
+          size === "sm" ? "size-6" : "size-7",
+          active ? "ring-2 ring-foreground/18 ring-offset-2 ring-offset-background" : ""
         )}
-      />
-      <span className="absolute inset-[36%] rounded-[3px] bg-background/90" />
-      <span className="absolute inset-x-[31%] top-[48%] h-[8%] rounded-full bg-background/68" />
-    </span>
+        aria-hidden="true"
+      >
+        {active ? <span className="absolute -inset-[2.5px] rounded-full think-agent-active-halo" /> : null}
+        <span style={shellStyle} className={cn("absolute inset-0 rounded-full", thinking ? "think-agent-orb-shell" : "")} />
+        <span className="absolute inset-[1.25px] rounded-full bg-black/90 backdrop-blur-[1px]" />
+        <span
+          className={cn(
+            "absolute inset-[3px] rounded-full bg-black/88 shadow-[inset_0_0_0_0.5px_rgba(255,255,255,0.26)]",
+            active ? "think-agent-core-active" : ""
+          )}
+        />
+        <span className="relative z-[1] inline-flex items-center justify-center text-white">
+          <GrokLottieIcon name={iconName} size={iconSize} className="opacity-95" />
+        </span>
+      </span>
+    </HoverAnimationProvider>
   )
 }
 
 function GrokPrimaryOrb({ active }: { active: boolean }) {
   return (
-    <span
-      className={cn(
-        "inline-flex shrink-0 items-center justify-center rounded-full",
-        active ? "ring-2 ring-foreground/18 ring-offset-2 ring-offset-background" : ""
-      )}
-      aria-hidden="true"
-    >
-      {active ? <span className="absolute -inset-[2.5px] rounded-full think-agent-active-halo" /> : null}
-      <span className={cn("rounded-full", active ? "think-grok-orb" : "")}>
-        <GrokAvatar size="sm" />
+    <HoverAnimationProvider value={{ isHovering: active }}>
+      <span
+        className={cn(
+          "relative inline-flex shrink-0 items-center justify-center rounded-full",
+          active ? "ring-2 ring-foreground/18 ring-offset-2 ring-offset-background" : ""
+        )}
+        aria-hidden="true"
+      >
+        {active ? <span className="absolute -inset-[2.5px] rounded-full think-agent-active-halo" /> : null}
+        <span
+          className={cn(
+            "inline-flex size-6 items-center justify-center rounded-full border border-white/35 bg-black text-white shadow-[inset_0_0_0_0.5px_rgba(255,255,255,0.2)]",
+            active ? "think-grok-orb" : ""
+          )}
+        >
+          <GrokLottieIcon name="waveform" size={14} />
+        </span>
       </span>
-    </span>
+    </HoverAnimationProvider>
   )
 }
 
