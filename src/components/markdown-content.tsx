@@ -1077,23 +1077,34 @@ function AgentAvatarStack({
   const visibleAgents = agents.slice(0, 5)
 
   return (
-    <span className="inline-flex items-center -space-x-2">
-      {visibleAgents.map((agent, index) => (
-        agent.isPrimary ? (
-          <GrokPrimaryOrb key={agent.key} active={agent.key === activeAgentKey} />
-        ) : (
-          <AgentOrb
+    <span className="inline-flex items-center -space-x-[7px]">
+      {visibleAgents.map((agent, index) => {
+        const active = agent.key === activeAgentKey
+        const baseZIndex = visibleAgents.length - index
+        const zIndex = active ? visibleAgents.length + 2 : baseZIndex
+
+        return (
+          <span
             key={agent.key}
-            paletteIndex={agent.paletteIndex}
-            active={agent.key === activeAgentKey}
-            thinking={thinking}
-            size="sm"
-            animationDelayMs={index * 130}
-          />
+            className={cn("relative inline-flex transition-transform duration-200", active ? "scale-[1.03]" : "scale-100")}
+            style={{ zIndex }}
+          >
+            {agent.isPrimary ? (
+              <GrokPrimaryOrb active={active} />
+            ) : (
+              <AgentOrb
+                paletteIndex={agent.paletteIndex}
+                active={active}
+                thinking={thinking}
+                size="sm"
+                animationDelayMs={index * 120}
+              />
+            )}
+          </span>
         )
-      ))}
+      })}
       {agents.length > visibleAgents.length ? (
-        <span className="ml-1 inline-flex h-6 min-w-6 items-center justify-center rounded-full border border-border bg-background px-1 text-[10px] font-medium text-muted-foreground">
+        <span className="ml-1 inline-flex h-6 min-w-6 items-center justify-center rounded-full border border-border/80 bg-background px-1 text-[10px] font-medium text-muted-foreground">
           +{agents.length - visibleAgents.length}
         </span>
       ) : null}
@@ -1179,6 +1190,9 @@ function StructuredReasoningPanel({
     return map
   }, [agents])
   const [activeTick, setActiveTick] = useState(0)
+  const [enteringEntryKey, setEnteringEntryKey] = useState<string | null>(null)
+  const latestDisplayEntryKey = displayEntries[displayEntries.length - 1]?.key || null
+  const latestDisplayEntryRef = useRef<string | null>(latestDisplayEntryKey)
 
   const activeAgentKey = useMemo(() => {
     for (let index = summary.entries.length - 1; index >= 0; index -= 1) {
@@ -1202,9 +1216,31 @@ function StructuredReasoningPanel({
     }
     const timer = window.setInterval(() => {
       setActiveTick((value) => value + 1)
-    }, 900)
+    }, 1200)
     return () => window.clearInterval(timer)
   }, [agents.length, isThinking])
+
+  useEffect(() => {
+    setActiveTick(0)
+  }, [agents.length])
+
+  useEffect(() => {
+    if (!latestDisplayEntryKey) {
+      return
+    }
+    if (latestDisplayEntryRef.current === latestDisplayEntryKey) {
+      return
+    }
+
+    latestDisplayEntryRef.current = latestDisplayEntryKey
+    setEnteringEntryKey(latestDisplayEntryKey)
+
+    const timer = window.setTimeout(() => {
+      setEnteringEntryKey((value) => (value === latestDisplayEntryKey ? null : value))
+    }, 360)
+
+    return () => window.clearTimeout(timer)
+  }, [latestDisplayEntryKey])
 
   if (!isThinking) {
     return null
@@ -1216,26 +1252,27 @@ function StructuredReasoningPanel({
         <AgentAvatarStack agents={agents} activeAgentKey={activeAgentKey} thinking />
         <span className="text-[0.95rem] font-medium">思考中</span>
       </div>
-      <div className="relative mt-2 min-h-[14rem] overflow-hidden">
+      <div className="relative mt-2 min-h-[16rem] overflow-hidden">
         {displayEntries.length > 0 ? (
-          <div className="flex min-h-[14rem] flex-col justify-end space-y-3">
+          <div className="flex min-h-[16rem] flex-col justify-end space-y-2.5">
             {displayEntries.map((entry, index) => {
               const active = entry.status === "running" && toAgentKey(entry.rolloutId) === activeAgentKey
               const entryAgentKey = toAgentKey(entry.rolloutId)
               const descriptor = agentByKey.get(entryAgentKey) || resolveAgentDescriptorByKey(agents, entryAgentKey)
-              const key = `${entry.key}:${index}`
+              const key = entry.key
               const ageFromNewest = displayEntries.length - 1 - index
               return (
                 <div
                   key={key}
                   className={cn(
-                    "animate-in slide-in-from-bottom-2 duration-300 fade-in-50 flex items-start justify-between gap-4",
+                    "flex items-start justify-between gap-4",
                     "think-stream-row",
                     ageFromNewest >= 2
                       ? "think-stream-row-oldest"
                       : ageFromNewest === 1
                         ? "think-stream-row-middle"
                         : "think-stream-row-newest",
+                    enteringEntryKey === entry.key ? "think-stream-row-enter" : "",
                     active ? "think-stream-row-active" : ""
                   )}
                 >
