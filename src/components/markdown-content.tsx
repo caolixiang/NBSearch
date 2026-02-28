@@ -9,7 +9,7 @@ import {
   useState,
   type ReactNode,
 } from "react"
-import { ChevronDown, Globe, Search } from "lucide-react"
+import { ChevronDown, ChevronRight, Globe, Search, X } from "lucide-react"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import type { ChatCardAttachmentPayload, ChatReasoningEventDetail } from "@/domain/chat/types"
@@ -65,56 +65,24 @@ type ThinkTimelineEntry =
       body: string
     }
 
-const AGENT_ORB_BACKGROUNDS = [
-  {
-    start: "#475569",
-    mid: "#1f2937",
-    end: "#020617",
-    accent: "#93c5fd",
-    spark: "#e2e8f0",
-  },
-  {
-    start: "#fb923c",
-    mid: "#c2410c",
-    end: "#431407",
-    accent: "#fdba74",
-    spark: "#ffedd5",
-  },
-  {
-    start: "#34d399",
-    mid: "#15803d",
-    end: "#052e16",
-    accent: "#86efac",
-    spark: "#dcfce7",
-  },
-  {
-    start: "#c084fc",
-    mid: "#7c3aed",
-    end: "#3b0764",
-    accent: "#d8b4fe",
-    spark: "#f3e8ff",
-  },
-  {
-    start: "#f87171",
-    mid: "#b91c1c",
-    end: "#450a0a",
-    accent: "#fca5a5",
-    spark: "#fee2e2",
-  },
-]
+const AGENT_PIXEL_PALETTES = [
+  ["#2f54eb", "#0ea5e9", "#7c3aed", "#22d3ee"],
+  ["#facc15", "#f59e0b", "#b45309", "#dc2626"],
+  ["#a855f7", "#d946ef", "#7e22ce", "#ec4899"],
+  ["#84cc16", "#facc15", "#ea580c", "#d97706"],
+] as const
 
-const AGENT_ICON_SEQUENCE: GrokLottieName[] = [
-  "search",
-  "folder",
-  "image",
-  "pin",
-  "square_code",
+const AGENT_STACK_RING_COLORS = ["#9ca3af", "#22c55e", "#f97316", "#9ca3af", "#60a5fa"] as const
+
+const AGENT_STACK_ICON_SEQUENCE: GrokLottieName[] = [
+  "waveform",
   "square_pen",
-  "rewind",
+  "square_code",
+  "search",
 ]
 
 function resolveAgentIconName(paletteIndex: number): GrokLottieName {
-  return AGENT_ICON_SEQUENCE[Math.abs(paletteIndex) % AGENT_ICON_SEQUENCE.length] || "search"
+  return AGENT_STACK_ICON_SEQUENCE[Math.abs(paletteIndex) % AGENT_STACK_ICON_SEQUENCE.length] || "search"
 }
 
 type WebSearchToolMeta = {
@@ -583,7 +551,7 @@ function parseAgentMeta(type: string, fallbackIndex: number): AgentDescriptor | 
   return {
     key: label.toLowerCase().replace(/\s+/g, "_"),
     label,
-    paletteIndex: Math.abs(order - 1) % AGENT_ORB_BACKGROUNDS.length,
+    paletteIndex: Math.abs(order - 1) % AGENT_PIXEL_PALETTES.length,
   }
 }
 
@@ -993,7 +961,43 @@ function buildStructuredReasoningSummary(events: ChatReasoningEventDetail[]): St
   }
 }
 
-function AgentOrb({
+function AgentPixelAvatar({
+  paletteIndex,
+  active,
+  size = "md",
+}: {
+  paletteIndex: number
+  active: boolean
+  size?: "sm" | "md" | "lg"
+}) {
+  const palette = AGENT_PIXEL_PALETTES[Math.abs(paletteIndex) % AGENT_PIXEL_PALETTES.length] as readonly string[]
+  const [p0, p1, p2, p3] = palette
+  const cellSize: string = size === "sm" ? "2px" : "2.5px"
+  const mosaicStyle = {
+    backgroundImage: `
+      repeating-linear-gradient(0deg, ${p0} 0 ${cellSize}, ${p1} ${cellSize} calc(${cellSize} * 2), ${p2} calc(${cellSize} * 2) calc(${cellSize} * 3), ${p3} calc(${cellSize} * 3) calc(${cellSize} * 4)),
+      repeating-linear-gradient(90deg, ${p3} 0 ${cellSize}, ${p2} ${cellSize} calc(${cellSize} * 2), ${p1} calc(${cellSize} * 2) calc(${cellSize} * 3), ${p0} calc(${cellSize} * 3) calc(${cellSize} * 4))
+    `,
+    backgroundBlendMode: "multiply",
+  } as const
+
+  return (
+    <span
+      className={cn(
+        "relative inline-flex shrink-0 items-center justify-center rounded-full",
+        size === "sm" ? "size-6" : size === "lg" ? "size-9" : "size-7",
+        active ? "ring-2 ring-foreground/20 ring-offset-2 ring-offset-background" : ""
+      )}
+      aria-hidden="true"
+    >
+      <span className="absolute inset-0 rounded-full border border-black/15 bg-white/75" />
+      <span style={mosaicStyle} className="absolute inset-[1.25px] rounded-full [image-rendering:pixelated]" />
+      <span className="absolute inset-[1.25px] rounded-full shadow-[inset_0_0_0_1px_rgba(255,255,255,0.28)]" />
+    </span>
+  )
+}
+
+function AgentIconOrb({
   paletteIndex,
   active,
   thinking,
@@ -1003,37 +1007,36 @@ function AgentOrb({
   paletteIndex: number
   active: boolean
   thinking: boolean
-  size?: "sm" | "md"
+  size?: "sm" | "md" | "lg"
   animationDelayMs?: number
 }) {
-  const palette = AGENT_ORB_BACKGROUNDS[Math.abs(paletteIndex) % AGENT_ORB_BACKGROUNDS.length]
+  const ringColor = AGENT_STACK_RING_COLORS[Math.abs(paletteIndex) % AGENT_STACK_RING_COLORS.length]
   const iconName = resolveAgentIconName(paletteIndex)
   const iconSize = size === "sm" ? 14 : 16
   const shellStyle = {
     animationDelay: `${animationDelayMs}ms`,
-    backgroundImage: `radial-gradient(circle at 22% 18%, ${palette.spark}88 0%, transparent 28%), linear-gradient(145deg, ${palette.start} 0%, ${palette.mid} 52%, ${palette.end} 100%)`,
-  }
+    backgroundColor: ringColor,
+  } as const
 
   return (
     <HoverAnimationProvider value={{ isHovering: thinking && active }}>
       <span
         className={cn(
           "relative inline-flex shrink-0 items-center justify-center rounded-full",
-          size === "sm" ? "size-6" : "size-7",
+          size === "sm" ? "size-7" : size === "lg" ? "size-9" : "size-8",
           active ? "ring-2 ring-foreground/18 ring-offset-2 ring-offset-background" : ""
         )}
         aria-hidden="true"
       >
         {active ? <span className="absolute -inset-[2.5px] rounded-full think-agent-active-halo" /> : null}
         <span style={shellStyle} className={cn("absolute inset-0 rounded-full", thinking ? "think-agent-orb-shell" : "")} />
-        <span className="absolute inset-[1.25px] rounded-full bg-black/90 backdrop-blur-[1px]" />
+        <span className="absolute inset-[1.4px] rounded-full bg-black shadow-[inset_0_0_0_1px_rgba(255,255,255,0.24)]" />
         <span
           className={cn(
-            "absolute inset-[3px] rounded-full bg-black/88 shadow-[inset_0_0_0_0.5px_rgba(255,255,255,0.26)]",
-            active ? "think-agent-core-active" : ""
+            "relative z-[1] inline-flex items-center justify-center text-white",
+            active ? "think-grok-orb" : ""
           )}
-        />
-        <span className="relative z-[1] inline-flex items-center justify-center text-white">
+        >
           <GrokLottieIcon name={iconName} size={iconSize} className="opacity-95" />
         </span>
       </span>
@@ -1041,9 +1044,9 @@ function AgentOrb({
   )
 }
 
-function GrokPrimaryOrb({ active }: { active: boolean }) {
+function GrokPrimaryOrb({ active, thinking }: { active: boolean; thinking: boolean }) {
   return (
-    <HoverAnimationProvider value={{ isHovering: active }}>
+    <HoverAnimationProvider value={{ isHovering: active && thinking }}>
       <span
         className={cn(
           "relative inline-flex shrink-0 items-center justify-center rounded-full",
@@ -1052,12 +1055,9 @@ function GrokPrimaryOrb({ active }: { active: boolean }) {
         aria-hidden="true"
       >
         {active ? <span className="absolute -inset-[2.5px] rounded-full think-agent-active-halo" /> : null}
-        <span
-          className={cn(
-            "inline-flex size-6 items-center justify-center rounded-full border border-white/35 bg-black text-white shadow-[inset_0_0_0_0.5px_rgba(255,255,255,0.2)]",
-            active ? "think-grok-orb" : ""
-          )}
-        >
+        <span className={cn("absolute inset-0 rounded-full bg-[#9ca3af]", thinking ? "think-agent-orb-shell" : "")} />
+        <span className="absolute inset-[1.4px] rounded-full border border-white/20 bg-black" />
+        <span className={cn("relative z-[1] text-white", active ? "think-grok-orb" : "")}>
           <GrokLottieIcon name="waveform" size={14} />
         </span>
       </span>
@@ -1077,21 +1077,30 @@ function AgentAvatarStack({
   const visibleAgents = agents.slice(0, 5)
 
   return (
-    <span className="inline-flex items-center -space-x-2">
-      {visibleAgents.map((agent, index) => (
-        agent.isPrimary ? (
-          <GrokPrimaryOrb key={agent.key} active={agent.key === activeAgentKey} />
+    <span className="inline-flex items-center -space-x-1.5">
+      {visibleAgents.map((agent, index) =>
+        thinking ? (
+          agent.isPrimary ? (
+            <GrokPrimaryOrb key={agent.key} active={agent.key === activeAgentKey} thinking={thinking} />
+          ) : (
+            <AgentIconOrb
+              key={agent.key}
+              paletteIndex={agent.paletteIndex}
+              active={agent.key === activeAgentKey}
+              thinking={thinking}
+            size="sm"
+            animationDelayMs={index * 130}
+            />
+          )
         ) : (
-          <AgentOrb
+          <AgentPixelAvatar
             key={agent.key}
             paletteIndex={agent.paletteIndex}
             active={agent.key === activeAgentKey}
-            thinking={thinking}
             size="sm"
-            animationDelayMs={index * 130}
           />
         )
-      ))}
+      )}
       {agents.length > visibleAgents.length ? (
         <span className="ml-1 inline-flex h-6 min-w-6 items-center justify-center rounded-full border border-border bg-background px-1 text-[10px] font-medium text-muted-foreground">
           +{agents.length - visibleAgents.length}
@@ -1133,7 +1142,7 @@ function collectRolloutAgents(rolloutIds: string[]): AgentDescriptor[] {
     append({
       key: normalized.toLowerCase().replace(/\s+/g, "_"),
       label: normalized,
-      paletteIndex: (index + 1) % AGENT_ORB_BACKGROUNDS.length,
+      paletteIndex: (index + 1) % AGENT_PIXEL_PALETTES.length,
     })
   })
 
@@ -1242,9 +1251,9 @@ function StructuredReasoningPanel({
                   <div className="flex min-w-0 items-start gap-2.5">
                     <span className="mt-0.5 inline-flex shrink-0 items-center justify-center">
                       {descriptor.isPrimary ? (
-                        <GrokPrimaryOrb active={active} />
+                        <GrokPrimaryOrb active={active} thinking />
                       ) : (
-                        <AgentOrb
+                        <AgentIconOrb
                           paletteIndex={descriptor.paletteIndex}
                           active={active}
                           thinking
@@ -1501,13 +1510,13 @@ function ThinkBlock({
     <div className="my-2 w-full">
       <button
         type="button"
-        className="inline-flex items-center gap-2 text-xs text-muted-foreground"
+        className="inline-flex items-center gap-2.5 text-muted-foreground"
         onClick={() => setExpanded((value) => !value)}
       >
-        <ChevronDown
+        <ChevronRight
           className={cn(
-            "size-4 shrink-0 text-muted-foreground transition-transform duration-200",
-            expanded ? "" : "-rotate-90"
+            "size-4 shrink-0 text-muted-foreground/85 transition-transform duration-200",
+            expanded ? "rotate-90" : ""
           )}
         />
         {hasAgentItems ? (
@@ -1520,7 +1529,7 @@ function ThinkBlock({
             )}
           />
         )}
-        <span className="text-[0.95rem] font-medium text-muted-foreground">
+        <span className="text-[2rem] font-semibold tracking-tight text-muted-foreground">
           {summaryLabel}
           {durationLabel}
         </span>
@@ -1534,6 +1543,22 @@ function ThinkBlock({
         )}
       >
         <div className={containerClassName}>
+          {!thinking && expanded && hasAgentItems ? (
+            <div className="mb-4 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <AgentAvatarStack agents={agents} activeAgentKey={activeAgentKey} thinking={false} />
+                <h4 className="text-[2rem] font-semibold tracking-tight text-foreground">思考结果</h4>
+              </div>
+              <button
+                type="button"
+                className="inline-flex size-8 items-center justify-center rounded-full text-muted-foreground hover:bg-secondary/80 hover:text-foreground"
+                onClick={() => setExpanded(false)}
+                aria-label="关闭思考结果"
+              >
+                <X className="size-6" />
+              </button>
+            </div>
+          ) : null}
           {displayTimeline.length > 0 ? (
             <div className="space-y-3">
               {displayTimeline.map((entry, index) => {
@@ -1572,28 +1597,28 @@ function ThinkBlock({
                 if (entry.kind === "agent") {
                   const active = thinking && entry.agentKey === activeAgentKey
                   return (
-                    <div key={entry.key} className="space-y-1">
-                      <div className="flex items-center gap-2 pl-0.5 text-[0.95rem] font-semibold text-muted-foreground">
-                        <AgentOrb
+                    <div key={entry.key} className="space-y-2.5">
+                      <div className="flex items-center gap-2 pl-0.5 text-[0.95rem] font-semibold text-foreground">
+                        <AgentPixelAvatar
                           paletteIndex={entry.paletteIndex}
                           active={active}
-                          thinking={thinking}
-                          size="md"
-                          animationDelayMs={(index % 5) * 100}
+                          size="lg"
                         />
                         <span>{entry.agentLabel}</span>
-                        {active ? <span className="size-1.5 animate-pulse rounded-full bg-emerald-500" /> : null}
+                        <ChevronDown className="size-4 text-muted-foreground" />
                       </div>
-                      <p
-                        className={cn(
-                          "ml-7 whitespace-pre-wrap break-words text-[0.95rem] leading-7 text-foreground/95",
-                          thinking
-                            ? "[display:-webkit-box] [-webkit-line-clamp:4] [-webkit-box-orient:vertical] overflow-hidden"
-                            : ""
-                        )}
-                      >
-                        {entry.body || "（空）"}
-                      </p>
+                      <div className="ml-11 rounded-3xl border border-border bg-background/75 px-5 py-4">
+                        <p
+                          className={cn(
+                            "whitespace-pre-wrap break-words text-[1.02rem] leading-8 text-foreground/95",
+                            thinking
+                              ? "[display:-webkit-box] [-webkit-line-clamp:4] [-webkit-box-orient:vertical] overflow-hidden"
+                              : ""
+                          )}
+                        >
+                          {entry.body || "（空）"}
+                        </p>
+                      </div>
                     </div>
                   )
                 }
