@@ -28,7 +28,7 @@ function toRenderMessage(message: DomainChatMessage): RenderChatMessage | null {
   }
 }
 
-export function LegacyChatShell({ runtime }: { runtime: AppRuntime }) {
+export function ChatShell({ runtime }: { runtime: AppRuntime }) {
   const repository = runtime.services.repository
   const chatService = runtime.services.chat
 
