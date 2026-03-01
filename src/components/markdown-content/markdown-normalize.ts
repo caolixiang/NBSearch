@@ -412,7 +412,8 @@ export function normalizeAssistantMarkdown(content: string): string {
   normalized = normalized.replace(/([^\n])(?=#{1,6}\s?)/g, "$1\n")
   normalized = normalized.replace(/(^|\n)(#{1,6})([^\s#])/g, "$1$2 $3")
   normalized = normalized.replace(/(^|\n)(#{1,6}\s[^\n-]+)-\s?/g, "$1$2\n- ")
-  normalized = normalized.replace(/([\u4E00-\u9FFF）)])-(?=[\u4E00-\u9FFF0-9A-Za-z])/g, "$1\n- ")
+  // Removed the aggressive Chinese hyphen replacement. 
+  // It incorrectly matched city names like '米兰-科尔蒂纳' (Milan-Cortina) and broke markdown formatting.
   normalized = normalized.replace(/([^\n])(?=\d+\.\s)/g, "$1\n")
   // --- Image markdown repair ---
   // Step 1: Unwrap single-line linked images: [![alt](img)](link) → ![alt](img)
