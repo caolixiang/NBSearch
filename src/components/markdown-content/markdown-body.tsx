@@ -27,37 +27,25 @@ export function MarkdownBody({ content, streaming = false }: { content: string; 
 
           const imageCount = imageNodes.length
 
+          let gridClass = "grid-cols-1"
+          if (imageCount === 2) gridClass = "grid-cols-2"
+          else if (imageCount === 3) gridClass = "grid-cols-3"
+          else if (imageCount >= 4) gridClass = "grid-cols-4"
+
           return (
             <div className="my-2 w-full">
               <div
                 className={cn(
-                  "grok-md-image-grid grid overflow-hidden",
-                  imageCount === 1
-                    ? "grok-md-image-grid-single grid-cols-1 max-w-[40rem] mx-auto rounded-[20px]"
-                    : "grid-cols-2 gap-[2px] rounded-[24px] [&_.grok-md-image]:!m-0 [&_.grok-md-image]:aspect-square [&_.grok-md-image]:max-h-none [&_.grok-md-image]:rounded-none [&_.grok-md-image]:object-cover"
+                  "grok-md-image-grid grid gap-2.5",
+                  imageCount === 1 ? "grok-md-image-grid-single grid-cols-1 max-w-[40rem] mx-auto [&_.grok-md-image]:rounded-[20px]" : gridClass,
+                  imageCount > 1 ? "[&_.grok-md-image]:!m-0 [&_.grok-md-image]:aspect-square [&_.grok-md-image]:w-full [&_.grok-md-image]:h-full [&_.grok-md-image]:max-h-none [&_.grok-md-image]:object-cover [&_.grok-md-image]:!rounded-[16px]" : ""
                 )}
               >
-                {imageNodes.map((node, index) => {
-                  let cornerClass = ""
-                  if (imageCount === 2) {
-                    cornerClass = index === 0 ? "rounded-l-[24px]" : "rounded-r-[24px]"
-                  } else if (imageCount === 3) {
-                    if (index === 0) cornerClass = "rounded-tl-[24px]"
-                    else if (index === 1) cornerClass = "rounded-tr-[24px]"
-                    else if (index === 2) cornerClass = "rounded-b-[24px] col-span-2"
-                  } else if (imageCount >= 4) {
-                    if (index === 0) cornerClass = "rounded-tl-[24px]"
-                    else if (index === 1) cornerClass = "rounded-tr-[24px]"
-                    else if (index === imageCount - 2) cornerClass = "rounded-bl-[24px]"
-                    else if (index === imageCount - 1) cornerClass = "rounded-br-[24px]"
-                  }
-
-                  return (
-                    <div key={index} className={cn("relative overflow-hidden bg-secondary/20", cornerClass)}>
-                      {node}
-                    </div>
-                  )
-                })}
+                {imageNodes.map((node, index) => (
+                  <div key={index} className="relative w-full h-full">
+                    {node}
+                  </div>
+                ))}
               </div>
             </div>
           )
