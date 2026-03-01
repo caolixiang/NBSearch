@@ -1,23 +1,42 @@
 "use client"
 
 import { useMemo } from "react"
-import { Streamdown } from "streamdown"
+import { Streamdown, defaultRehypePlugins } from "streamdown"
 import { cn } from "@/lib/utils"
 import { normalizeAssistantMarkdown } from "./markdown-normalize"
 import { MarkdownImage, collectImageParagraphNodes } from "./markdown-image"
+import { harden } from "rehype-harden"
 
 export function MarkdownBody({ content, streaming = false }: { content: string; streaming?: boolean }) {
   const normalized = useMemo(() => normalizeAssistantMarkdown(content), [content])
+  const rehypePlugins = useMemo(
+    () =>
+      [
+        defaultRehypePlugins.raw,
+        defaultRehypePlugins.sanitize,
+        [
+          harden,
+          {
+            allowedImagePrefixes: ["*"],
+            allowedLinkPrefixes: ["*"],
+            allowedProtocols: ["*"],
+            allowDataImages: true,
+            imageBlockPolicy: "remove",
+          },
+        ],
+      ] as any,
+    []
+  )
   if (!normalized) {
     return null
   }
 
   return (
     <Streamdown
+      mode={streaming ? "streaming" : "static"}
+      parseIncompleteMarkdown={streaming}
       isAnimating={streaming}
-      allowedImagePrefixes={["*"]}
-      allowDataImages={true}
-      allowedProtocols={["http", "https"]}
+      rehypePlugins={rehypePlugins}
       components={{
         h1: ({ children }) => <h1 className="mb-3 mt-5 text-xl font-bold">{children}</h1>,
         h2: ({ children }) => <h2 className="mb-2 mt-4 text-lg font-semibold">{children}</h2>,

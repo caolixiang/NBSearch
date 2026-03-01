@@ -11,6 +11,9 @@ import {
   type ReactNode,
   type SyntheticEvent,
 } from "react"
+import { hasTauriRuntime } from "@/app/runtime-info"
+import { buildGrokChromeImageHeaders } from "@/infrastructure/http/chrome-image-headers"
+import { runtimeFetch } from "@/infrastructure/http/runtime-fetch"
 
 export function isAnchorImageNode(node: ReactNode): boolean {
   if (!isValidElement(node)) {
@@ -93,6 +96,7 @@ export const MarkdownImage = memo(function({
   alt: string
   isStreaming?: boolean
 }) {
+  const isTauri = hasTauriRuntime()
   const { primarySrc, fallbackSrc } = useMemo(() => {
     const raw = (src || "").trim()
     const hashIndex = raw.indexOf("#fallback=")
@@ -110,20 +114,177 @@ export const MarkdownImage = memo(function({
 
   const [currentSrc, setCurrentSrc] = useState(primarySrc)
   const [failed, setFailed] = useState(false)
+  const [runtimeLoading, setRuntimeLoading] = useState(false)
+  const [reloadNonce, setReloadNonce] = useState(0)
   const fallbackAttemptedRef = useRef(false)
   const swappedProtocolRef = useRef(false)
+  const objectUrlRef = useRef<string>("")
+
+  const swapProtocol = (value: string): string => {
+    const input = value.trim()
+    if (input.startsWith("https://")) {
+      return `http://${input.slice("https://".length)}`
+    }
+    if (input.startsWith("http://")) {
+      return `https://${input.slice("http://".length)}`
+    }
+    return input
+  }
+
+  const withRetryNonce = (value: string): string => {
+    if (!value || !/^https?:\/\//i.test(value)) {
+      return value
+    }
+    if (reloadNonce <= 0) {
+      return value
+    }
+    const separator = value.includes("?") ? "&" : "?"
+    return `${value}${separator}retry=${reloadNonce}`
+  }
+
+  const buildRuntimeCandidates = (primary: string, fallback: string): string[] => {
+    const set = new Set<string>()
+    const push = (value: string) => {
+      const normalized = value.trim()
+      if (!normalized) {
+        return
+      }
+      set.add(withRetryNonce(normalized))
+    }
+
+    push(primary)
+    push(fallback)
+
+    const swappedPrimary = swapProtocol(primary)
+    if (swappedPrimary !== primary) {
+      push(swappedPrimary)
+    }
+    const swappedFallback = swapProtocol(fallback)
+    if (swappedFallback !== fallback) {
+      push(swappedFallback)
+    }
+
+    return Array.from(set)
+  }
 
   useEffect(() => {
-    setCurrentSrc(primarySrc)
+    return () => {
+      if (objectUrlRef.current) {
+        URL.revokeObjectURL(objectUrlRef.current)
+        objectUrlRef.current = ""
+      }
+    }
+  }, [])
+
+  const loadViaRuntimeFetch = async (url: string): Promise<string> => {
+    const target = (url || "").trim()
+    if (!/^https?:\/\//i.test(target)) {
+      return ""
+    }
+
+    const init: RequestInit = {
+      method: "GET",
+      headers: buildGrokChromeImageHeaders(),
+    }
+
+    try {
+      const response = await runtimeFetch(target, init)
+      if (!response.ok) {
+        return ""
+      }
+      const blob = await response.blob()
+      if (!blob || blob.size <= 0) {
+        return ""
+      }
+      return URL.createObjectURL(blob)
+    } catch {
+      return ""
+    }
+  }
+
+  useEffect(() => {
+    let cancelled = false
+
+    if (objectUrlRef.current) {
+      URL.revokeObjectURL(objectUrlRef.current)
+      objectUrlRef.current = ""
+    }
+
     setFailed(false)
     fallbackAttemptedRef.current = false
     swappedProtocolRef.current = false
-  }, [primarySrc])
+
+    const primary = (primarySrc || "").trim()
+    const fallback = (fallbackSrc || "").trim()
+
+    if (!primary) {
+      setCurrentSrc("")
+      setRuntimeLoading(false)
+      setFailed(true)
+      return () => {
+        cancelled = true
+      }
+    }
+
+    const shouldProxyByRuntime = isTauri && /^https?:\/\//i.test(primary)
+    if (!shouldProxyByRuntime) {
+      setRuntimeLoading(false)
+      setCurrentSrc(primary)
+      return () => {
+        cancelled = true
+      }
+    }
+
+    const load = async () => {
+      setCurrentSrc("")
+      setRuntimeLoading(true)
+
+      const candidates = buildRuntimeCandidates(primary, fallback)
+      for (const candidate of candidates) {
+        const objectUrl = await loadViaRuntimeFetch(candidate)
+        if (cancelled) {
+          if (objectUrl) {
+            URL.revokeObjectURL(objectUrl)
+          }
+          return
+        }
+        if (!objectUrl) {
+          continue
+        }
+        if (objectUrlRef.current) {
+          URL.revokeObjectURL(objectUrlRef.current)
+        }
+        objectUrlRef.current = objectUrl
+        setCurrentSrc(objectUrl)
+        setRuntimeLoading(false)
+        setFailed(false)
+        return
+      }
+
+      if (!cancelled) {
+        setRuntimeLoading(false)
+        // TEMP: Disable native <img> direct fallback to isolate runtimeFetch behavior.
+        // Keep this strict so we can verify whether fetch + custom headers works end-to-end.
+        setCurrentSrc("")
+        setFailed(true)
+      }
+    }
+
+    void load()
+
+    return () => {
+      cancelled = true
+    }
+  }, [primarySrc, fallbackSrc, isTauri, reloadNonce])
 
   if (isStreaming) {
     return (
       <div className="grok-md-image animate-pulse bg-secondary/40 h-full min-h-[160px] w-full rounded-[20px]" />
     )
+  }
+
+  if (runtimeLoading) {
+    return <div className="grok-md-image animate-pulse bg-secondary/40 h-full min-h-[160px] w-full rounded-[20px]" />
   }
 
   const handleError = (_event: SyntheticEvent<HTMLImageElement>) => {
@@ -133,23 +294,20 @@ export const MarkdownImage = memo(function({
       return
     }
 
-    if (swappedProtocolRef.current) {
-      setFailed(true)
-      return
-    }
     const value = (currentSrc || "").trim()
-    if (value.startsWith("https://")) {
+    if (!swappedProtocolRef.current && value.startsWith("https://")) {
       swappedProtocolRef.current = true
       setFailed(false)
       setCurrentSrc(`http://${value.slice("https://".length)}`)
       return
     }
-    if (value.startsWith("http://")) {
+    if (!swappedProtocolRef.current && value.startsWith("http://")) {
       swappedProtocolRef.current = true
       setFailed(false)
       setCurrentSrc(`https://${value.slice("http://".length)}`)
       return
     }
+
     setFailed(true)
   }
 
@@ -158,11 +316,20 @@ export const MarkdownImage = memo(function({
     if (!value) {
       return
     }
-    fallbackAttemptedRef.current = false
-    swappedProtocolRef.current = false
+    if (objectUrlRef.current) {
+      URL.revokeObjectURL(objectUrlRef.current)
+      objectUrlRef.current = ""
+    }
+    setReloadNonce((value) => value + 1)
     setFailed(false)
-    const separator = value.includes("?") ? "&" : "?"
-    setCurrentSrc(`${value}${separator}retry=${Date.now()}`)
+    if (!isTauri) {
+      fallbackAttemptedRef.current = false
+      swappedProtocolRef.current = false
+      const separator = value.includes("?") ? "&" : "?"
+      setCurrentSrc(`${value}${separator}retry=${Date.now()}`)
+      return
+    }
+    setCurrentSrc("")
   }
 
   if (failed || !currentSrc.trim()) {
@@ -198,7 +365,6 @@ export const MarkdownImage = memo(function({
       src={currentSrc}
       alt={alt || ""}
       loading="lazy"
-      referrerPolicy="no-referrer"
       onError={handleError}
       className="grok-md-image block h-auto max-h-[72vh] w-full rounded-[20px] bg-secondary/20 object-contain"
       data-grok-md-image="true"

@@ -146,6 +146,58 @@ describe("normalizeAssistantMarkdown", () => {
     const normalized = normalizeAssistantMarkdown('{"image_url":"https://img.test/render?id=xyz"}')
     expect(normalized).toBe("![Generated Image](<https://img.test/render?id=xyz>)")
   })
+
+  it("keeps linked markdown image line intact instead of re-extracting inline url", () => {
+    const normalized = normalizeAssistantMarkdown("[![alt](https://img.test/photo.jpg)](https://source.test/article)")
+    expect(normalized).toBe("![alt](https://img.test/photo.jpg)")
+    expect(normalized).not.toContain("Generated Image")
+  })
+
+  it("splits inline linked image from paragraph text without creating generated-image duplicates", () => {
+    const normalized = normalizeAssistantMarkdown(
+      "这是一段说明文字。[![alt](https://img.test/photo.jpg)](https://source.test/article)"
+    )
+
+    expect(normalized).toContain("这是一段说明文字。")
+    expect(normalized).toContain("![alt](https://img.test/photo.jpg)")
+    expect(normalized).not.toContain("Generated Image")
+  })
+
+  it("moves sentence-tail dual linked images into one gallery image line", () => {
+    const normalized = normalizeAssistantMarkdown(
+      [
+        "在发布会上哽咽落泪：“这枚金牌献给外婆，我会像她一样勇敢。”[![图一](https://img.test/a.jpg#fallback=https%3A%2F%2Fimg.test%2Fa-thumb.jpg)](https://source.test/a)[![图二](https://img.test/b.jpg#fallback=https%3A%2F%2Fimg.test%2Fb-thumb.jpg)](https://source.test/b)",
+        "",
+        "下一段",
+      ].join("\n")
+    )
+
+    expect(normalized).toContain("在发布会上哽咽落泪：“这枚金牌献给外婆，我会像她一样勇敢。”")
+    expect(normalized).toContain(
+      "![图一](https://img.test/a.jpg#fallback=https%3A%2F%2Fimg.test%2Fa-thumb.jpg) ![图二](https://img.test/b.jpg#fallback=https%3A%2F%2Fimg.test%2Fb-thumb.jpg)"
+    )
+    expect(normalized).not.toContain("Generated Image")
+    expect(normalized).toMatch(/图一[^\n]*图二/)
+    expect(normalized).toContain("勇敢。”\n\n![图一]")
+  })
+
+  it("drops generated image caption noise between consecutive images", () => {
+    const normalized = normalizeAssistantMarkdown(
+      [
+        "https://img.test/a.jpg",
+        "Generated Image有颜有才身家过亿，谷爱凌这么优秀还用攀附豪门？-36氪",
+        "https://img.test/b.jpg",
+      ].join("\n")
+    )
+
+    expect(normalized).toContain("![Generated Image](<https://img.test/a.jpg>) ![Generated Image](<https://img.test/b.jpg>)")
+    expect(normalized).not.toContain("Generated Image有颜有才身家过亿")
+  })
+
+  it("keeps bold numeric headings intact", () => {
+    const normalized = normalizeAssistantMarkdown("**1. 艰辛童年：从流浪儿到革命后代**")
+    expect(normalized).toBe("**1. 艰辛童年：从流浪儿到革命后代**")
+  })
 })
 
 describe("expandGrokRenderTags", () => {
@@ -167,7 +219,7 @@ describe("expandGrokRenderTags", () => {
     )
 
     expect(expanded).toContain("![sample](https://img.test/a.jpg)")
-    expect(expanded).toContain("](https://source.test)")
+    expect(expanded).toMatch(/\]\(https:\/\/source\.test\/?\)/)
   })
 
   it("replaces self-closing grok:render tags with markdown image links", () => {
@@ -187,6 +239,52 @@ describe("expandGrokRenderTags", () => {
     )
 
     expect(expanded).toContain("![sample](https://img.test/a.jpg)")
+  })
+
+  it("falls back to thumbnail when original is blocked placeholder text", () => {
+    const expanded = expandGrokRenderTags(
+      '<grok:render card_id="abc" card_type="image_card" type="render_searched_image" />',
+      {
+        abc: {
+          id: "abc",
+          cardType: "image_card",
+          type: "render_searched_image",
+          image: {
+            original: "Image blocked: content policy",
+            thumbnail: "https://img.test/thumb.jpg",
+            title: "sample-thumb",
+            link: "https://source.test/article",
+          },
+        },
+      }
+    )
+
+    expect(expanded).toContain("![sample-thumb](https://img.test/thumb.jpg)")
+    expect(expanded).toContain("](https://source.test/article)")
+    expect(expanded).not.toContain("Image%20blocked")
+  })
+
+  it("falls back to thumbnail when original is bracketed blocked placeholder", () => {
+    const expanded = expandGrokRenderTags(
+      '<grok:render card_id="abc" card_type="image_card" type="render_searched_image" />',
+      {
+        abc: {
+          id: "abc",
+          cardType: "image_card",
+          type: "render_searched_image",
+          image: {
+            original: "[Image blocked: 景区图]",
+            thumbnail: "https://img.test/thumb-bracket.jpg",
+            title: "thumb-bracket",
+            link: "https://source.test/article-2",
+          },
+        },
+      }
+    )
+
+    expect(expanded).toContain("![thumb-bracket](https://img.test/thumb-bracket.jpg)")
+    expect(expanded).toContain("](https://source.test/article-2)")
+    expect(expanded).not.toContain("Image%20blocked")
   })
 
   it("appends image cards when content has no grok render placeholders", () => {
@@ -221,6 +319,44 @@ describe("expandGrokRenderTags", () => {
 
     expect(expanded).toContain("![inline](<https://img.test/inline.jpg>)")
     expect(expanded).not.toContain("fallback-b.jpg")
+  })
+
+  it("injects thumbnail fallback when markdown already contains original image url", () => {
+    const expanded = expandGrokRenderTags("![Generated Image](<https://img.test/original.jpg>)", {
+      c1: {
+        id: "c1",
+        cardType: "image_card",
+        type: "render_searched_image",
+        image: {
+          original: "https://img.test/original.jpg",
+          thumbnail: "https://img.test/thumb-for-original.jpg",
+          title: "fallback",
+        },
+      },
+    })
+
+    expect(expanded).toContain(
+      "![Generated Image](<https://img.test/original.jpg#fallback=https%3A%2F%2Fimg.test%2Fthumb-for-original.jpg>)"
+    )
+  })
+
+  it("injects fallback when markdown uses http but card original is https", () => {
+    const expanded = expandGrokRenderTags("![Generated Image](<http://img.test/mixed.jpg>)", {
+      c1: {
+        id: "c1",
+        cardType: "image_card",
+        type: "render_searched_image",
+        image: {
+          original: "https://img.test/mixed.jpg",
+          thumbnail: "https://img.test/mixed-thumb.jpg",
+          title: "mixed",
+        },
+      },
+    })
+
+    expect(expanded).toContain(
+      "![Generated Image](<http://img.test/mixed.jpg#fallback=https%3A%2F%2Fimg.test%2Fmixed-thumb.jpg>)"
+    )
   })
 
   it("renders fallback cards even when content is empty", () => {

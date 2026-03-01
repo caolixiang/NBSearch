@@ -19,6 +19,13 @@ export function toImageCardMeta(card: ChatCardAttachmentPayload): ImageCardMeta 
   if (!id) {
     return null
   }
+  const raw = card as unknown as Record<string, unknown>
+
+  const topLevelThumbnail = typeof raw.thumbnail === "string" ? raw.thumbnail : undefined
+  const topLevelOriginal = typeof raw.original === "string" ? raw.original : undefined
+  const topLevelTitle = typeof raw.title === "string" ? raw.title : undefined
+  const topLevelLink = typeof raw.link === "string" ? raw.link : undefined
+  const topLevelSource = typeof raw.source === "string" ? raw.source : undefined
 
   return {
     id,
@@ -34,6 +41,11 @@ export function toImageCardMeta(card: ChatCardAttachmentPayload): ImageCardMeta 
           source: card.image.source,
         }
       : undefined,
+    thumbnail: topLevelThumbnail,
+    original: topLevelOriginal,
+    title: topLevelTitle,
+    link: topLevelLink,
+    source: topLevelSource,
   }
 }
 
@@ -70,24 +82,30 @@ export function expandGrokRenderTags(content: string, cards: Record<string, Imag
     if (!card) {
       return ""
     }
-    const orig = (card.image?.original || "").trim()
-    const thumb = (card.image?.thumbnail || "").trim()
-    const fallbackLink = (card.image?.link || "").trim()
-    const cUrl = (card.url || "").trim()
+    const originalImageUrl = normalizeCardImageUrl(card.image?.original || card.original || "")
+    const thumbnailImageUrl = normalizeCardImageUrl(card.image?.thumbnail || card.thumbnail || "")
+    const cardImageUrl = normalizeCardImageUrl(card.url || "")
+    const sourceLinkUrl = normalizeCardTargetUrl(card.image?.link || card.link || "")
+    const cardLinkUrl = normalizeCardTargetUrl(card.url || "")
 
-    const targetUrl = orig || fallbackLink || cUrl || thumb
-    let imageUrl = orig || cUrl || thumb
+    let imageUrl = originalImageUrl || cardImageUrl || thumbnailImageUrl
     if (!imageUrl) {
       return ""
     }
 
     // Embed the thumbnail as a fallback if original is provided.
     // We base64 encode it so it doesn't break URL parsing.
-    if (imageUrl === orig && thumb && thumb !== orig) {
-      imageUrl = `${imageUrl}#fallback=${encodeURIComponent(thumb)}`
+    if (imageUrl === originalImageUrl && thumbnailImageUrl && thumbnailImageUrl !== originalImageUrl) {
+      imageUrl = `${imageUrl}#fallback=${encodeURIComponent(thumbnailImageUrl)}`
     }
 
-    const alt = escapeMarkdownText(card.image?.title || card.image?.source || "Generated Image") || "Generated Image"
+    const targetUrl =
+      sourceLinkUrl ||
+      cardLinkUrl ||
+      normalizeCardTargetUrl(originalImageUrl) ||
+      normalizeCardTargetUrl(thumbnailImageUrl)
+
+    const alt = escapeMarkdownText(card.image?.title || card.title || card.image?.source || card.source || "Generated Image") || "Generated Image"
     const imageMarkdown = `![${alt}](${wrapMarkdownUrl(imageUrl)})`
     return targetUrl ? `[${imageMarkdown}](${wrapMarkdownUrl(targetUrl)})` : imageMarkdown
   }
@@ -103,10 +121,11 @@ export function expandGrokRenderTags(content: string, cards: Record<string, Imag
     replaceRenderTag
   )
   const expanded = withPairTags.replace(/<grok:render\b[^>]*card_id="([^"]+)"[^>]*\/>/gi, replaceRenderTag)
+  const expandedWithFallbackHints = injectFallbackHintsFromCards(expanded, cards)
 
-  const hasMarkdownImage = /!\[[^\]]*]\((?:<[^>]+>|[^)]+)\)/.test(expanded)
+  const hasMarkdownImage = /!\[[^\]]*]\((?:<[^>]+>|[^)]+)\)/.test(expandedWithFallbackHints)
   if (hasMarkdownImage) {
-    return expanded
+    return expandedWithFallbackHints
   }
 
   const fallbackImageLines = Object.values(cards)
@@ -114,12 +133,12 @@ export function expandGrokRenderTags(content: string, cards: Record<string, Imag
     .filter((line) => line.trim().length > 0)
 
   if (fallbackImageLines.length === 0) {
-    return expanded
+    return expandedWithFallbackHints
   }
-  if (!expanded.trim()) {
+  if (!expandedWithFallbackHints.trim()) {
     return fallbackImageLines.join("\n")
   }
-  return `${expanded.trim()}\n\n${fallbackImageLines.join("\n")}`
+  return `${expandedWithFallbackHints.trim()}\n\n${fallbackImageLines.join("\n")}`
 }
 
 function isImageMarkdownLine(line: string): boolean {
@@ -131,6 +150,14 @@ function isImageMarkdownLine(line: string): boolean {
     /^\s*!\[[^\]]*]\((?:<[^>]+>|[^)]+)\)\s*$/.test(value) ||
     /^\s*\[!\[[^\]]*]\((?:<[^>]+>|[^)]+)\)]\((?:<[^>]+>|[^)]+)\)\s*$/.test(value)
   )
+}
+
+function isImageCaptionNoiseLine(line: string): boolean {
+  const value = line.trim()
+  if (!value) {
+    return false
+  }
+  return /^generated image/i.test(value)
 }
 
 function mergeConsecutiveImageLines(content: string): string {
@@ -153,6 +180,13 @@ function mergeConsecutiveImageLines(content: string): string {
       const line = lines[index]?.trim() || ""
       if (isImageMarkdownLine(line)) {
         imageLines.push(line)
+        index += 1
+        continue
+      }
+
+      if (isImageCaptionNoiseLine(line)) {
+        // Upstream often inserts "Generated Image..." caption noise between image cards.
+        // Skip it so consecutive images can still be merged into one gallery paragraph.
         index += 1
         continue
       }
@@ -198,17 +232,170 @@ export function isLikelyHttpUrl(value: string): boolean {
   return /^https?:\/\/[^\s<>"']+$/i.test(text)
 }
 
+function isLikelyDataImageUrl(value: string): boolean {
+  const text = value.trim()
+  if (!text) {
+    return false
+  }
+  return /^data:image\/[a-z0-9.+-]+(?:;[^,]*)?,/i.test(text)
+}
+
+function isBlockedImagePlaceholder(value: string): boolean {
+  const text = value
+    .trim()
+    .replace(/^['"`\s]+|['"`\s]+$/g, "")
+  if (!text) {
+    return false
+  }
+  return /^\[?\s*image blocked\s*[:：]/i.test(text)
+}
+
+function unwrapMarkdownUrl(value: string): string {
+  const text = value.trim()
+  if (text.startsWith("<") && text.endsWith(">") && text.length > 2) {
+    return text.slice(1, -1).trim()
+  }
+  return text
+}
+
+function normalizeAbsoluteHttpUrl(value: string): string {
+  const raw = unwrapMarkdownUrl(value)
+  if (!raw) {
+    return ""
+  }
+
+  const candidates = [raw]
+  const encoded = encodeURI(raw)
+  if (encoded !== raw) {
+    candidates.push(encoded)
+  }
+
+  for (const candidate of candidates) {
+    try {
+      const parsed = new URL(candidate)
+      if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+        return parsed.href
+      }
+    } catch {
+      // Try the next candidate.
+    }
+  }
+  return ""
+}
+
+function normalizeCardImageUrl(value: string): string {
+  const text = unwrapMarkdownUrl(value)
+  if (!text || isBlockedImagePlaceholder(text)) {
+    return ""
+  }
+  if (isLikelyDataImageUrl(text)) {
+    return text
+  }
+  return normalizeAbsoluteHttpUrl(text)
+}
+
+function normalizeCardTargetUrl(value: string): string {
+  const text = unwrapMarkdownUrl(value)
+  if (!text || isBlockedImagePlaceholder(text)) {
+    return ""
+  }
+  return normalizeAbsoluteHttpUrl(text)
+}
+
+function stripFallbackSuffix(value: string): string {
+  const marker = "#fallback="
+  const index = value.indexOf(marker)
+  if (index < 0) {
+    return value
+  }
+  return value.slice(0, index)
+}
+
+function buildUrlMatchKeys(value: string): string[] {
+  const normalized = normalizeAbsoluteHttpUrl(value)
+  if (!normalized) {
+    return []
+  }
+
+  const keys = new Set<string>([normalized])
+  try {
+    const parsed = new URL(normalized)
+    const host = parsed.host.toLowerCase()
+    const protocolAgnostic = `//${host}${parsed.pathname}${parsed.search}`
+    keys.add(protocolAgnostic)
+  } catch {
+    // Ignore URL parsing errors; normalized key is already present.
+  }
+  return Array.from(keys)
+}
+
+function injectFallbackHintsFromCards(content: string, cards: Record<string, ImageCardMeta>): string {
+  if (!content) {
+    return content
+  }
+
+  const fallbackByOriginal = new Map<string, string>()
+  for (const card of Object.values(cards)) {
+    const original = normalizeCardImageUrl(card.image?.original || card.original || "")
+    const thumbnail = normalizeCardImageUrl(card.image?.thumbnail || card.thumbnail || "")
+    if (!original || !thumbnail || original === thumbnail) {
+      continue
+    }
+    const originalKeyBase = normalizeAbsoluteHttpUrl(stripFallbackSuffix(original))
+    if (!originalKeyBase) {
+      continue
+    }
+    for (const key of buildUrlMatchKeys(originalKeyBase)) {
+      if (!fallbackByOriginal.has(key)) {
+        fallbackByOriginal.set(key, thumbnail)
+      }
+    }
+  }
+
+  if (fallbackByOriginal.size === 0) {
+    return content
+  }
+
+  return content.replace(/!\[([^\]]*)\]\((<[^>]+>|[^)\n]+)\)/g, (raw, alt, srcRaw) => {
+    const srcText = String(srcRaw || "").trim()
+    const hadAngleWrapper = srcText.startsWith("<") && srcText.endsWith(">")
+    const normalizedSrc = normalizeCardImageUrl(srcText)
+    if (!normalizedSrc) {
+      return raw
+    }
+
+    const withoutFallback = normalizeAbsoluteHttpUrl(stripFallbackSuffix(normalizedSrc))
+    if (!withoutFallback) {
+      return raw
+    }
+    const fallback =
+      buildUrlMatchKeys(withoutFallback)
+        .map((key) => fallbackByOriginal.get(key))
+        .find((value): value is string => Boolean(value)) || ""
+    if (!fallback) {
+      return raw
+    }
+    if (normalizedSrc.includes("#fallback=")) {
+      return raw
+    }
+
+    const nextSrc = `${withoutFallback}#fallback=${encodeURIComponent(fallback)}`
+    const rewrittenSrc = hadAngleWrapper ? `<${nextSrc}>` : wrapMarkdownUrl(nextSrc)
+    return `![${alt}](${rewrittenSrc})`
+  })
+}
+
 function extractFirstImageUrlFromText(value: string): string {
   const match = /https?:\/\/[^\s<>"']+?\.(?:png|jpe?g|gif|webp|bmp|svg|avif|heic|heif)(?:\?[<>\s"]*)?/i.exec(value)
   return match?.[0] || ""
 }
 
 function normalizeRenderableImageUrl(value: string): string {
-  const text = value.trim()
-  if (!text || !isLikelyHttpUrl(text)) {
+  const text = unwrapMarkdownUrl(value)
+  if (!text) {
     return ""
   }
-  return text
+  return normalizeAbsoluteHttpUrl(text)
 }
 
 function toMarkdownImageLine(url: string): string {
@@ -254,10 +441,109 @@ function isLikelyInternalRelayJson(value: Record<string, unknown>): boolean {
   return typeof value.message === "string" || typeof value.content === "string"
 }
 
+function isStandaloneImageMarkdown(value: string): boolean {
+  return (
+    /^\s*!\[[^\]]*]\((?:<[^>]+>|[^)]+)\)\s*$/.test(value) ||
+    /^\s*\[!\[[^\]]*]\((?:<[^>]+>|[^)]+)\)]\((?:<[^>]+>|[^)]+)\)\s*$/.test(value)
+  )
+}
+
+function hasMarkdownImage(value: string): boolean {
+  return /\[!\[[^\]]*]\((?:<[^>\n]+>|[^)\n]+)\)\]\((?:<[^>\n]+>|[^)\n]+)\)|!\[[^\]]*]\((?:<[^>\n]+>|[^)\n]+)\)/.test(value)
+}
+
+function splitInlineImageMarkdownParagraphs(content: string): string {
+  if (!content) {
+    return ""
+  }
+
+  const lines = content.split("\n")
+  const next: string[] = []
+  let insideFence = false
+
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (trimmed.startsWith("```")) {
+      insideFence = !insideFence
+      next.push(line)
+      continue
+    }
+    if (insideFence || !trimmed) {
+      next.push(line)
+      continue
+    }
+    if (!hasMarkdownImage(line)) {
+      next.push(line)
+      continue
+    }
+
+    const imageTokens: string[] = []
+    const textChunks: string[] = []
+    const tokenMatcher =
+      /\[!\[[^\]]*]\((?:<[^>\n]+>|[^)\n]+)\)\]\((?:<[^>\n]+>|[^)\n]+)\)|!\[[^\]]*]\((?:<[^>\n]+>|[^)\n]+)\)/g
+    let cursor = 0
+    let match: RegExpExecArray | null = tokenMatcher.exec(line)
+    while (match) {
+      const start = match.index
+      const end = start + match[0].length
+      const between = line.slice(cursor, start).trim()
+      if (between) {
+        textChunks.push(between)
+      }
+      const token = match[0].trim()
+      if (token) {
+        imageTokens.push(token)
+      }
+      cursor = end
+      match = tokenMatcher.exec(line)
+    }
+
+    const trailing = line.slice(cursor).trim()
+    if (trailing) {
+      textChunks.push(trailing)
+    }
+
+    if (imageTokens.length === 0) {
+      next.push(line)
+      continue
+    }
+
+    const paragraphText = textChunks.join(" ").replace(/\s{2,}/g, " ").trim()
+    if (paragraphText) {
+      // Keep images in a dedicated markdown paragraph so gallery detection can
+      // reliably identify image-only <p> blocks.
+      next.push(paragraphText)
+      next.push("")
+    }
+    next.push(imageTokens.join(" "))
+    if (paragraphText) {
+      next.push("")
+    }
+  }
+
+  return next.join("\n")
+}
+
 function rewriteToolJsonLine(line: string): ToolJsonLineRewrite {
   const trimmed = line.trim()
 
   if (!(trimmed.startsWith("{") && trimmed.endsWith("}"))) {
+    // Keep markdown image lines intact; they may contain URLs with extensions.
+    if (isStandaloneImageMarkdown(trimmed)) {
+      return {
+        kind: "keep",
+        line,
+      }
+    }
+    // Avoid re-extracting URLs from mixed text/image markdown lines.
+    // Upstream frequently emits sentences immediately followed by [![...](img)](source).
+    if (hasMarkdownImage(trimmed)) {
+      return {
+        kind: "keep",
+        line,
+      }
+    }
+
     if (isLikelyImageUrl(trimmed)) {
       return {
         kind: "keep",
@@ -417,6 +703,7 @@ export function normalizeAssistantMarkdown(content: string): string {
   normalized = normalized.replace(/<\/think>/gi, "")
   normalized = rewriteImageTags(normalized)
   normalized = rewriteToolJsonLines(normalized)
+  normalized = splitInlineImageMarkdownParagraphs(normalized)
   normalized = mergeConsecutiveImageLines(normalized)
   normalized = normalized.replace(/([^\n])(?=\s#{1,6}\s)/g, "$1\n")
   normalized = normalized.replace(/(^|\n)(#{1,6})([^[\s#])/g, "$1$2 $3")
@@ -426,7 +713,8 @@ export function normalizeAssistantMarkdown(content: string): string {
   normalized = normalized.replace(/\[Image blocked:[^\]]*\](?:\([^)]*\))?/gi, "")
   // Removed the aggressive Chinese hyphen replacement. 
   // It incorrectly matched city names like '米兰-科尔蒂纳' (Milan-Cortina) and broke markdown formatting.
-  normalized = normalized.replace(/([^\n])(?=\d+\.\s)/g, "$1\n")
+  // Keep bold/italic numeric titles like "**1. 标题**" intact.
+  normalized = normalized.replace(/([^\n*_])(?=\d+\.\s)/g, "$1\n")
   // --- Image markdown repair ---
   // Step 1: Unwrap single-line linked images: [![alt](img)](link) → ![alt](img)
   normalized = normalized.replace(
