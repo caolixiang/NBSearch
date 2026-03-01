@@ -351,9 +351,6 @@ export function StructuredReasoningPanel({
 
   /* ---- Completed: lightbulb trigger → side drawer ---- */
   if (!effectiveThinking) {
-    if (isStreaming) {
-      return null
-    }
     return (
       <div className="my-2">
         <button

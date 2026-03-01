@@ -204,6 +204,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
   const activeConversationIdRef = useRef<string | null>(null)
   const messagesScrollRef = useRef<HTMLDivElement | null>(null)
   const shouldAutoScrollRef = useRef(true)
+  const lastScrollTopRef = useRef(0)
   const leadAnchorMessageIdRef = useRef<string | null>(null)
   const streamingAssistantTextRef = useRef("")
   const reasoningEverStartedRef = useRef(false)
@@ -425,7 +426,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     if (!node) {
       return
     }
-    if (isThinkingStreaming && leadAnchorMessageIdRef.current) {
+    if (isThinkingStreaming && leadAnchorMessageIdRef.current && shouldAutoScrollRef.current) {
       const raf = window.requestAnimationFrame(() => {
         const anchorId = leadAnchorMessageIdRef.current
         if (!anchorId) {
@@ -437,6 +438,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
         }
         // Keep the latest user question pinned near top while thinking is streaming.
         node.scrollTop = Math.max(0, anchor.offsetTop - 24)
+        lastScrollTopRef.current = node.scrollTop
       })
       return () => window.cancelAnimationFrame(raf)
     }
@@ -444,6 +446,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       return
     }
     node.scrollTop = node.scrollHeight
+    lastScrollTopRef.current = node.scrollTop
   }, [isThinkingStreaming, streamingAssistantText, visibleMessages])
 
   // ResizeObserver: auto-scroll on content height changes (image loads, layout shifts)
@@ -463,6 +466,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
         return
       }
       node.scrollTop = node.scrollHeight
+      lastScrollTopRef.current = node.scrollTop
     })
     // Observe the inner content container for size changes
     const inner = node.firstElementChild
@@ -477,14 +481,19 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     if (!node) {
       return
     }
-    if (isThinkingStreaming && leadAnchorMessageIdRef.current) {
-      // Keep follow mode locked while anchor pin mode is active.
-      shouldAutoScrollRef.current = true
+    const currentTop = node.scrollTop
+    const previousTop = lastScrollTopRef.current
+    const isScrollingUp = currentTop + 2 < previousTop
+    if (isScrollingUp) {
+      // User intent wins: stop follow mode immediately to avoid jitter.
+      shouldAutoScrollRef.current = false
+      lastScrollTopRef.current = currentTop
       return
     }
     const distanceToBottom = node.scrollHeight - node.scrollTop - node.clientHeight
     shouldAutoScrollRef.current = distanceToBottom < 80
-  }, [isThinkingStreaming])
+    lastScrollTopRef.current = currentTop
+  }, [])
 
   const handleSendMessage = useCallback(
     async (text: string): Promise<void> => {
