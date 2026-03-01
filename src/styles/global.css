@@ -317,20 +317,17 @@
   animation: thinkAgentHaloPulse 1.8s ease-out infinite;
 }
 
-.chat-sidebar-scroll-area [data-slot="scroll-area-viewport"] {
+.chat-sidebar-scroll-area {
   touch-action: pan-y;
   -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
   scrollbar-width: none;
   -ms-overflow-style: none;
 }
 
-.chat-sidebar-scroll-area [data-slot="scroll-area-viewport"]::-webkit-scrollbar {
+.chat-sidebar-scroll-area::-webkit-scrollbar {
   width: 0;
   height: 0;
-  display: none;
-}
-
-.chat-sidebar-scroll-area [data-slot="scroll-area-scrollbar"] {
   display: none;
 }
 

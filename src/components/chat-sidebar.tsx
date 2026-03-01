@@ -2,7 +2,6 @@
 
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   Plus,
   PanelLeftClose,
@@ -282,7 +281,7 @@ export function ChatSidebar({
       </div>
 
       {/* Conversations list */}
-      <ScrollArea className="chat-sidebar-scroll-area flex-1 px-3">
+      <div className="chat-sidebar-scroll-area flex-1 overflow-y-auto px-3">
         {todayConvos.length > 0 && (
           <div className="mb-4">
             <p className="mb-1 px-2 text-xs font-medium text-muted-foreground">
@@ -299,7 +298,7 @@ export function ChatSidebar({
             {olderConvos.map(renderConvoItem)}
           </div>
         )}
-      </ScrollArea>
+      </div>
 
       {/* Footer */}
       <div className="border-t border-sidebar-border p-3">
