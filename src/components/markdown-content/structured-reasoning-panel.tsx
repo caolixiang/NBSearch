@@ -105,10 +105,12 @@ function ToolEntryRow({ entry }: { entry: StructuredReasoningEntry }) {
   )
 }
 
-function ChatroomThinkEntry({ entry }: { entry: StructuredReasoningEntry }) {
+function ChatroomThinkEntry({ entry, clamp }: { entry: StructuredReasoningEntry, clamp?: boolean }) {
   return (
     <div className="py-1.5">
-      <p className="rounded-lg border border-foreground/[0.06] bg-secondary/30 px-3.5 py-2.5 text-sm leading-6 text-foreground/80 whitespace-pre-wrap">{entry.text}</p>
+      <div className="rounded-lg border border-foreground/[0.06] bg-secondary/30 px-3.5 py-2.5 text-sm leading-6 text-foreground/80 whitespace-pre-wrap">
+        <div className={cn("break-words break-all", clamp ? "line-clamp-2" : "")}>{entry.text}</div>
+      </div>
     </div>
   )
 }
@@ -422,35 +424,41 @@ export function StructuredReasoningPanel({
                   <div
                     key={entry.key}
                     className={cn(
-                      "flex items-start justify-between gap-3 py-1 think-stream-row",
+                      "flex flex-col gap-1 py-1 think-stream-row",
                       isNew ? "think-stream-row-enter" : "",
                       active ? "think-stream-row-active" : ""
                     )}
                   >
-                    <div className="flex min-w-0 flex-1 items-start gap-2.5">
-                      <span className="mt-0.5 inline-flex size-4 shrink-0 items-center justify-center text-muted-foreground">
-                        {entry.visited ? (
-                          <Globe className="size-4" />
-                        ) : isImageSearchToolName(entry.toolName) ? (
-                          <ImageIcon className="size-4" />
-                        ) : (
-                          <Search className="size-4" />
-                        )}
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-[13px] leading-5 text-muted-foreground">
-                          {resolveStructuredEntryLabel(entry.toolName, entry.visited, entry.status)}
-                        </p>
-                        <p className="text-sm font-medium leading-6 text-foreground break-words whitespace-pre-wrap">
-                          {formatSearchTextForDisplay(entry.text)}
-                        </p>
+                    {isChatroomSendToolName(entry.toolName) ? (
+                      <ChatroomThinkEntry entry={entry} clamp={true} />
+                    ) : (
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex min-w-0 flex-1 items-start gap-2.5">
+                          <span className="mt-0.5 inline-flex size-5 shrink-0 items-center justify-center text-muted-foreground">
+                            {entry.visited ? (
+                              <Globe className="size-4" />
+                            ) : isImageSearchToolName(entry.toolName) ? (
+                              <ImageIcon className="size-4" />
+                            ) : (
+                              <Search className="size-4" />
+                            )}
+                          </span>
+                          <div className="min-w-0 flex-1 text-left">
+                            <p className="truncate text-[13px] leading-5 text-muted-foreground">
+                              {resolveStructuredEntryLabel(entry.toolName, entry.visited, entry.status)}
+                            </p>
+                            <p className="text-sm font-medium leading-6 text-foreground break-words whitespace-pre-wrap">
+                              {formatSearchTextForDisplay(entry.text)}
+                            </p>
+                          </div>
+                        </div>
+                        {typeof entry.resultsCount === "number" ? (
+                          <span className="inline-flex shrink-0 items-center rounded-md border border-foreground/[0.06] bg-secondary/50 px-1.5 py-0.5 text-[12px] tabular-nums text-muted-foreground">
+                            {entry.resultsCount}
+                          </span>
+                        ) : null}
                       </div>
-                    </div>
-                    {typeof entry.resultsCount === "number" ? (
-                      <span className="inline-flex shrink-0 items-center rounded-md border border-foreground/[0.06] bg-secondary/50 px-1.5 py-0.5 text-[12px] tabular-nums text-muted-foreground">
-                        {entry.resultsCount}
-                      </span>
-                    ) : null}
+                    )}
                   </div>
                 )
               })}
