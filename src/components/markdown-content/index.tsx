@@ -67,7 +67,7 @@ export function MarkdownContent({
   return (
     <div className="space-y-1 text-foreground">
       {shouldShowStructuredReasoning ? (
-        <StructuredReasoningPanel events={reasoningEvents} isThinking={reasoningActive} />
+        <StructuredReasoningPanel events={reasoningEvents} isThinking={reasoningActive} isStreaming={streaming} />
       ) : null}
       {streaming && !content.trim() ? (
         <div className="flex items-center gap-1.5 py-3 pl-1">

@@ -112,7 +112,6 @@ function AgentSection({
   )
 }
 
-/** Whether any entry in the group is a chatroom / agent-think entry */
 function groupHasChatroomEntries(group: AgentGroupedEntries): boolean {
   return group.entries.some((e) => isChatroomSendToolName(e.toolName))
 }
@@ -130,7 +129,6 @@ function ReasoningDrawer({
   agents: ReturnType<typeof collectRolloutAgents>
   onClose: () => void
 }) {
-  // Close on Escape
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -143,14 +141,11 @@ function ReasoningDrawer({
 
   return createPortal(
     <>
-      {/* Backdrop */}
       <div
         className="fixed inset-0 z-[90] bg-black/20 backdrop-blur-[1px] transition-opacity"
         onClick={onClose}
       />
-      {/* Panel */}
       <div className="fixed inset-y-0 right-0 z-[100] flex w-full max-w-md flex-col bg-background shadow-2xl border-l border-foreground/[0.06] animate-in slide-in-from-right duration-200">
-        {/* Header */}
         <div className="flex items-center justify-between border-b border-foreground/[0.06] px-5 py-3.5">
           <div className="inline-flex items-center gap-2">
             <AgentAvatarStack agents={agents} activeAgentKey="" thinking={false} />
@@ -164,7 +159,6 @@ function ReasoningDrawer({
             <X className="size-5" />
           </button>
         </div>
-        {/* Content */}
         <div className="flex-1 overflow-y-auto px-5 py-4">
           {agentGroups.length > 0 ? (
             <div className="space-y-1">
@@ -196,48 +190,42 @@ function ReasoningDrawer({
 export function StructuredReasoningPanel({
   events,
   isThinking,
+  isStreaming = false,
 }: {
   events: ChatReasoningEventDetail[]
   isThinking: boolean
+  isStreaming?: boolean
 }) {
   const summary = useMemo(() => buildStructuredReasoningSummary(events), [events])
-  const effectiveThinkingRaw = useMemo(
-    () => isThinking || summary.entries.some((entry) => entry.status === "running"),
-    [isThinking, summary.entries]
-  )
-  const [thinkingStable, setThinkingStable] = useState(effectiveThinkingRaw)
   const agents = useMemo(() => collectRolloutAgents(summary.rolloutIds), [summary.rolloutIds])
   const [activeTick, setActiveTick] = useState(0)
-  const [expanded, setExpanded] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [durationSeconds, setDurationSeconds] = useState(0)
-  const startedAtRef = useRef<number | null>(effectiveThinkingRaw ? Date.now() : null)
-  const thinkingStopTimerRef = useRef<number | null>(null)
+  const startedAtRef = useRef<number | null>(null)
   const previousEntryCountRef = useRef(summary.entries.length)
   const prevEntryKeysRef = useRef<Set<string>>(new Set(summary.entries.map((e) => e.key)))
   const timelineRef = useRef<HTMLDivElement | null>(null)
-  const effectiveThinking = thinkingStable
 
-  // Keep fresh refs so the debounce callback can re-check
-  const isThinkingRef = useRef(isThinking)
-  isThinkingRef.current = isThinking
-  const effectiveThinkingRawRef = useRef(effectiveThinkingRaw)
-  effectiveThinkingRawRef.current = effectiveThinkingRaw
+  // ---- Thinking state ----
+  // Use isStreaming as the DEFINITIVE "response still alive" signal.
+  // No debounce needed — isStreaming only becomes false when the SSE stream
+  // terminates (completed/failed event), which is the true end signal.
+  const hasReasoningActivity = isThinking || summary.entries.some((e) => e.status === "running")
+  const effectiveThinking = isStreaming && (hasReasoningActivity || summary.entries.length > 0)
 
-  // Entries for the flat FIFO view during thinking
-  const displayEntries = useMemo(() => {
-    if (!effectiveThinking) {
-      return summary.entries
-    }
-    return summary.entries.slice(-3)
-  }, [effectiveThinking, summary.entries])
+  // FIFO entries for the thinking animation view
+  const displayEntries = useMemo(
+    () => (effectiveThinking ? summary.entries.slice(-3) : summary.entries),
+    [effectiveThinking, summary.entries]
+  )
 
-  // Entries grouped by agent for the drawer
+  // Agent-grouped entries for the drawer
   const agentGroups = useMemo(
     () => groupEntriesByAgent(summary.entries, agents),
     [summary.entries, agents]
   )
 
+  // New entry detection for animation
   const newEntryKeys = useMemo(() => {
     const currentKeys = new Set(displayEntries.map((e) => e.key))
     const prevKeys = prevEntryKeysRef.current
@@ -254,10 +242,7 @@ export function StructuredReasoningPanel({
   const latestAgentKey = useMemo(() => {
     for (let index = summary.entries.length - 1; index >= 0; index -= 1) {
       const entry = summary.entries[index]
-      if (!entry) {
-        continue
-      }
-      return toAgentKey(entry.rolloutId)
+      if (entry) return toAgentKey(entry.rolloutId)
     }
     return "grok_primary"
   }, [summary.entries])
@@ -266,103 +251,60 @@ export function StructuredReasoningPanel({
     if (effectiveThinking) {
       for (let index = summary.entries.length - 1; index >= 0; index -= 1) {
         const entry = summary.entries[index]
-        if (!entry || entry.status !== "running") {
-          continue
-        }
-        return toAgentKey(entry.rolloutId)
+        if (entry?.status === "running") return toAgentKey(entry.rolloutId)
       }
-      if (agents.length > 0) {
-        return agents[activeTick % agents.length]?.key || "grok_primary"
-      }
+      if (agents.length > 0) return agents[activeTick % agents.length]?.key || "grok_primary"
       return "grok_primary"
     }
     return latestAgentKey
   }, [activeTick, agents, effectiveThinking, latestAgentKey, summary.entries])
 
-  // Sync thinking state: use longer debounce and re-verify before transitioning
+  // Track thinking duration
   useEffect(() => {
-    if (effectiveThinkingRaw) {
-      if (thinkingStopTimerRef.current) {
-        window.clearTimeout(thinkingStopTimerRef.current)
-        thinkingStopTimerRef.current = null
-      }
+    if (effectiveThinking) {
       if (!startedAtRef.current) {
         startedAtRef.current = Date.now()
       }
-      setThinkingStable(true)
-      setExpanded(true)
-    } else {
-      if (thinkingStopTimerRef.current) {
-        window.clearTimeout(thinkingStopTimerRef.current)
-      }
-      thinkingStopTimerRef.current = window.setTimeout(() => {
-        // Re-check with fresh values — if thinking resumed during the debounce, abort transition
-        if (isThinkingRef.current || effectiveThinkingRawRef.current) {
-          thinkingStopTimerRef.current = null
-          return
-        }
-        setThinkingStable(false)
-        setExpanded(false)
-        thinkingStopTimerRef.current = null
-        if (startedAtRef.current) {
-          const elapsed = Math.max(1, Math.round((Date.now() - startedAtRef.current) / 1000))
-          setDurationSeconds(elapsed)
-          startedAtRef.current = null
-        }
-      }, 1500)
-    }
-  }, [effectiveThinkingRaw])
-
-  useEffect(
-    () => () => {
-      if (thinkingStopTimerRef.current) {
-        window.clearTimeout(thinkingStopTimerRef.current)
-      }
-    },
-    []
-  )
-
-  useEffect(() => {
-    if (!effectiveThinking || agents.length <= 1) {
-      return
-    }
-    const timer = window.setInterval(() => {
-      setActiveTick((value) => value + 1)
-    }, 1200)
-    return () => window.clearInterval(timer)
-  }, [agents.length, effectiveThinking])
-
-  useEffect(() => {
-    if (!effectiveThinking || !startedAtRef.current) {
-      return
-    }
-    const syncElapsed = () => {
-      if (!startedAtRef.current) {
-        return
-      }
-      const elapsed = Math.max(1, Math.floor((Date.now() - startedAtRef.current) / 1000))
+    } else if (startedAtRef.current) {
+      const elapsed = Math.max(1, Math.round((Date.now() - startedAtRef.current) / 1000))
       setDurationSeconds(elapsed)
+      startedAtRef.current = null
+    }
+  }, [effectiveThinking])
+
+  // Live elapsed counter during thinking
+  useEffect(() => {
+    if (!effectiveThinking || !startedAtRef.current) return
+    const syncElapsed = () => {
+      if (!startedAtRef.current) return
+      setDurationSeconds(Math.max(1, Math.floor((Date.now() - startedAtRef.current) / 1000)))
     }
     syncElapsed()
     const timer = window.setInterval(syncElapsed, 1000)
     return () => window.clearInterval(timer)
   }, [effectiveThinking])
 
+  // Agent rotation timer
+  useEffect(() => {
+    if (!effectiveThinking || agents.length <= 1) return
+    const timer = window.setInterval(() => setActiveTick((v) => v + 1), 1200)
+    return () => window.clearInterval(timer)
+  }, [agents.length, effectiveThinking])
+
+  // Auto-scroll timeline during thinking
   useEffect(() => {
     if (!effectiveThinking) {
       previousEntryCountRef.current = summary.entries.length
       return
     }
     const currentCount = summary.entries.length
-    const previousCount = previousEntryCountRef.current
+    if (currentCount <= previousEntryCountRef.current) {
+      previousEntryCountRef.current = currentCount
+      return
+    }
     previousEntryCountRef.current = currentCount
-    if (currentCount <= previousCount) {
-      return
-    }
     const node = timelineRef.current
-    if (!node) {
-      return
-    }
+    if (!node) return
     const raf = window.requestAnimationFrame(() => {
       node.scrollTop = node.scrollHeight
     })
@@ -380,7 +322,7 @@ export function StructuredReasoningPanel({
     return null
   }
 
-  /* ---- Completed: show lightbulb trigger + side drawer ---- */
+  /* ---- Completed: lightbulb trigger → side drawer ---- */
   if (!effectiveThinking) {
     return (
       <div className="my-2">
@@ -400,11 +342,7 @@ export function StructuredReasoningPanel({
           </span>
         </button>
         {drawerOpen && (
-          <ReasoningDrawer
-            agentGroups={agentGroups}
-            agents={agents}
-            onClose={closeDrawer}
-          />
+          <ReasoningDrawer agentGroups={agentGroups} agents={agents} onClose={closeDrawer} />
         )}
       </div>
     )
@@ -415,23 +353,13 @@ export function StructuredReasoningPanel({
 
   return (
     <div className="my-2 w-full">
-      <button
-        type="button"
-        className="inline-flex items-center gap-1.5 text-muted-foreground cursor-default"
-      >
-        <span className="inline-flex items-center gap-1.5">
-          <AgentAvatarStack agents={agents} activeAgentKey={activeAgentKey} thinking />
-          <span className="text-sm font-medium whitespace-nowrap text-foreground/80">
-            {thinkingLabel}
-          </span>
+      <span className="inline-flex items-center gap-1.5 cursor-default">
+        <AgentAvatarStack agents={agents} activeAgentKey={activeAgentKey} thinking />
+        <span className="text-sm font-medium whitespace-nowrap text-foreground/80">
+          {thinkingLabel}
         </span>
-      </button>
-      <div
-        className={cn(
-          "transition-all duration-200 ease-out",
-          expanded ? "mt-2 opacity-100" : "max-h-0 overflow-hidden opacity-0"
-        )}
-      >
+      </span>
+      <div className="mt-2">
         <div ref={timelineRef} className="relative overflow-hidden">
           {displayEntries.length > 0 ? (
             <div className="flex flex-col justify-end gap-1.5">
