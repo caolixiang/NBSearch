@@ -15,6 +15,9 @@ export function MarkdownBody({ content, streaming = false }: { content: string; 
   return (
     <Streamdown
       isAnimating={streaming}
+      allowedImagePrefixes={["*"]}
+      allowDataImages={true}
+      allowedProtocols={["http", "https"]}
       components={{
         h1: ({ children }) => <h1 className="mb-3 mt-5 text-xl font-bold">{children}</h1>,
         h2: ({ children }) => <h2 className="mb-2 mt-4 text-lg font-semibold">{children}</h2>,

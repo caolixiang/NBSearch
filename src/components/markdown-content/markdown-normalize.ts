@@ -418,9 +418,12 @@ export function normalizeAssistantMarkdown(content: string): string {
   normalized = rewriteImageTags(normalized)
   normalized = rewriteToolJsonLines(normalized)
   normalized = mergeConsecutiveImageLines(normalized)
-  normalized = normalized.replace(/([^\n])(?=#{1,6}\s?)/g, "$1\n")
-  normalized = normalized.replace(/(^|\n)(#{1,6})([^\s#])/g, "$1$2 $3")
+  normalized = normalized.replace(/([^\n])(?=\s#{1,6}\s)/g, "$1\n")
+  normalized = normalized.replace(/(^|\n)(#{1,6})([^[\s#])/g, "$1$2 $3")
   normalized = normalized.replace(/(^|\n)(#{1,6}\s[^\n-]+)-\s?/g, "$1$2\n- ")
+  // Remove upstream "[Image blocked: ...]" text which Grok inserts when it refuses an image,
+  // since we render the card attachments anyway.
+  normalized = normalized.replace(/\[Image blocked:[^\]]*\](?:\([^)]*\))?/gi, "")
   // Removed the aggressive Chinese hyphen replacement. 
   // It incorrectly matched city names like '米兰-科尔蒂纳' (Milan-Cortina) and broke markdown formatting.
   normalized = normalized.replace(/([^\n])(?=\d+\.\s)/g, "$1\n")
