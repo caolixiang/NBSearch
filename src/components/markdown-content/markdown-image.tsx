@@ -14,6 +14,7 @@ import {
 import { hasTauriRuntime } from "@/app/runtime-info"
 import { buildGrokChromeImageHeaders } from "@/infrastructure/http/chrome-image-headers"
 import { runtimeFetch } from "@/infrastructure/http/runtime-fetch"
+import { tauriTlsImageFetch } from "@/infrastructure/http/tauri-tls-image-fetch"
 
 export function isAnchorImageNode(node: ReactNode): boolean {
   if (!isValidElement(node)) {
@@ -202,6 +203,19 @@ export const MarkdownImage = memo(function({
     }
   }
 
+  const loadViaTlsProfile = async (url: string): Promise<string> => {
+    const target = (url || "").trim()
+    if (!/^https?:\/\//i.test(target)) {
+      return ""
+    }
+
+    const blob = await tauriTlsImageFetch(target, buildGrokChromeImageHeaders())
+    if (!blob || blob.size <= 0) {
+      return ""
+    }
+    return URL.createObjectURL(blob)
+  }
+
   useEffect(() => {
     let cancelled = false
 
@@ -241,7 +255,11 @@ export const MarkdownImage = memo(function({
 
       const candidates = buildRuntimeCandidates(primary, fallback)
       for (const candidate of candidates) {
-        const objectUrl = await loadViaRuntimeFetch(candidate)
+        // Try JA3/JA4-emulated TLS first, then fallback to tauri-plugin-http.
+        let objectUrl = await loadViaTlsProfile(candidate)
+        if (!objectUrl) {
+          objectUrl = await loadViaRuntimeFetch(candidate)
+        }
         if (cancelled) {
           if (objectUrl) {
             URL.revokeObjectURL(objectUrl)
