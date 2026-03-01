@@ -35,7 +35,7 @@ export function MarkdownBody({ content, streaming = false }: { content: string; 
                 className={cn(
                   "grok-md-image-grid grid gap-[2px] overflow-hidden rounded-[24px]",
                   galleryColumnsClass,
-                  imageCount === 1 ? "grok-md-image-grid-single max-w-[32rem]" : ""
+                  imageCount === 1 ? "grok-md-image-grid-single max-w-[40rem] mx-auto" : ""
                 )}
               >
                 {imageNodes.map((node, index) => (
