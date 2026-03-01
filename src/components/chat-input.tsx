@@ -154,7 +154,7 @@ export function ChatInput({
           onCompositionEnd={() => {
             isComposingRef.current = false
           }}
-          placeholder={isRecording ? "正在录音..." : "在大大的花园里面挖呀挖呀挖，种大大的种子开大大的花..."}
+          placeholder={isRecording ? "正在录音..." : "你想知道什么？"}
           rows={1}
           className={cn(
             "w-full resize-none bg-transparent px-4 pt-4 pb-2 text-sm text-foreground outline-none placeholder:text-muted-foreground",

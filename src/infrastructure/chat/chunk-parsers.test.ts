@@ -255,6 +255,42 @@ describe("extractCardAttachmentsFromRawChunk", () => {
     expect(cards[1]?.image?.original).toBe("https://img.test/b.jpg")
   })
 
+  it("extracts generated images from streamingImageGenerationResponse payload", () => {
+    const cards = extractCardAttachmentsFromRawChunk({
+      result: {
+        response: {
+          streamingImageGenerationResponse: {
+            imageUrl: "users/abc/generated/img-1/image.jpg",
+          },
+        },
+      },
+    })
+
+    expect(cards).toHaveLength(1)
+    expect(cards[0]?.type).toBe("generated_image")
+    expect(cards[0]?.image?.original).toBe("users/abc/generated/img-1/image.jpg")
+  })
+
+  it("extracts generated images from modelResponse.generatedImageUrls payload", () => {
+    const cards = extractCardAttachmentsFromRawChunk({
+      result: {
+        response: {
+          modelResponse: {
+            generatedImageUrls: [
+              "users/abc/generated/img-1/image.jpg",
+              "users/abc/generated/img-2/image.jpg",
+            ],
+          },
+        },
+      },
+    })
+
+    expect(cards).toHaveLength(2)
+    expect(cards[0]?.type).toBe("generated_image")
+    expect(cards[0]?.image?.original).toBe("users/abc/generated/img-1/image.jpg")
+    expect(cards[1]?.image?.original).toBe("users/abc/generated/img-2/image.jpg")
+  })
+
   it("extracts image card from cardAttachment.jsonData payload", () => {
     const cards = extractCardAttachmentsFromRawChunk({
       type: "response.tool_usage_card",

@@ -4,7 +4,7 @@ import { useMemo } from "react"
 import { Streamdown, defaultRehypePlugins } from "streamdown"
 import { cn } from "@/lib/utils"
 import { normalizeAssistantMarkdown } from "./markdown-normalize"
-import { MarkdownImage, collectImageParagraphNodes } from "./markdown-image"
+import { MarkdownImage, collectImageParagraphNodes, isGeneratedImageNode } from "./markdown-image"
 import { harden } from "rehype-harden"
 
 export function MarkdownBody({ content, streaming = false }: { content: string; streaming?: boolean }) {
@@ -52,6 +52,7 @@ export function MarkdownBody({ content, streaming = false }: { content: string; 
           }
 
           const imageCount = imageNodes.length
+          const allGeneratedImages = imageCount > 0 && imageNodes.every((node) => isGeneratedImageNode(node))
 
           let gridClass = "grid-cols-1"
           if (imageCount === 2) gridClass = "grid-cols-2"
@@ -64,11 +65,20 @@ export function MarkdownBody({ content, streaming = false }: { content: string; 
                 className={cn(
                   "grok-md-image-grid grid gap-2.5",
                   imageCount === 1 ? "grok-md-image-grid-single grid-cols-1 max-w-[40rem] mx-auto [&_.grok-md-image]:!rounded-[20px]" : gridClass,
-                  imageCount > 1 ? "[&_.grok-md-image]:!m-0 [&_.grok-md-image]:!absolute [&_.grok-md-image]:!inset-0 [&_.grok-md-image]:!w-full [&_.grok-md-image]:!h-full [&_.grok-md-image]:!max-h-none [&_.grok-md-image]:!object-cover [&_.grok-md-image]:!rounded-[16px] [&_.grok-md-image]:!bg-transparent [&_a]:block [&_a]:w-full [&_a]:h-full" : ""
+                  imageCount > 1 && !allGeneratedImages
+                    ? "[&_.grok-md-image]:!m-0 [&_.grok-md-image]:!absolute [&_.grok-md-image]:!inset-0 [&_.grok-md-image]:!w-full [&_.grok-md-image]:!h-full [&_.grok-md-image]:!max-h-none [&_.grok-md-image]:!object-cover [&_.grok-md-image]:!rounded-[16px] [&_.grok-md-image]:!bg-transparent [&_a]:block [&_a]:w-full [&_a]:h-full"
+                    : "",
+                  imageCount > 1 && allGeneratedImages ? "grok-md-image-grid-generated [&_a]:block [&_a]:w-full" : ""
                 )}
               >
                 {imageNodes.map((node, index) => (
-                  <div key={index} className={cn("relative w-full", imageCount > 1 ? "aspect-square" : "")}>
+                  <div
+                    key={index}
+                    className={cn(
+                      "relative w-full",
+                      imageCount > 1 && !allGeneratedImages ? "aspect-square" : ""
+                    )}
+                  >
                     {node}
                   </div>
                 ))}

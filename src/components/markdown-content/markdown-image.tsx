@@ -47,6 +47,28 @@ export function isImageNode(node: ReactNode): boolean {
   return isAnchorImageNode(node)
 }
 
+function extractImageAlt(node: ReactNode): string {
+  if (!isValidElement(node)) {
+    return ""
+  }
+  const props = node.props as { alt?: unknown; children?: ReactNode }
+  if (typeof props.alt === "string" && props.alt.trim()) {
+    return props.alt.trim()
+  }
+  for (const child of Children.toArray(props.children)) {
+    const nested = extractImageAlt(child)
+    if (nested) {
+      return nested
+    }
+  }
+  return ""
+}
+
+export function isGeneratedImageNode(node: ReactNode): boolean {
+  const alt = extractImageAlt(node).trim().toLowerCase()
+  return alt === "generated image" || alt.startsWith("generated image ")
+}
+
 export function collectImageOnlyNodes(node: ReactNode): ReactNode[] | null {
   if (typeof node === "string") {
     return node.trim() ? null : []

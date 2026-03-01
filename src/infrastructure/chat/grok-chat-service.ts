@@ -82,6 +82,64 @@ function hasAnyThinkTag(value: string): boolean {
   return lower.includes("<think") || lower.includes("</think>")
 }
 
+function resolveGatewayMediaUrl(rawUrl: string, apiUrl: string): string {
+  const url = rawUrl.trim()
+  if (!url) {
+    return ""
+  }
+  if (/^(?:https?:|data:|blob:)/i.test(url)) {
+    return url
+  }
+  try {
+    const gateway = new URL(apiUrl)
+    if (url.startsWith("//")) {
+      return `${gateway.protocol}${url}`
+    }
+    if (url.startsWith("/")) {
+      return new URL(url, gateway.origin).toString()
+    }
+    return new URL(url, `${gateway.origin}/`).toString()
+  } catch {
+    return url
+  }
+}
+
+function normalizeCardAttachmentUrls(card: ChatCardAttachmentPayload, apiUrl: string): ChatCardAttachmentPayload {
+  const normalizedUrl = card.url ? resolveGatewayMediaUrl(card.url, apiUrl) : card.url
+  const normalizedImage = card.image
+    ? {
+        ...card.image,
+        original: card.image.original ? resolveGatewayMediaUrl(card.image.original, apiUrl) : card.image.original,
+        thumbnail: card.image.thumbnail
+          ? resolveGatewayMediaUrl(card.image.thumbnail, apiUrl)
+          : card.image.thumbnail,
+      }
+    : undefined
+
+  return {
+    ...card,
+    url: normalizedUrl,
+    image: normalizedImage,
+  }
+}
+
+function isGeneratedImageNarration(text: string): boolean {
+  const value = text.trim()
+  if (!value) {
+    return false
+  }
+  if (/^i generated images? with the prompt[:：]/i.test(value)) {
+    return true
+  }
+  if (/^i generated an image with the prompt[:：]/i.test(value)) {
+    return true
+  }
+  if (/^我(?:已经|已)?根据提示.*生成了?图(?:像|片)/.test(value)) {
+    return true
+  }
+  return false
+}
+
 export class GrokChatService implements ChatService {
   private readonly apiUrl: string
   private readonly apiKey: string
@@ -175,6 +233,7 @@ export class GrokChatService implements ChatService {
       const collectedCards: ChatCardAttachmentPayload[] = []
       const collectedCardIds = new Set<string>()
       const collectedReasoningEvents: ChatReasoningEventDetail[] = []
+      let hasStructuredGeneratedImages = false
 
       // Track thinking state: image_search tools never send raw_function_result,
       // so we detect thinking->output transition and emit synthetic tool_results.
@@ -194,11 +253,15 @@ export class GrokChatService implements ChatService {
 
       const appendCards = (items: ChatCardAttachmentPayload[]) => {
         for (const item of items) {
-          if (collectedCardIds.has(item.id)) {
+          const normalized = normalizeCardAttachmentUrls(item, this.apiUrl)
+          if ((normalized.type || "").toLowerCase() === "generated_image") {
+            hasStructuredGeneratedImages = true
+          }
+          if (collectedCardIds.has(normalized.id)) {
             continue
           }
-          collectedCardIds.add(item.id)
-          collectedCards.push(item)
+          collectedCardIds.add(normalized.id)
+          collectedCards.push(normalized)
         }
       }
 
@@ -272,13 +335,6 @@ export class GrokChatService implements ChatService {
               chunkReasoningDetails.push(detail)
             }
 
-            // Accumulate text delta (emit once after all segments)
-            const delta = extractGatewayTextDeltaFromRawChunk(parsed)
-            if (delta) {
-              assistantText += delta
-              chunkDelta += delta
-            }
-
             // Extract response ID
             const nextResponseId = extractGatewayResponseIdFromRawChunk(parsed)
             if (nextResponseId) {
@@ -300,6 +356,17 @@ export class GrokChatService implements ChatService {
             // Extract web search meta & cards (collect only)
             appendWebSearchMeta(extractWebSearchToolMetaFromRawChunk(parsed))
             appendCards(extractCardAttachmentsFromRawChunk(parsed))
+
+            // Accumulate text delta (emit once after all segments)
+            const delta = extractGatewayTextDeltaFromRawChunk(parsed)
+            if (
+              delta &&
+              !hasStructuredGeneratedImages &&
+              !isGeneratedImageNarration(delta)
+            ) {
+              assistantText += delta
+              chunkDelta += delta
+            }
           }
 
           // Emit batched events — React 18 batches these into a single render
@@ -315,8 +382,13 @@ export class GrokChatService implements ChatService {
         reader.releaseLock()
       }
 
+      if (hasStructuredGeneratedImages) {
+        assistantText = ""
+        gatewayFinalMessage = ""
+      }
+
       // Use final message as fallback if no accumulated text
-      if (!assistantText && gatewayFinalMessage) {
+      if (!assistantText && gatewayFinalMessage && !isGeneratedImageNarration(gatewayFinalMessage)) {
         assistantText = gatewayFinalMessage
       }
 

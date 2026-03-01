@@ -346,3 +346,12 @@
   max-height: min(72vh, 520px);
   object-fit: contain;
 }
+
+.grok-md-image-grid-generated .grok-md-image {
+  height: auto;
+  min-height: 0;
+  max-height: min(72vh, 680px);
+  border-radius: 16px;
+  object-fit: contain;
+  background: transparent;
+}

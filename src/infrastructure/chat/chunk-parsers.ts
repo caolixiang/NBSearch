@@ -596,6 +596,39 @@ function buildGeneratedImageCard(url: string): ChatCardAttachmentPayload {
   }
 }
 
+function collectGeneratedImageUrlsFromEnvelope(value: Record<string, unknown>): string[] {
+  const urls: string[] = []
+  const seen = new Set<string>()
+  const append = (url: string) => {
+    const next = url.trim()
+    if (!next || seen.has(next)) {
+      return
+    }
+    seen.add(next)
+    urls.push(next)
+  }
+
+  const streamingImageGeneration = isRecord(value.streamingImageGenerationResponse)
+    ? value.streamingImageGenerationResponse
+    : null
+  if (streamingImageGeneration && typeof streamingImageGeneration.imageUrl === "string") {
+    append(streamingImageGeneration.imageUrl)
+  }
+
+  for (const url of readStringArray(value.generatedImageUrls)) {
+    append(url)
+  }
+
+  const modelResponse = isRecord(value.modelResponse) ? value.modelResponse : null
+  if (modelResponse) {
+    for (const url of readStringArray(modelResponse.generatedImageUrls)) {
+      append(url)
+    }
+  }
+
+  return urls
+}
+
 function parseCardAttachmentRecord(value: unknown): Record<string, unknown> | null {
   if (isRecord(value) && typeof value.jsonData === "string") {
     return parseRecords(value.jsonData)[0] ?? null
@@ -681,6 +714,10 @@ function collectCardAttachmentsFromEnvelope(value: unknown): ChatCardAttachmentP
     if (!url) {
       continue
     }
+    cards.push(buildGeneratedImageCard(url))
+  }
+
+  for (const url of collectGeneratedImageUrlsFromEnvelope(value)) {
     cards.push(buildGeneratedImageCard(url))
   }
 

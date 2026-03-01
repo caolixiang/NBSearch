@@ -29,7 +29,7 @@ function newConversationId(): string {
 }
 
 const DRAFT_CONVERSATION_ID = "draft_new_conversation"
-const CHAT_INPUT_REVEAL_DELAY_MS = 1500
+const CHAT_INPUT_REVEAL_DELAY_MS = 500
 
 function toRenderMessage(message: DomainChatMessage): RenderChatMessage | null {
   if (message.role !== "user" && message.role !== "assistant") {
@@ -198,6 +198,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
   const [modelError, setModelError] = useState("")
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true)
   const [chatInputCollapsedByScroll, setChatInputCollapsedByScroll] = useState(false)
+  const [chatInputHeight, setChatInputHeight] = useState(0)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [voiceOpen, setVoiceOpen] = useState(false)
   const [modelOptions, setModelOptions] = useState<ModelOption[]>(() => getInitialModelOptions())
@@ -351,6 +352,14 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     hasThinkMarkup ? hasOpenThinkTag(streamingAssistantText) : streamingReasoningActive
   const isThinkingStreaming = isStreaming && effectiveStreamingReasoningActive
   const shouldShowThinkingWarmup = isStreaming && streamingAssistantText.trim().length === 0 && !isThinkingStreaming
+  const messageBottomSpacerPx = useMemo(() => {
+    const base = isThinkingStreaming ? 40 : 16
+    // Keep enough trailing scroll range even when composer is auto-collapsed,
+    // so the last lines can always be dragged above the bottom composer area.
+    const effectiveInputHeight = chatInputHeight > 0 ? chatInputHeight : 220
+    const comfortBuffer = Math.round(effectiveInputHeight + 24)
+    return Math.max(base, comfortBuffer)
+  }, [chatInputHeight, isThinkingStreaming])
 
   const refreshModelOptions = useCallback(
     async (silent = false): Promise<void> => {
@@ -1011,7 +1020,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
               {shouldShowThinkingWarmup ? (
                 <TypingIndicator elapsedSeconds={streamingReasoningDurationSeconds} />
               ) : null}
-              <div className={isThinkingStreaming ? "h-10" : "h-4"} />
+              <div style={{ height: `${messageBottomSpacerPx}px` }} />
             </div>
           )}
         </div>
@@ -1031,6 +1040,9 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
               }}
               onVoiceStart={() => setVoiceOpen(true)}
               isLoading={isStreaming}
+              onHeightChange={(height) => {
+                setChatInputHeight((prev) => (Math.abs(prev - height) < 1 ? prev : height))
+              }}
               onStop={() => {
                 abortRef.current?.abort()
                 setIsStreaming(false)
