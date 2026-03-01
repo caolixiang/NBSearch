@@ -26,20 +26,19 @@ export function MarkdownBody({ content, streaming = false }: { content: string; 
           }
 
           const imageCount = imageNodes.length
-          const galleryColumnsClass =
-            imageCount <= 1 ? "grid-cols-1" : imageCount === 2 ? "grid-cols-2" : "grid-cols-2 md:grid-cols-3"
 
           return (
             <div className="my-2 w-full">
               <div
                 className={cn(
-                  "grok-md-image-grid grid gap-[2px] overflow-hidden rounded-[24px]",
-                  galleryColumnsClass,
-                  imageCount === 1 ? "grok-md-image-grid-single max-w-[40rem] mx-auto" : ""
+                  "grok-md-image-grid grid overflow-hidden",
+                  imageCount === 1
+                    ? "grok-md-image-grid-single grid-cols-1 max-w-[40rem] mx-auto rounded-[20px]"
+                    : "grid-cols-2 gap-[2px] rounded-[24px] [&_.grok-md-image]:!m-0 [&_.grok-md-image]:aspect-square [&_.grok-md-image]:max-h-none [&_.grok-md-image]:rounded-none [&_.grok-md-image]:object-cover"
                 )}
               >
                 {imageNodes.map((node, index) => (
-                  <div key={index} className="overflow-hidden bg-secondary/20">
+                  <div key={index} className="relative overflow-hidden bg-secondary/20">
                     {node}
                   </div>
                 ))}

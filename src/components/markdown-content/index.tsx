@@ -69,7 +69,7 @@ export function MarkdownContent({
       {shouldShowStructuredReasoning ? (
         <StructuredReasoningPanel events={reasoningEvents} isThinking={reasoningActive} isStreaming={streaming} />
       ) : null}
-      {streaming && !content.trim() ? (
+      {streaming && !content.trim() && !shouldShowStructuredReasoning ? (
         <div className="flex items-center gap-1.5 py-3 pl-1">
           <span className="size-1.5 animate-bounce rounded-full bg-muted-foreground/50 [animation-delay:0ms]" />
           <span className="size-1.5 animate-bounce rounded-full bg-muted-foreground/50 [animation-delay:150ms]" />
