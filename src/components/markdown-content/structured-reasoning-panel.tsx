@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { ChevronDown, Globe, ImageIcon, Search, X } from "lucide-react"
 import { createPortal } from "react-dom"
 import type { ChatReasoningEventDetail } from "@/domain/chat/types"
+import { openExternalUrl } from "@/lib/open-external-url"
 import { cn } from "@/lib/utils"
 import type { StructuredReasoningEntry } from "./types"
 import {
@@ -80,7 +81,18 @@ function ToolEntryRow({ entry }: { entry: StructuredReasoningEntry }) {
             }
             return (
               <div key={i} className="flex flex-col gap-1">
-                <a href={res.url} target="_blank" rel="noreferrer" className="text-[13px] font-bold text-foreground hover:underline line-clamp-2 leading-snug">
+                <a
+                  href={res.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-[13px] font-bold text-foreground hover:underline line-clamp-2 leading-snug"
+                  onClick={(event) => {
+                    event.preventDefault()
+                    if (res.url) {
+                      void openExternalUrl(res.url)
+                    }
+                  }}
+                >
                   {res.title || res.url}
                 </a>
                 {res.url && (

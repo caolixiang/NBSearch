@@ -294,14 +294,23 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
         if (!row || row.role !== "assistant") {
           return row
         }
+        const embeddedReasoningEvents =
+          Array.isArray(message.reasoningEvents) && message.reasoningEvents.length > 0
+            ? message.reasoningEvents
+            : undefined
         const byMessageId = persistedReasoningByMessageId[message.id]
         const byResponseId = message.responseId ? persistedReasoningByMessageId[message.responseId] : undefined
-        const reasoningEvents = byMessageId || byResponseId
+        const reasoningEvents = embeddedReasoningEvents || byMessageId || byResponseId
+        const embeddedReasoningDuration =
+          typeof message.reasoningDurationSeconds === "number" && message.reasoningDurationSeconds > 0
+            ? Math.max(1, Math.round(message.reasoningDurationSeconds))
+            : 0
         const durationByMessageId = persistedReasoningDurationByMessageId[message.id]
         const durationByResponseId = message.responseId
           ? persistedReasoningDurationByMessageId[message.responseId]
           : undefined
-        const reasoningDurationSeconds = durationByMessageId || durationByResponseId || 0
+        const reasoningDurationSeconds =
+          embeddedReasoningDuration || durationByMessageId || durationByResponseId || 0
         if ((!reasoningEvents || reasoningEvents.length === 0) && reasoningDurationSeconds <= 0) {
           return row
         }
@@ -397,6 +406,39 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     async (conversationId: string): Promise<void> => {
       const list = await chatService.listMessages(conversationId)
       setMessages(list)
+
+      const nextReasoningByMessageId: Record<string, ChatReasoningEventDetail[]> = {}
+      const nextReasoningDurationByMessageId: Record<string, number> = {}
+
+      for (const message of list) {
+        if (message.role !== "assistant") {
+          continue
+        }
+        const messageId = message.id.trim()
+        const responseId = message.responseId?.trim() || ""
+
+        if (Array.isArray(message.reasoningEvents) && message.reasoningEvents.length > 0) {
+          nextReasoningByMessageId[messageId] = message.reasoningEvents
+          if (responseId) {
+            nextReasoningByMessageId[responseId] = message.reasoningEvents
+          }
+        }
+
+        if (
+          typeof message.reasoningDurationSeconds === "number" &&
+          Number.isFinite(message.reasoningDurationSeconds) &&
+          message.reasoningDurationSeconds > 0
+        ) {
+          const normalizedDuration = Math.max(1, Math.round(message.reasoningDurationSeconds))
+          nextReasoningDurationByMessageId[messageId] = normalizedDuration
+          if (responseId) {
+            nextReasoningDurationByMessageId[responseId] = normalizedDuration
+          }
+        }
+      }
+
+      setPersistedReasoningByMessageId(nextReasoningByMessageId)
+      setPersistedReasoningDurationByMessageId(nextReasoningDurationByMessageId)
     },
     [chatService]
   )
@@ -655,10 +697,17 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
                 window.clearTimeout(reasoningStopTimerRef.current)
                 reasoningStopTimerRef.current = null
               }
-              const reasoningSnapshot = streamingReasoningEventsRef.current
-              const finalDurationSeconds = resolveStreamingReasoningDurationSeconds()
+              const completedAssistantMessage = event.result.assistantMessage
+              const reasoningSnapshot =
+                completedAssistantMessage.reasoningEvents || streamingReasoningEventsRef.current
+              const finalDurationSeconds =
+                completedAssistantMessage.reasoningDurationSeconds ||
+                resolveStreamingReasoningDurationSeconds()
               const shouldPersistReasoningDuration =
-                reasoningEverStartedRef.current || reasoningSnapshot.length > 0 || finalDurationSeconds > 0
+                (typeof completedAssistantMessage.reasoningDurationSeconds === "number" &&
+                  completedAssistantMessage.reasoningDurationSeconds > 0) ||
+                reasoningEverStartedRef.current ||
+                reasoningSnapshot.length > 0
               if (reasoningSnapshot.length > 0) {
                 const messageId = event.result.assistantMessage.id.trim()
                 const responseId = event.result.assistantMessage.responseId?.trim() || ""

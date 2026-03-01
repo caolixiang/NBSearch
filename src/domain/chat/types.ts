@@ -4,6 +4,8 @@ export interface ChatMessage {
   id: string
   role: ChatMessageRole
   content: string
+  reasoningEvents?: ChatReasoningEventDetail[]
+  reasoningDurationSeconds?: number
   responseId?: string
   previousResponseId?: string
   status?: "streaming" | "completed" | "failed"

@@ -145,6 +145,7 @@ async fn fetch_image_with_tls_profile(
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_http::init())
+        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_sql::Builder::default().build())
         .invoke_handler(tauri::generate_handler![runtime_info, fetch_image_with_tls_profile])
         .run(tauri::generate_context!())

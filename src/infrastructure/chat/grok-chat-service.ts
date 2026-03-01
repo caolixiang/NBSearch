@@ -4,6 +4,7 @@ import type {
   ChatAnchors,
   ChatCardAttachmentPayload,
   ChatMessage,
+  ChatReasoningEventDetail,
   ChatStreamEvent,
   SendChatTurnInput,
 } from "../../domain/chat/types"
@@ -76,6 +77,11 @@ function createConversationRecord(
   }
 }
 
+function hasAnyThinkTag(value: string): boolean {
+  const lower = value.toLowerCase()
+  return lower.includes("<think") || lower.includes("</think>")
+}
+
 export class GrokChatService implements ChatService {
   private readonly apiUrl: string
   private readonly apiKey: string
@@ -120,6 +126,7 @@ export class GrokChatService implements ChatService {
     await this.repository.appendMessage(conversationId, userMessage)
 
     const requestId = `req_${crypto.randomUUID()}`
+    const streamStartedAt = Date.now()
     onEvent({ type: "started", requestId })
 
     try {
@@ -167,6 +174,7 @@ export class GrokChatService implements ChatService {
       const collectedWebSearchSeen = new Set<string>()
       const collectedCards: ChatCardAttachmentPayload[] = []
       const collectedCardIds = new Set<string>()
+      const collectedReasoningEvents: ChatReasoningEventDetail[] = []
 
       // Track thinking state: image_search tools never send raw_function_result,
       // so we detect thinking->output transition and emit synthetic tool_results.
@@ -227,7 +235,7 @@ export class GrokChatService implements ChatService {
           // Process each parsed JSON object — batch events per network chunk
           // to minimize React re-renders (prevents image flickering)
           let chunkDelta = ""
-          const chunkReasoningEvents: ChatStreamEvent[] = []
+          const chunkReasoningDetails: ChatReasoningEventDetail[] = []
 
           for (const segment of segments) {
             let parsed: unknown
@@ -243,12 +251,9 @@ export class GrokChatService implements ChatService {
               wasThinking = true
             } else if (chunkIsThinking === false && wasThinking && pendingToolUsageCardIds.size > 0) {
               for (const id of pendingToolUsageCardIds) {
-                chunkReasoningEvents.push({
-                  type: "reasoning",
-                  detail: {
-                    kind: "tool_result",
-                    result: { toolUsageCardId: id, isThinking: false },
-                  },
+                chunkReasoningDetails.push({
+                  kind: "tool_result",
+                  result: { toolUsageCardId: id, isThinking: false },
                 })
               }
               pendingToolUsageCardIds.clear()
@@ -264,7 +269,7 @@ export class GrokChatService implements ChatService {
               if (detail.kind === "tool_result" && detail.result.toolUsageCardId) {
                 pendingToolUsageCardIds.delete(detail.result.toolUsageCardId)
               }
-              chunkReasoningEvents.push({ type: "reasoning", detail })
+              chunkReasoningDetails.push(detail)
             }
 
             // Accumulate text delta (emit once after all segments)
@@ -298,8 +303,9 @@ export class GrokChatService implements ChatService {
           }
 
           // Emit batched events — React 18 batches these into a single render
-          for (const event of chunkReasoningEvents) {
-            onEvent(event)
+          for (const detail of chunkReasoningDetails) {
+            collectedReasoningEvents.push(detail)
+            onEvent({ type: "reasoning", detail })
           }
           if (chunkDelta) {
             onEvent({ type: "delta", textDelta: chunkDelta })
@@ -318,12 +324,17 @@ export class GrokChatService implements ChatService {
         webSearch: collectedWebSearchMeta,
         cards: collectedCards,
       })
+      const finalDurationSeconds = Math.max(1, Math.round((Date.now() - streamStartedAt) / 1000))
+      const shouldPersistReasoningDuration =
+        collectedReasoningEvents.length > 0 || hasAnyThinkTag(assistantText)
 
       const assistantMessage: ChatMessage = {
         id: gatewayResponseId || `asst_${crypto.randomUUID()}`,
         role: "assistant",
         content: assistantContent,
         createdAt: Date.now(),
+        reasoningEvents: collectedReasoningEvents.length > 0 ? collectedReasoningEvents : undefined,
+        reasoningDurationSeconds: shouldPersistReasoningDuration ? finalDurationSeconds : undefined,
         responseId: gatewayResponseId || undefined,
         previousResponseId: input.anchors.lastResponseId || undefined,
         status: "completed",

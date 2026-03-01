@@ -1,4 +1,4 @@
-import type { ChatMessage } from "../../../domain/chat/types"
+import type { ChatMessage, ChatReasoningEventDetail } from "../../../domain/chat/types"
 import type {
   AppRepository,
   ConversationRecord,
@@ -6,29 +6,68 @@ import type {
 } from "../../../domain/storage/repository"
 import { getDatabase } from "./database"
 
-function normalizeJsonText(input: string): string {
-  const trimmed = input.trim()
-  if (!trimmed) {
-    return JSON.stringify({ text: "" })
-  }
-  if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
-    return input
-  }
-  return JSON.stringify({ text: input })
+type PersistedMessageContent = {
+  text: string
+  reasoningEvents?: ChatReasoningEventDetail[]
+  reasoningDurationSeconds?: number
 }
 
-function parseMessageContent(contentJson: string): string {
-  if (!contentJson.trim()) {
-    return ""
+function normalizeMessageContent(message: ChatMessage): string {
+  const payload: PersistedMessageContent = {
+    text: message.content || "",
   }
+
+  if (Array.isArray(message.reasoningEvents) && message.reasoningEvents.length > 0) {
+    payload.reasoningEvents = message.reasoningEvents
+  }
+
+  if (
+    typeof message.reasoningDurationSeconds === "number" &&
+    Number.isFinite(message.reasoningDurationSeconds) &&
+    message.reasoningDurationSeconds > 0
+  ) {
+    payload.reasoningDurationSeconds = Math.max(1, Math.round(message.reasoningDurationSeconds))
+  }
+
+  return JSON.stringify(payload)
+}
+
+function parseMessageContent(contentJson: string): {
+  text: string
+  reasoningEvents?: ChatReasoningEventDetail[]
+  reasoningDurationSeconds?: number
+} {
+  const trimmed = contentJson.trim()
+  if (!trimmed) {
+    return { text: "" }
+  }
+
   try {
-    const value = JSON.parse(contentJson) as { text?: unknown }
-    if (typeof value?.text === "string") {
-      return value.text
+    const value = JSON.parse(trimmed) as {
+      text?: unknown
+      reasoningEvents?: unknown
+      reasoningDurationSeconds?: unknown
     }
-    return contentJson
+    const text = typeof value?.text === "string" ? value.text : trimmed
+    const result: {
+      text: string
+      reasoningEvents?: ChatReasoningEventDetail[]
+      reasoningDurationSeconds?: number
+    } = { text }
+
+    if (Array.isArray(value?.reasoningEvents)) {
+      result.reasoningEvents = value.reasoningEvents as ChatReasoningEventDetail[]
+    }
+    if (
+      typeof value?.reasoningDurationSeconds === "number" &&
+      Number.isFinite(value.reasoningDurationSeconds) &&
+      value.reasoningDurationSeconds > 0
+    ) {
+      result.reasoningDurationSeconds = Math.max(1, Math.round(value.reasoningDurationSeconds))
+    }
+    return result
   } catch {
-    return contentJson
+    return { text: trimmed }
   }
 }
 
@@ -113,7 +152,7 @@ export class SqliteAppRepository implements AppRepository {
         message.id,
         conversationId,
         message.role,
-        normalizeJsonText(message.content),
+        normalizeMessageContent(message),
         message.responseId || "",
         message.previousResponseId || "",
         message.status || "completed",
@@ -142,15 +181,20 @@ export class SqliteAppRepository implements AppRepository {
       [conversationId]
     )
 
-    return rows.map((row) => ({
-      id: row.id,
-      role: row.role,
-      content: parseMessageContent(row.content_json),
-      responseId: row.response_id || undefined,
-      previousResponseId: row.previous_response_id || undefined,
-      status: row.status,
-      createdAt: row.created_at,
-    }))
+    return rows.map((row) => {
+      const parsedContent = parseMessageContent(row.content_json)
+      return {
+        id: row.id,
+        role: row.role,
+        content: parsedContent.text,
+        reasoningEvents: parsedContent.reasoningEvents,
+        reasoningDurationSeconds: parsedContent.reasoningDurationSeconds,
+        responseId: row.response_id || undefined,
+        previousResponseId: row.previous_response_id || undefined,
+        status: row.status,
+        createdAt: row.created_at,
+      }
+    })
   }
 
   async upsertVoiceSession(record: VoiceSessionRecord): Promise<void> {
