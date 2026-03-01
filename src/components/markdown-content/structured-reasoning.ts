@@ -3,8 +3,15 @@ import type { AgentDescriptor, StructuredReasoningEntry, StructuredReasoningSumm
 import { AGENT_PIXEL_PALETTES } from "./types"
 import { isLikelyUrl, parseAgentMeta } from "./think-parser"
 
+export type AgentGroupedEntries = {
+  agent: AgentDescriptor
+  entries: StructuredReasoningEntry[]
+}
+
 function normalizeRolloutId(value: string | undefined): string {
-  const trimmed = (value || "").trim()
+  let trimmed = (value || "").trim()
+  // Strip upstream "Chat Room" prefix (e.g., "Chat Room Grok" → "Grok")
+  trimmed = trimmed.replace(/^Chat\s*Room\s*/i, "").trim()
   return trimmed || "Grok"
 }
 
@@ -88,6 +95,11 @@ export function isXSearchToolName(value: string): boolean {
   return normalized.startsWith("x_") || normalized.includes("xsearch")
 }
 
+export function isChatroomSendToolName(value: string): boolean {
+  const normalized = value.trim().toLowerCase()
+  return normalized === "chatroom_send" || normalized === "chatroomsend"
+}
+
 export function humanizeToolName(value: string): string {
   const trimmed = value.trim()
   if (!trimmed) {
@@ -154,6 +166,30 @@ export function buildStructuredReasoningSummary(events: ChatReasoningEventDetail
 
     if (detail.kind === "tool_usage") {
       appendRollout(detail.usage.rolloutId)
+
+      // chatroom_send is agent thinking — extract 'message' arg
+      if (isChatroomSendToolName(detail.usage.toolName)) {
+        const message =
+          typeof detail.usage.args.message === "string" ? detail.usage.args.message.trim() : ""
+        if (message) {
+          const key = `${detail.usage.toolUsageCardId}:chatroom`
+          if (!entryByKey.has(key)) {
+            const nextEntry: StructuredReasoningEntry = {
+              key,
+              toolUsageCardId: detail.usage.toolUsageCardId,
+              rolloutId: normalizeRolloutId(detail.usage.rolloutId),
+              text: message,
+              visited: false,
+              toolName: detail.usage.toolName,
+              status: "running",
+            }
+            entryByKey.set(key, nextEntry)
+            entryByToolUsageCardId.set(detail.usage.toolUsageCardId, [nextEntry])
+            entries.push(nextEntry)
+          }
+        }
+        continue
+      }
 
       const queries = readToolUsageQueries(detail.usage.args)
       const lines = queries.length > 0 ? queries : [humanizeToolName(detail.usage.toolName)]
@@ -238,6 +274,13 @@ export function buildStructuredReasoningSummary(events: ChatReasoningEventDetail
   }
 }
 
+function normalizeRolloutLabel(rolloutId: string): string {
+  let label = rolloutId.trim()
+  // Strip common upstream prefixes like "Chat Room Grok"
+  label = label.replace(/^Chat\s*Room\s*/i, "").trim()
+  return label || "Grok"
+}
+
 export function collectRolloutAgents(rolloutIds: string[]): AgentDescriptor[] {
   const agents: AgentDescriptor[] = []
   const seen = new Set<string>()
@@ -258,7 +301,7 @@ export function collectRolloutAgents(rolloutIds: string[]): AgentDescriptor[] {
   })
 
   rolloutIds.forEach((rolloutId, index) => {
-    const normalized = rolloutId.trim()
+    const normalized = normalizeRolloutLabel(rolloutId)
     if (!normalized || normalized.toLowerCase() === "grok") {
       return
     }
@@ -277,8 +320,45 @@ export function collectRolloutAgents(rolloutIds: string[]): AgentDescriptor[] {
   return agents
 }
 
+export function groupEntriesByAgent(
+  entries: StructuredReasoningEntry[],
+  agents: AgentDescriptor[]
+): AgentGroupedEntries[] {
+  const result: AgentGroupedEntries[] = []
+  let currentKey = ""
+  let currentGroup: StructuredReasoningEntry[] = []
+
+  const resolveAgent = (key: string): AgentDescriptor =>
+    agents.find((a) => a.key === key) || {
+      key,
+      label: key === "grok_primary" ? "Grok" : key.replace(/_/g, " "),
+      paletteIndex: 0,
+    }
+
+  const flush = () => {
+    if (currentKey && currentGroup.length > 0) {
+      result.push({ agent: resolveAgent(currentKey), entries: currentGroup })
+    }
+    currentGroup = []
+  }
+
+  for (const entry of entries) {
+    const key = toAgentKey(entry.rolloutId)
+    if (key !== currentKey) {
+      flush()
+      currentKey = key
+    }
+    currentGroup.push(entry)
+  }
+  flush()
+
+  return result
+}
+
 export function toAgentKey(rolloutId: string): string {
-  const normalized = rolloutId.trim().toLowerCase()
+  let normalized = rolloutId.trim().toLowerCase()
+  // Strip upstream "Chat Room" prefix
+  normalized = normalized.replace(/^chat\s*room\s*/i, "").trim()
   if (!normalized || normalized === "grok") {
     return "grok_primary"
   }
