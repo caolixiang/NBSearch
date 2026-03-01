@@ -62,11 +62,13 @@ export function GrokLottieIcon({
   size = 24,
   className,
   loop = false,
+  renderer = "canvas",
 }: {
   name: GrokLottieName
   size?: number
   className?: string
   loop?: boolean
+  renderer?: "canvas" | "svg"
 }) {
   const animationData = LOTTIE_DATA[name]
   const { isHovering } = useContext(HoverAnimationContext)
@@ -78,7 +80,7 @@ export function GrokLottieIcon({
       loop,
       autoplay: false,
       className,
-      renderer: "canvas",
+      renderer,
     },
     {
       width: size,

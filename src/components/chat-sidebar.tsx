@@ -3,7 +3,6 @@
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import {
-  Plus,
   PanelLeftClose,
   PanelLeft,
   Settings,
@@ -13,6 +12,7 @@ import {
   X,
 } from "lucide-react"
 import { GrokAvatar } from "./claude-logo"
+import { GrokLottieIcon, HoverAnimationProvider } from "./grok-lottie"
 import { cn } from "@/lib/utils"
 
 interface Conversation {
@@ -33,6 +33,37 @@ interface ChatSidebarProps {
   disableConversationActions?: boolean
   isCollapsed: boolean
   onToggleCollapse: () => void
+}
+
+function NewConversationButton({
+  onNew,
+}: {
+  onNew: () => void
+}) {
+  const [isHoveringNew, setIsHoveringNew] = useState(false)
+
+  return (
+    <HoverAnimationProvider value={{ isHovering: isHoveringNew }}>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        onClick={onNew}
+        onMouseEnter={() => setIsHoveringNew(true)}
+        onMouseLeave={() => setIsHoveringNew(false)}
+        className="text-sidebar-foreground hover:bg-sidebar-accent"
+      >
+        <div data-sidebar="icon" className="size-6 flex items-center justify-center shrink-0 transition-transform">
+          <GrokLottieIcon
+            name="square_pen"
+            size={18}
+            renderer="svg"
+            className="[&>svg_*]:fill-sidebar-foreground [&>svg_*]:stroke-sidebar-foreground"
+          />
+        </div>
+        <span className="sr-only">新建对话</span>
+      </Button>
+    </HoverAnimationProvider>
+  )
 }
 
 export function ChatSidebar({
@@ -115,14 +146,7 @@ export function ChatSidebar({
         >
           <PanelLeft className="size-4" />
         </Button>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          onClick={onNew}
-          className="text-sidebar-foreground hover:bg-sidebar-accent"
-        >
-          <Plus className="size-4" />
-        </Button>
+        <NewConversationButton onNew={onNew} />
       </div>
     )
   }
@@ -261,14 +285,7 @@ export function ChatSidebar({
           </span>
         </div>
         <div className="flex items-center gap-1">
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={onNew}
-            className="text-sidebar-foreground hover:bg-sidebar-accent"
-          >
-            <Plus className="size-4" />
-          </Button>
+          <NewConversationButton onNew={onNew} />
           <Button
             variant="ghost"
             size="icon-sm"
