@@ -28,13 +28,6 @@ export function StructuredReasoningPanel({
   )
   const [thinkingStable, setThinkingStable] = useState(effectiveThinkingRaw)
   const agents = useMemo(() => collectRolloutAgents(summary.rolloutIds), [summary.rolloutIds])
-  const agentByKey = useMemo(() => {
-    const map = new Map<string, (typeof agents)[number]>()
-    for (const agent of agents) {
-      map.set(agent.key, agent)
-    }
-    return map
-  }, [agents])
   const [activeTick, setActiveTick] = useState(0)
   const [expanded, setExpanded] = useState(false)
   const [durationSeconds, setDurationSeconds] = useState(0)
@@ -91,8 +84,10 @@ export function StructuredReasoningPanel({
     return latestAgentKey
   }, [activeTick, agents, effectiveThinking, latestAgentKey, summary.entries])
 
+  // Sync thinking state: debounce stop to avoid flicker, but ensure consistent cleanup
   useEffect(() => {
     if (effectiveThinkingRaw) {
+      // Thinking started or resumed — cancel any pending stop timer
       if (thinkingStopTimerRef.current) {
         window.clearTimeout(thinkingStopTimerRef.current)
         thinkingStopTimerRef.current = null
@@ -102,19 +97,25 @@ export function StructuredReasoningPanel({
       }
       setThinkingStable(true)
       setExpanded(true)
-    } else if (startedAtRef.current) {
+    } else {
+      // Thinking stopped — debounce to allow late events
       if (thinkingStopTimerRef.current) {
         window.clearTimeout(thinkingStopTimerRef.current)
       }
       thinkingStopTimerRef.current = window.setTimeout(() => {
         setThinkingStable(false)
         thinkingStopTimerRef.current = null
-        const elapsed = Math.max(1, Math.round((Date.now() - (startedAtRef.current || Date.now())) / 1000))
-        setDurationSeconds(elapsed)
+        // Freeze the final elapsed duration
+        if (startedAtRef.current) {
+          const elapsed = Math.max(1, Math.round((Date.now() - startedAtRef.current) / 1000))
+          setDurationSeconds(elapsed)
+          startedAtRef.current = null
+        }
       }, 650)
     }
   }, [effectiveThinkingRaw])
 
+  // Cleanup timers on unmount
   useEffect(
     () => () => {
       if (thinkingStopTimerRef.current) {
@@ -124,6 +125,7 @@ export function StructuredReasoningPanel({
     []
   )
 
+  // Agent rotation timer
   useEffect(() => {
     if (!effectiveThinking || agents.length <= 1) {
       return
@@ -134,6 +136,7 @@ export function StructuredReasoningPanel({
     return () => window.clearInterval(timer)
   }, [agents.length, effectiveThinking])
 
+  // Live elapsed second counter — only runs while thinking is active
   useEffect(() => {
     if (!effectiveThinking || !startedAtRef.current) {
       return
@@ -152,6 +155,7 @@ export function StructuredReasoningPanel({
     return () => window.clearInterval(timer)
   }, [effectiveThinking])
 
+  // Auto-scroll timeline to bottom when new entries arrive during thinking
   useEffect(() => {
     if (!effectiveThinking) {
       previousEntryCountRef.current = summary.entries.length

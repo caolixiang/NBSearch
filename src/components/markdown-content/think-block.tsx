@@ -35,6 +35,7 @@ export function ThinkBlock({
 
   useEffect(() => {
     if (thinking) {
+      // Thinking started or resumed — cancel any pending collapse
       if (collapseTimerRef.current) {
         window.clearTimeout(collapseTimerRef.current)
         collapseTimerRef.current = null
@@ -44,8 +45,10 @@ export function ThinkBlock({
       }
       setExpanded(true)
     } else if (startedAtRef.current) {
+      // Thinking stopped — freeze the final elapsed duration and clear ref
       const elapsed = Math.max(1, Math.round((Date.now() - startedAtRef.current) / 1000))
       setDurationSeconds(elapsed)
+      startedAtRef.current = null
     }
 
     if (previousThinkingRef.current && !thinking) {
@@ -57,6 +60,7 @@ export function ThinkBlock({
     previousThinkingRef.current = thinking
   }, [thinking])
 
+  // Cleanup timers on unmount
   useEffect(
     () => () => {
       if (collapseTimerRef.current) {
@@ -80,6 +84,7 @@ export function ThinkBlock({
   const durationLabel = durationSeconds > 0 || thinking ? ` · ${durationSeconds || 0}s` : ""
   const containerClassName = thinking ? "text-xs text-muted-foreground" : "max-h-[65vh] overflow-auto pr-2 text-xs text-muted-foreground"
 
+  // Live elapsed second counter — only runs while thinking is active AND startedAtRef is set
   useEffect(() => {
     if (!thinking || !startedAtRef.current) {
       return
@@ -98,6 +103,7 @@ export function ThinkBlock({
     return () => window.clearInterval(timer)
   }, [thinking])
 
+  // Agent rotation timer
   useEffect(() => {
     if (!thinking || agents.length <= 1) {
       return
