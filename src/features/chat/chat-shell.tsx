@@ -27,6 +27,8 @@ function newConversationId(): string {
   return `conv_${crypto.randomUUID()}`
 }
 
+const DRAFT_CONVERSATION_ID = "draft_new_conversation"
+
 function toRenderMessage(message: DomainChatMessage): RenderChatMessage | null {
   if (message.role !== "user" && message.role !== "assistant") {
     return null
@@ -175,6 +177,8 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
   const chatService = runtime.services.chat
 
   const [conversations, setConversations] = useState<ConversationRecord[]>([])
+  const [hasDraftConversation, setHasDraftConversation] = useState(false)
+  const [draftConversationUpdatedAt, setDraftConversationUpdatedAt] = useState(0)
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null)
   const [messages, setMessages] = useState<DomainChatMessage[]>([])
   const [isStreaming, setIsStreaming] = useState(false)
@@ -238,13 +242,22 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
   }, [isStreaming, resolveStreamingReasoningDurationSeconds])
 
   const sidebarConversations = useMemo(
-    () =>
-      conversations.map((item) => ({
+    () => {
+      const mapped = conversations.map((item) => ({
         id: item.id,
         title: item.title,
         updatedAt: new Date(item.updatedAt),
-      })),
-    [conversations]
+      }))
+      if (hasDraftConversation) {
+        mapped.unshift({
+          id: DRAFT_CONVERSATION_ID,
+          title: "",
+          updatedAt: new Date(draftConversationUpdatedAt || Date.now()),
+        })
+      }
+      return mapped
+    },
+    [conversations, draftConversationUpdatedAt, hasDraftConversation]
   )
 
   const visibleMessages = useMemo(() => {
@@ -374,6 +387,8 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
         createdAt: now,
         updatedAt: now,
       })
+      setHasDraftConversation(false)
+      setDraftConversationUpdatedAt(0)
       setActiveConversationId(id)
       await refreshConversations()
       setMessages([])
@@ -384,7 +399,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
 
   const ensureConversation = useCallback(
     async (title = ""): Promise<string> => {
-      if (activeConversationIdRef.current) {
+      if (activeConversationIdRef.current && activeConversationIdRef.current !== DRAFT_CONVERSATION_ID) {
         return activeConversationIdRef.current
       }
       return createConversation(title)
@@ -735,13 +750,20 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       setStreamingReasoningActive(false)
       streamingReasoningEventsRef.current = []
       leadAnchorMessageIdRef.current = null
+      if (conversationId === DRAFT_CONVERSATION_ID) {
+        setHasDraftConversation(true)
+        setDraftConversationUpdatedAt((prev) => prev || Date.now())
+        setActiveConversationId(DRAFT_CONVERSATION_ID)
+        setMessages([])
+        return
+      }
       setActiveConversationId(conversationId)
       await loadMessages(conversationId)
     },
     [isStreaming, loadMessages]
   )
 
-  const handleNewConversation = useCallback(async () => {
+  const handleNewConversation = useCallback(() => {
     if (isStreaming) {
       return
     }
@@ -760,20 +782,15 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     setStreamingReasoningActive(false)
     streamingReasoningEventsRef.current = []
     leadAnchorMessageIdRef.current = null
-    const activeConversationId = activeConversationIdRef.current
-    if (activeConversationId) {
-      const current = conversations.find((item) => item.id === activeConversationId)
-      const hasTitle = Boolean(current?.title.trim())
-      const hasMessages = messages.some(
-        (item) =>
-          (item.role === "user" || item.role === "assistant") && item.content.trim().length > 0
-      )
-      if (!hasTitle && !hasMessages) {
-        return
-      }
+    if (activeConversationIdRef.current === DRAFT_CONVERSATION_ID) {
+      setMessages([])
+      return
     }
-    await createConversation()
-  }, [conversations, createConversation, isStreaming, messages])
+    setHasDraftConversation(true)
+    setDraftConversationUpdatedAt(Date.now())
+    setActiveConversationId(DRAFT_CONVERSATION_ID)
+    setMessages([])
+  }, [isStreaming])
 
   const handleRenameConversation = useCallback(
     async (conversationId: string, title: string): Promise<void> => {
@@ -796,6 +813,37 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       if (isStreaming) {
         return
       }
+      if (conversationId === DRAFT_CONVERSATION_ID) {
+        setLastError("")
+        setStreamingAssistantText("")
+        streamingAssistantTextRef.current = ""
+        reasoningEverStartedRef.current = false
+        assistantOutputStartedRef.current = false
+        streamingTurnStartedAtRef.current = null
+        setStreamingReasoningDurationSeconds(0)
+        setStreamingReasoningEvents([])
+        setStreamingReasoningActive(false)
+        streamingReasoningEventsRef.current = []
+        leadAnchorMessageIdRef.current = null
+        setHasDraftConversation(false)
+        setDraftConversationUpdatedAt(0)
+        if (activeConversationIdRef.current === DRAFT_CONVERSATION_ID) {
+          if (conversations.length === 0) {
+            setActiveConversationId(null)
+            setMessages([])
+            return
+          }
+          const nextConversationId = conversations[0]?.id || null
+          if (!nextConversationId) {
+            setActiveConversationId(null)
+            setMessages([])
+            return
+          }
+          setActiveConversationId(nextConversationId)
+          await loadMessages(nextConversationId)
+        }
+        return
+      }
       await repository.deleteConversation(conversationId)
       const list = await refreshConversations()
       setLastError("")
@@ -815,7 +863,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       }
 
       if (list.length === 0) {
-        setActiveConversationId(null)
+        setActiveConversationId(hasDraftConversation ? DRAFT_CONVERSATION_ID : null)
         setMessages([])
         return
       }
@@ -824,7 +872,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       setActiveConversationId(nextConversationId)
       await loadMessages(nextConversationId)
     },
-    [isStreaming, loadMessages, refreshConversations, repository]
+    [conversations, hasDraftConversation, isStreaming, loadMessages, refreshConversations, repository]
   )
 
   return (

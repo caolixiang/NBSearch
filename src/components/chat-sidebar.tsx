@@ -61,6 +61,8 @@ export function ChatSidebar({
 
   const isEmptyConversation = (conversation: Conversation) =>
     conversation.title.trim().length === 0
+  const resolveConversationLabel = (conversation: Conversation) =>
+    conversation.title.trim() || "新对话"
 
   const beginRename = (conversation: Conversation) => {
     if (disableConversationActions || !onRename || isEmptyConversation(conversation)) {
@@ -207,7 +209,7 @@ export function ChatSidebar({
             }}
             className="w-full min-w-0 px-2 text-left text-sm"
           >
-            <span className="block truncate">{convo.title}</span>
+            <span className="block truncate">{resolveConversationLabel(convo)}</span>
           </button>
           {onDelete || (onRename && !isEmptyConversation(convo)) ? (
             <div
