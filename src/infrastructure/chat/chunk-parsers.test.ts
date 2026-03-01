@@ -473,19 +473,22 @@ describe("extractReasoningEventsFromRawChunk", () => {
       webSearchResults: [{ url: "https://a.test" }, { url: "https://b.test" }],
     })
 
-    expect(events).toEqual([
-      {
-        kind: "tool_result",
-        result: {
-          toolUsageCardId: "tool_1",
-          rolloutId: "Agent 1",
-          messageTag: "raw_function_result",
-          webSearchResultsCount: 2,
-          isThinking: false,
-          responseId: "resp_1",
-        },
+    expect(events).toHaveLength(1)
+    expect(events[0]).toEqual({
+      kind: "tool_result",
+      result: {
+        toolUsageCardId: "tool_1",
+        rolloutId: "Agent 1",
+        messageTag: "raw_function_result",
+        webSearchResultsCount: 2,
+        webSearchResults: [
+          { url: "https://a.test", title: undefined, preview: undefined, favicon: undefined },
+          { url: "https://b.test", title: undefined, preview: undefined, favicon: undefined },
+        ],
+        isThinking: false,
+        responseId: "resp_1",
       },
-    ])
+    })
   })
 
   it("extracts tool result count from raw_function_result object payload", () => {
@@ -501,19 +504,23 @@ describe("extractReasoningEventsFromRawChunk", () => {
       },
     })
 
-    expect(events).toEqual([
-      {
-        kind: "tool_result",
-        result: {
-          toolUsageCardId: "tool_1",
-          rolloutId: "Agent 1",
-          messageTag: "raw_function_result",
-          webSearchResultsCount: 3,
-          isThinking: false,
-          responseId: "resp_1",
-        },
+    expect(events).toHaveLength(1)
+    expect(events[0]).toEqual({
+      kind: "tool_result",
+      result: {
+        toolUsageCardId: "tool_1",
+        rolloutId: "Agent 1",
+        messageTag: "raw_function_result",
+        webSearchResultsCount: 3,
+        webSearchResults: [
+          { url: "https://a.test", title: undefined, preview: undefined, favicon: undefined },
+          { url: "https://b.test", title: undefined, preview: undefined, favicon: undefined },
+          { url: "https://c.test", title: undefined, preview: undefined, favicon: undefined },
+        ],
+        isThinking: false,
+        responseId: "resp_1",
       },
-    ])
+    })
   })
 
   it("extracts wrapped ui layout from gateway result.response payload", () => {
@@ -600,19 +607,22 @@ describe("extractReasoningEventsFromRawChunk", () => {
       },
     })
 
-    expect(events).toEqual([
-      {
-        kind: "tool_result",
-        result: {
-          toolUsageCardId: "tool_wrapped_1",
-          rolloutId: "Agent 1",
-          messageTag: "raw_function_result",
-          webSearchResultsCount: 2,
-          isThinking: false,
-          responseId: "resp_wrapped_6",
-        },
+    expect(events).toHaveLength(1)
+    expect(events[0]).toEqual({
+      kind: "tool_result",
+      result: {
+        toolUsageCardId: "tool_wrapped_1",
+        rolloutId: "Agent 1",
+        messageTag: "raw_function_result",
+        webSearchResultsCount: 2,
+        webSearchResults: [
+          { url: "https://a.test", title: undefined, preview: undefined, favicon: undefined },
+          { url: "https://b.test", title: undefined, preview: undefined, favicon: undefined },
+        ],
+        isThinking: false,
+        responseId: "resp_wrapped_6",
       },
-    ])
+    })
   })
 })
 
