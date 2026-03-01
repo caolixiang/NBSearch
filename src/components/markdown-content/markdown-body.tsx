@@ -38,7 +38,7 @@ export function MarkdownBody({ content, streaming = false }: { content: string; 
                 className={cn(
                   "grok-md-image-grid grid gap-2.5",
                   imageCount === 1 ? "grok-md-image-grid-single grid-cols-1 max-w-[40rem] mx-auto [&_.grok-md-image]:!rounded-[20px]" : gridClass,
-                  imageCount > 1 ? "[&_.grok-md-image]:!m-0 [&_.grok-md-image]:!absolute [&_.grok-md-image]:!inset-0 [&_.grok-md-image]:!w-full [&_.grok-md-image]:!h-full [&_.grok-md-image]:!max-h-none [&_.grok-md-image]:!object-cover [&_.grok-md-image]:!rounded-[16px] [&_a]:block [&_a]:w-full [&_a]:h-full" : ""
+                  imageCount > 1 ? "[&_.grok-md-image]:!m-0 [&_.grok-md-image]:!absolute [&_.grok-md-image]:!inset-0 [&_.grok-md-image]:!w-full [&_.grok-md-image]:!h-full [&_.grok-md-image]:!max-h-none [&_.grok-md-image]:!object-cover [&_.grok-md-image]:!rounded-[16px] [&_.grok-md-image]:!bg-transparent [&_a]:block [&_a]:w-full [&_a]:h-full" : ""
                 )}
               >
                 {imageNodes.map((node, index) => (
