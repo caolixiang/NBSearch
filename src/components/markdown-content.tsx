@@ -1599,6 +1599,7 @@ function StructuredReasoningPanel({
   const startedAtRef = useRef<number | null>(effectiveThinkingRaw ? Date.now() : null)
   const thinkingStopTimerRef = useRef<number | null>(null)
   const previousEntryCountRef = useRef(summary.entries.length)
+  const prevEntryKeysRef = useRef<Set<string>>(new Set(summary.entries.map((e) => e.key)))
   const timelineRef = useRef<HTMLDivElement | null>(null)
   const effectiveThinking = thinkingStable
   const displayEntries = useMemo(() => {
@@ -1607,6 +1608,18 @@ function StructuredReasoningPanel({
     }
     return summary.entries.slice(-3)
   }, [effectiveThinking, summary.entries])
+  const newEntryKeys = useMemo(() => {
+    const currentKeys = new Set(displayEntries.map((e) => e.key))
+    const prevKeys = prevEntryKeysRef.current
+    const added = new Set<string>()
+    for (const key of currentKeys) {
+      if (!prevKeys.has(key)) {
+        added.add(key)
+      }
+    }
+    prevEntryKeysRef.current = currentKeys
+    return added
+  }, [displayEntries])
 
   const latestAgentKey = useMemo(() => {
     for (let index = summary.entries.length - 1; index >= 0; index -= 1) {
@@ -1646,13 +1659,13 @@ function StructuredReasoningPanel({
         startedAtRef.current = Date.now()
       }
       setThinkingStable(true)
+      setExpanded(true)
     } else if (startedAtRef.current) {
       if (thinkingStopTimerRef.current) {
         window.clearTimeout(thinkingStopTimerRef.current)
       }
       thinkingStopTimerRef.current = window.setTimeout(() => {
         setThinkingStable(false)
-        setExpanded(false)
         thinkingStopTimerRef.current = null
         const elapsed = Math.max(1, Math.round((Date.now() - (startedAtRef.current || Date.now())) / 1000))
         setDurationSeconds(elapsed)
@@ -1726,7 +1739,7 @@ function StructuredReasoningPanel({
   const durationLabel = durationSeconds > 0 || effectiveThinking ? ` · ${durationSeconds || 0}s` : ""
   const hasAnyRecords = summary.entries.length > 0
   const showPanel = effectiveThinking || hasAnyRecords
-  const bodyExpanded = effectiveThinking || expanded
+  const bodyExpanded = expanded
 
   if (!showPanel) {
     return null
@@ -1749,12 +1762,7 @@ function StructuredReasoningPanel({
         ) : (
           <ChevronRight className="size-4 shrink-0 text-muted-foreground/85 transition-transform duration-200" />
         )}
-        <span className={cn(
-          "inline-flex items-center gap-1.5 rounded-full py-1 px-2.5 transition-all duration-300",
-          effectiveThinking
-            ? "border border-border/40 bg-background/60 shadow-sm backdrop-blur-md"
-            : "border-transparent bg-transparent py-0 px-0"
-        )}>
+        <span className="inline-flex items-center gap-1.5">
           <AgentAvatarStack agents={agents} activeAgentKey={activeAgentKey} thinking={effectiveThinking} />
           <span
             className={cn(
@@ -1773,42 +1781,32 @@ function StructuredReasoningPanel({
           bodyExpanded ? "mt-2 opacity-100" : "max-h-0 overflow-hidden opacity-0"
         )}
       >
-        <div className="rounded-2xl border border-border/40 bg-card/50 px-4 py-3">
         <div
           ref={timelineRef}
           className={cn(
             effectiveThinking
-              ? "relative max-h-[18rem] overflow-hidden"
+              ? "relative overflow-hidden"
               : "max-h-[65vh] overflow-auto pr-2 text-xs text-muted-foreground"
           )}
         >
           {displayEntries.length > 0 ? (
-            <div className={cn(effectiveThinking ? "flex min-h-[12.5rem] flex-col justify-end gap-2" : "space-y-2")}>
-              {displayEntries.map((entry, index) => {
+            <div className={cn(effectiveThinking ? "flex flex-col justify-end gap-1.5" : "space-y-2")}>
+              {displayEntries.map((entry) => {
                 const active =
                   effectiveThinking && entry.status === "running" && toAgentKey(entry.rolloutId) === activeAgentKey
-                const entryAgentKey = toAgentKey(entry.rolloutId)
-                const descriptor = agentByKey.get(entryAgentKey) || resolveAgentDescriptorByKey(agents, entryAgentKey)
-                const key = `${entry.key}:${index}`
-                const ageFromNewest = displayEntries.length - 1 - index
+                const isNew = effectiveThinking && newEntryKeys.has(entry.key)
                 return (
                   <div
-                    key={key}
+                    key={entry.key}
                     className={cn(
-                      "flex items-start justify-between gap-3 py-1 transition-all duration-200",
+                      "flex items-start justify-between gap-3 py-1",
                       effectiveThinking ? "think-stream-row" : "",
-                      effectiveThinking && ageFromNewest >= 2
-                        ? "think-stream-row-oldest"
-                        : effectiveThinking && ageFromNewest === 1
-                          ? "think-stream-row-middle"
-                          : effectiveThinking
-                            ? "think-stream-row-newest"
-                            : "",
+                      isNew ? "think-stream-row-enter" : "",
                       active ? "think-stream-row-active" : ""
                     )}
                   >
-                    <div className="flex min-w-0 items-start gap-2.5">
-                      <span className="mt-1 inline-flex size-4 shrink-0 items-center justify-center text-muted-foreground">
+                    <div className="flex min-w-0 flex-1 items-start gap-2.5">
+                      <span className="mt-0.5 inline-flex size-4 shrink-0 items-center justify-center text-muted-foreground">
                         {entry.visited ? (
                           <Globe className="size-4" />
                         ) : isImageSearchToolName(entry.toolName) ? (
@@ -1817,39 +1815,22 @@ function StructuredReasoningPanel({
                           <Search className="size-4" />
                         )}
                       </span>
-                      <div className="min-w-0">
-                        <p className="text-[13px] leading-5 text-muted-foreground">
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-[13px] leading-5 text-muted-foreground">
                           {resolveStructuredEntryLabel(entry.toolName, entry.visited, entry.status)}
                         </p>
                         <p
-                          className={cn(
-                            "break-all text-sm font-medium leading-6 text-foreground",
-                            entry.visited ? "italic" : ""
-                          )}
+                          className="truncate text-sm font-medium leading-6 text-foreground"
                         >
                           {formatSearchTextForDisplay(entry.text)}
                         </p>
                       </div>
                     </div>
-                    <div className="flex shrink-0 items-center gap-1.5 pt-0.5">
-                      {typeof entry.resultsCount === "number" ? (
-                        <span className="inline-flex items-center rounded-md border border-foreground/[0.06] bg-secondary/50 px-1.5 py-0.5 text-[12px] tabular-nums text-muted-foreground">
-                          {entry.resultsCount} 结果
-                        </span>
-                      ) : null}
-                      {effectiveThinking ? (
-                        <span className="inline-flex shrink-0 items-center justify-center">
-                          <AgentCanvasOrb
-                            paletteIndex={descriptor.isPrimary ? 0 : descriptor.paletteIndex}
-                            isPrimary={descriptor.isPrimary}
-                            active={active}
-                            thinking={effectiveThinking}
-                            size="sm"
-                          />
-                        </span>
-                      ) : null}
-                      {active ? <span className="size-1.5 animate-pulse rounded-full bg-foreground/60" /> : null}
-                    </div>
+                    {typeof entry.resultsCount === "number" ? (
+                      <span className="inline-flex shrink-0 items-center rounded-md border border-foreground/[0.06] bg-secondary/50 px-1.5 py-0.5 text-[12px] tabular-nums text-muted-foreground">
+                        {entry.resultsCount} 结果
+                      </span>
+                    ) : null}
                   </div>
                 )
               })}
@@ -1863,13 +1844,6 @@ function StructuredReasoningPanel({
           ) : (
             <p className="pt-2 text-[0.9rem] text-muted-foreground">暂无思考记录</p>
           )}
-          {effectiveThinking ? (
-            <>
-              <div className="pointer-events-none absolute inset-x-0 top-0 h-8 bg-gradient-to-b from-card/80 via-card/60 to-transparent" />
-              <div className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-card/80 via-card/60 to-transparent" />
-            </>
-          ) : null}
-        </div>
         </div>
       </div>
     </div>
@@ -2428,6 +2402,13 @@ export function MarkdownContent({
     <div className="space-y-1 text-foreground">
       {shouldShowStructuredReasoning ? (
         <StructuredReasoningPanel events={reasoningEvents} isThinking={reasoningActive} />
+      ) : null}
+      {streaming && !content.trim() ? (
+        <div className="flex items-center gap-1.5 py-3 pl-1">
+          <span className="size-1.5 animate-bounce rounded-full bg-muted-foreground/50 [animation-delay:0ms]" />
+          <span className="size-1.5 animate-bounce rounded-full bg-muted-foreground/50 [animation-delay:150ms]" />
+          <span className="size-1.5 animate-bounce rounded-full bg-muted-foreground/50 [animation-delay:300ms]" />
+        </div>
       ) : null}
       {visibleSections.map((section, index) => {
         if (section.type === "think") {

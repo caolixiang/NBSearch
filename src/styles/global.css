@@ -260,25 +260,41 @@
 
 .think-stream-row {
   transform-origin: center bottom;
-  transition: opacity 200ms ease, transform 200ms ease, filter 200ms ease;
-}
-
-.think-stream-row-oldest {
-  opacity: 0.38;
-  transform: translateY(-4px) scale(0.94);
-  filter: blur(1.5px);
-}
-
-.think-stream-row-middle {
-  opacity: 0.65;
-  transform: translateY(-1.5px) scale(0.97);
-  filter: blur(0.5px);
-}
-
-.think-stream-row-newest {
   opacity: 1;
   transform: translateY(0) scale(1);
   filter: blur(0);
+}
+
+@keyframes thinkEntrySlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+    filter: blur(3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+}
+
+@keyframes thinkEntrySlideOut {
+  from {
+    opacity: 0.6;
+    transform: translateY(0);
+    filter: blur(0);
+    max-height: 80px;
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-12px);
+    filter: blur(2px);
+    max-height: 0;
+  }
+}
+
+.think-stream-row-enter {
+  animation: thinkEntrySlideIn 300ms ease-out both;
 }
 
 .think-stream-row-active {

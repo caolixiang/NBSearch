@@ -404,6 +404,32 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     node.scrollTop = node.scrollHeight
   }, [isThinkingStreaming, streamingAssistantText, visibleMessages])
 
+  // ResizeObserver: auto-scroll on content height changes (image loads, layout shifts)
+  useEffect(() => {
+    if (!isStreaming) {
+      return
+    }
+    const node = messagesScrollRef.current
+    if (!node) {
+      return
+    }
+    const observer = new ResizeObserver(() => {
+      if (!shouldAutoScrollRef.current) {
+        return
+      }
+      if (isThinkingStreaming && leadAnchorMessageIdRef.current) {
+        return
+      }
+      node.scrollTop = node.scrollHeight
+    })
+    // Observe the inner content container for size changes
+    const inner = node.firstElementChild
+    if (inner) {
+      observer.observe(inner)
+    }
+    return () => observer.disconnect()
+  }, [isStreaming, isThinkingStreaming])
+
   const handleMessagesScroll = useCallback(() => {
     const node = messagesScrollRef.current
     if (!node) {
