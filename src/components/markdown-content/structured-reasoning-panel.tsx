@@ -244,17 +244,17 @@ export function StructuredReasoningPanel({
   events,
   isThinking,
   isStreaming = false,
+  durationSeconds = 0,
 }: {
   events: ChatReasoningEventDetail[]
   isThinking: boolean
   isStreaming?: boolean
+  durationSeconds?: number
 }) {
   const summary = useMemo(() => buildStructuredReasoningSummary(events), [events])
   const agents = useMemo(() => collectRolloutAgents(summary.rolloutIds), [summary.rolloutIds])
   const [activeTick, setActiveTick] = useState(0)
   const [drawerOpen, setDrawerOpen] = useState(false)
-  const [durationSeconds, setDurationSeconds] = useState(0)
-  const startedAtRef = useRef<number | null>(null)
   const previousEntryCountRef = useRef(summary.entries.length)
   const prevEntryKeysRef = useRef<Set<string>>(new Set(summary.entries.map((e) => e.key)))
   const timelineRef = useRef<HTMLDivElement | null>(null)
@@ -311,31 +311,6 @@ export function StructuredReasoningPanel({
     return latestAgentKey
   }, [activeTick, agents, effectiveThinking, latestAgentKey, summary.entries])
 
-  // Track thinking duration
-  useEffect(() => {
-    if (effectiveThinking) {
-      if (!startedAtRef.current) {
-        startedAtRef.current = Date.now()
-      }
-    } else if (startedAtRef.current) {
-      const elapsed = Math.max(1, Math.round((Date.now() - startedAtRef.current) / 1000))
-      setDurationSeconds(elapsed)
-      startedAtRef.current = null
-    }
-  }, [effectiveThinking])
-
-  // Live elapsed counter during thinking
-  useEffect(() => {
-    if (!effectiveThinking || !startedAtRef.current) return
-    const syncElapsed = () => {
-      if (!startedAtRef.current) return
-      setDurationSeconds(Math.max(1, Math.floor((Date.now() - startedAtRef.current) / 1000)))
-    }
-    syncElapsed()
-    const timer = window.setInterval(syncElapsed, 1000)
-    return () => window.clearInterval(timer)
-  }, [effectiveThinking])
-
   // Agent rotation timer
   useEffect(() => {
     if (!effectiveThinking || agents.length <= 1) return
@@ -367,7 +342,7 @@ export function StructuredReasoningPanel({
 
   const hasAgentItems = agents.length > 1
   const durationSuffix = durationSeconds > 0 ? ` ${durationSeconds}s` : ""
-  const hasAnyRecords = summary.entries.length > 0
+  const hasAnyRecords = summary.entries.length > 0 || durationSeconds > 0
   const showPanel = effectiveThinking || hasAnyRecords
 
   if (!showPanel) {
@@ -376,6 +351,9 @@ export function StructuredReasoningPanel({
 
   /* ---- Completed: lightbulb trigger → side drawer ---- */
   if (!effectiveThinking) {
+    if (isStreaming) {
+      return null
+    }
     return (
       <div className="my-2">
         <button

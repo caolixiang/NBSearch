@@ -17,11 +17,13 @@ export function MarkdownContent({
   streaming = false,
   reasoningEvents = [],
   reasoningActive = false,
+  reasoningDurationSeconds = 0,
 }: {
   content: string
   streaming?: boolean
   reasoningEvents?: ChatReasoningEventDetail[]
   reasoningActive?: boolean
+  reasoningDurationSeconds?: number
 }) {
   const parsed = useMemo(() => extractAssistantToolMeta(content), [content])
   const liveCards = useMemo(() => collectCardsFromReasoningEvents(reasoningEvents), [reasoningEvents])
@@ -39,7 +41,7 @@ export function MarkdownContent({
 
 
 
-  const hasStructuredReasoning = reasoningEvents.length > 0
+  const hasStructuredReasoning = reasoningEvents.length > 0 || reasoningDurationSeconds > 0
   const shouldShowStructuredReasoning = hasStructuredReasoning
   const shouldRenderLegacyThink = !hasStructuredReasoning
   const sections = useMemo(
@@ -67,7 +69,12 @@ export function MarkdownContent({
   return (
     <div className="space-y-1 text-foreground">
       {shouldShowStructuredReasoning ? (
-        <StructuredReasoningPanel events={reasoningEvents} isThinking={reasoningActive} isStreaming={streaming} />
+        <StructuredReasoningPanel
+          events={reasoningEvents}
+          isThinking={reasoningActive}
+          isStreaming={streaming}
+          durationSeconds={reasoningDurationSeconds}
+        />
       ) : null}
       {streaming && !content.trim() && !shouldShowStructuredReasoning ? (
         <div className="flex items-center gap-1.5 py-3 pl-1">

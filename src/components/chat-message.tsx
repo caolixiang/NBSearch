@@ -10,6 +10,7 @@ export interface RenderChatMessage {
   content: string
   reasoningEvents?: ChatReasoningEventDetail[]
   reasoningActive?: boolean
+  reasoningDurationSeconds?: number
 }
 
 export function ChatMessage({ message }: { message: RenderChatMessage }) {
@@ -33,18 +34,18 @@ export function ChatMessage({ message }: { message: RenderChatMessage }) {
         streaming={isStreamingAssistant}
         reasoningEvents={message.reasoningEvents}
         reasoningActive={message.reasoningActive}
+        reasoningDurationSeconds={message.reasoningDurationSeconds}
       />
     </div>
   )
 }
 
-export function TypingIndicator() {
+export function TypingIndicator({ elapsedSeconds = 0 }: { elapsedSeconds?: number }) {
   return (
     <div className="flex px-6 py-4">
-      <div className="flex items-center gap-1.5 pt-2">
-        <span className="size-1.5 animate-bounce rounded-full bg-[var(--color-claude-warm-gray)] [animation-delay:0ms]" />
-        <span className="size-1.5 animate-bounce rounded-full bg-[var(--color-claude-warm-gray)] [animation-delay:150ms]" />
-        <span className="size-1.5 animate-bounce rounded-full bg-[var(--color-claude-warm-gray)] [animation-delay:300ms]" />
+      <div className="inline-flex items-center gap-2 rounded-full bg-secondary/40 px-3 py-1.5 text-sm text-muted-foreground">
+        <span className="inline-flex size-2 rounded-full bg-[var(--color-claude-warm-gray)] animate-pulse" />
+        <span className="whitespace-nowrap">{elapsedSeconds > 0 ? `思考中 · ${elapsedSeconds}s` : "思考中"}</span>
       </div>
     </div>
   )
