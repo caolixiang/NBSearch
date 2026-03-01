@@ -257,7 +257,7 @@ export function ChatSidebar({
         <div className="flex items-center gap-2">
           <GrokAvatar size="sm" />
           <span className="text-sm font-semibold text-sidebar-foreground">
-            Grok
+            NBSearch
           </span>
         </div>
         <div className="flex items-center gap-1">

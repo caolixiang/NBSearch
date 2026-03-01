@@ -132,7 +132,7 @@ export function VoiceMode({ isOpen, onClose }: VoiceModeProps) {
             {connectionStatus === "connecting"
               ? "正在连接..."
               : isAiSpeaking
-                ? "Grok 正在说话"
+                ? "NBSearch 正在说话"
                 : "正在聆听..."}
           </p>
           {isConnected && !isAiSpeaking && (
