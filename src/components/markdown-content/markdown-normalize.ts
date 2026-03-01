@@ -70,16 +70,25 @@ export function expandGrokRenderTags(content: string, cards: Record<string, Imag
     if (!card) {
       return ""
     }
-    // Prefer thumbnail (Google image proxy) for display — it's CORS-friendly.
-    // Source-site original URLs often block cross-origin/hotlinked loads.
-    const imageUrl = card.image?.thumbnail || card.image?.original || card.url
+    const orig = (card.image?.original || "").trim()
+    const thumb = (card.image?.thumbnail || "").trim()
+    const fallbackLink = (card.image?.link || "").trim()
+    const cUrl = (card.url || "").trim()
+
+    const targetUrl = orig || fallbackLink || cUrl || thumb
+    let imageUrl = orig || cUrl || thumb
     if (!imageUrl) {
       return ""
     }
 
+    // Embed the thumbnail as a fallback if original is provided.
+    // We base64 encode it so it doesn't break URL parsing.
+    if (imageUrl === orig && thumb && thumb !== orig) {
+      imageUrl = `${imageUrl}#fallback=${encodeURIComponent(thumb)}`
+    }
+
     const alt = escapeMarkdownText(card.image?.title || card.image?.source || "Generated Image") || "Generated Image"
     const imageMarkdown = `![${alt}](${wrapMarkdownUrl(imageUrl)})`
-    const targetUrl = card.image?.link || card.image?.original || card.url
     return targetUrl ? `[${imageMarkdown}](${wrapMarkdownUrl(targetUrl)})` : imageMarkdown
   }
 

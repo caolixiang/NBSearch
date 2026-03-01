@@ -68,7 +68,7 @@ export function MarkdownBody({ content, streaming = false }: { content: string; 
             {children}
           </blockquote>
         ),
-        img: ({ src, alt }) => <MarkdownImage src={src || ""} alt={alt || ""} />,
+        img: ({ src, alt }) => <MarkdownImage src={src || ""} alt={alt || ""} isStreaming={streaming} />,
         pre: ({ children }) => (
           <pre className="my-3 overflow-x-auto rounded-lg border border-border bg-secondary/40 p-3">{children}</pre>
         ),

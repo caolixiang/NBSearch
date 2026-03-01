@@ -7,6 +7,7 @@ import {
   useEffect,
   useRef,
   useState,
+  useMemo,
   type ReactNode,
   type SyntheticEvent,
 } from "react"
@@ -86,21 +87,52 @@ export function collectImageParagraphNodes(children: ReactNode): ReactNode[] | n
 export const MarkdownImage = memo(function({
   src,
   alt,
+  isStreaming,
 }: {
   src: string
   alt: string
+  isStreaming?: boolean
 }) {
-  const [currentSrc, setCurrentSrc] = useState(src || "")
+  const { primarySrc, fallbackSrc } = useMemo(() => {
+    const raw = (src || "").trim()
+    const hashIndex = raw.indexOf("#fallback=")
+    if (hashIndex >= 0) {
+      try {
+        const primary = raw.substring(0, hashIndex)
+        const fallback = decodeURIComponent(raw.substring(hashIndex + "#fallback=".length))
+        return { primarySrc: primary, fallbackSrc: fallback }
+      } catch (e) {
+        // Fallback to raw if decode fails
+      }
+    }
+    return { primarySrc: raw, fallbackSrc: "" }
+  }, [src])
+
+  const [currentSrc, setCurrentSrc] = useState(primarySrc)
   const [failed, setFailed] = useState(false)
+  const fallbackAttemptedRef = useRef(false)
   const swappedProtocolRef = useRef(false)
 
   useEffect(() => {
-    setCurrentSrc(src || "")
+    setCurrentSrc(primarySrc)
     setFailed(false)
+    fallbackAttemptedRef.current = false
     swappedProtocolRef.current = false
-  }, [src])
+  }, [primarySrc])
+
+  if (isStreaming) {
+    return (
+      <div className="grok-md-image animate-pulse bg-secondary/40 h-full min-h-[160px] w-full rounded-[20px]" />
+    )
+  }
 
   const handleError = (_event: SyntheticEvent<HTMLImageElement>) => {
+    if (!fallbackAttemptedRef.current && fallbackSrc) {
+      fallbackAttemptedRef.current = true
+      setCurrentSrc(fallbackSrc)
+      return
+    }
+
     if (swappedProtocolRef.current) {
       setFailed(true)
       return
@@ -122,10 +154,11 @@ export const MarkdownImage = memo(function({
   }
 
   const retryImage = () => {
-    const value = (src || "").trim()
+    const value = (primarySrc || "").trim()
     if (!value) {
       return
     }
+    fallbackAttemptedRef.current = false
     swappedProtocolRef.current = false
     setFailed(false)
     const separator = value.includes("?") ? "&" : "?"
@@ -133,7 +166,7 @@ export const MarkdownImage = memo(function({
   }
 
   if (failed || !currentSrc.trim()) {
-    const fallbackLink = currentSrc.trim() || (src || "").trim()
+    const fallbackLink = currentSrc.trim() || primarySrc || ""
     return (
       <div className="flex w-full flex-col items-center justify-center gap-2 bg-secondary/30 px-4 py-4 text-center text-sm text-muted-foreground">
         <span>图片加载失败</span>
