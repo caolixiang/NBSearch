@@ -1,3 +1,5 @@
+import type { WebSearchResultItem } from "@/domain/chat/types"
+
 export type TextSection = {
   type: "text"
   value: string
@@ -93,6 +95,7 @@ export type StructuredReasoningEntry = {
   visited: boolean
   toolName: string
   resultsCount?: number
+  webSearchResults?: WebSearchResultItem[]
   status: "running" | "completed"
 }
 

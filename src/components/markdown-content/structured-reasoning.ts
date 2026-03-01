@@ -237,6 +237,9 @@ export function buildStructuredReasoningSummary(events: ChatReasoningEventDetail
           if (typeof detail.result.webSearchResultsCount === "number") {
             entry.resultsCount = detail.result.webSearchResultsCount
           }
+          if (Array.isArray(detail.result.webSearchResults)) {
+            entry.webSearchResults = detail.result.webSearchResults
+          }
         })
         continue
       }
@@ -257,6 +260,7 @@ export function buildStructuredReasoningSummary(events: ChatReasoningEventDetail
           typeof detail.result.webSearchResultsCount === "number"
             ? detail.result.webSearchResultsCount
             : undefined,
+        webSearchResults: Array.isArray(detail.result.webSearchResults) ? detail.result.webSearchResults : undefined,
       }
       entryByKey.set(fallbackKey, fallbackEntry)
       entryByToolUsageCardId.set(toolUsageCardId, [fallbackEntry])

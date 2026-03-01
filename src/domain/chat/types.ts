@@ -45,11 +45,19 @@ export interface ChatReasoningToolUsage {
   responseId?: string
 }
 
+export interface WebSearchResultItem {
+  title?: string
+  url?: string
+  preview?: string
+  favicon?: string
+}
+
 export interface ChatReasoningToolResult {
   toolUsageCardId?: string
   rolloutId?: string
   messageTag?: string
   webSearchResultsCount?: number
+  webSearchResults?: WebSearchResultItem[]
   isThinking?: boolean
   responseId?: string
 }

@@ -6,6 +6,7 @@ import type {
   ChatReasoningLayout,
   ChatStreamEvent,
   SendChatTurnInput,
+  WebSearchResultItem,
 } from "../../domain/chat/types"
 
 // ---------------------------------------------------------------------------
@@ -266,6 +267,30 @@ function readWebSearchResultsCount(value: unknown): number | undefined {
     return value.results.length
   }
   return undefined
+}
+
+function readWebSearchResults(value: unknown): WebSearchResultItem[] | undefined {
+  let list: unknown[] | undefined;
+  if (Array.isArray(value)) {
+    list = value;
+  } else if (isRecord(value) && Array.isArray(value.results)) {
+    list = value.results;
+  }
+
+  if (!list) return undefined;
+
+  const results: WebSearchResultItem[] = [];
+  for (const item of list) {
+    if (isRecord(item)) {
+      results.push({
+        title: typeof item.title === "string" ? item.title : undefined,
+        url: typeof item.url === "string" ? item.url : typeof item.link === "string" ? item.link : undefined,
+        preview: typeof item.preview === "string" ? item.preview : typeof item.snippet === "string" ? item.snippet : undefined,
+        favicon: typeof item.favicon === "string" ? item.favicon : undefined,
+      });
+    }
+  }
+  return results.length > 0 ? results : undefined;
 }
 
 function extractWebSearchToolMetaFromOutputItem(item: unknown): WebSearchToolMeta | null {
@@ -530,6 +555,7 @@ function readToolResultEvent(rawChunk: unknown): ChatReasoningEventDetail | null
     if (typeof webSearchResultsCount !== "number") {
       continue
     }
+    const webSearchResults = readWebSearchResults(candidate.webSearchResults)
     const responseId = extractResponseIdFromRecord(candidate)
     return {
       kind: "tool_result",
@@ -543,6 +569,7 @@ function readToolResultEvent(rawChunk: unknown): ChatReasoningEventDetail | null
               : undefined,
         messageTag: candidate.messageTag,
         webSearchResultsCount,
+        webSearchResults,
         isThinking: typeof candidate.isThinking === "boolean" ? candidate.isThinking : undefined,
         responseId: responseId || undefined,
       },

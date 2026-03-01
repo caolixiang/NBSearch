@@ -24,11 +24,18 @@ import { AgentAvatarStack, AgentCanvasOrb } from "./agent-orbs"
 /* ------------------------------------------------------------------ */
 
 function ToolEntryRow({ entry }: { entry: StructuredReasoningEntry }) {
-  return (
+  const [open, setOpen] = useState(false)
+  const hasResults = entry.webSearchResults && entry.webSearchResults.length > 0
+
+  const content = (
     <div className="flex items-start justify-between gap-3 py-1">
       <div className="flex min-w-0 flex-1 items-start gap-2.5">
-        <span className="mt-0.5 inline-flex size-4 shrink-0 items-center justify-center text-muted-foreground">
-          {entry.visited ? (
+        <span className="mt-0.5 inline-flex size-5 shrink-0 items-center justify-center text-muted-foreground">
+          {hasResults ? (
+            <span className="inline-flex size-5 items-center justify-center rounded-full border border-foreground/[0.08] bg-background shadow-sm">
+              <ChevronDown className={cn("size-3.5 transition-transform", open ? "rotate-180" : "")} />
+            </span>
+          ) : entry.visited ? (
             <Globe className="size-4" />
           ) : isImageSearchToolName(entry.toolName) ? (
             <ImageIcon className="size-4" />
@@ -36,7 +43,7 @@ function ToolEntryRow({ entry }: { entry: StructuredReasoningEntry }) {
             <Search className="size-4" />
           )}
         </span>
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1 text-left">
           <p className="truncate text-[13px] leading-5 text-muted-foreground">
             {resolveStructuredEntryLabel(entry.toolName, entry.visited, entry.status)}
           </p>
@@ -52,12 +59,56 @@ function ToolEntryRow({ entry }: { entry: StructuredReasoningEntry }) {
       ) : null}
     </div>
   )
+
+  if (!hasResults) {
+    return content
+  }
+
+  return (
+    <div className="flex flex-col mb-1.5">
+      <button type="button" onClick={() => setOpen(!open)} className="w-full rounded-md transition-colors block text-left">
+        {content}
+      </button>
+      {open && (
+        <div className="mt-1.5 ml-7 rounded-xl border border-foreground/[0.04] bg-secondary/30 p-3 space-y-3.5">
+          {entry.webSearchResults!.map((res, i) => {
+            let host = ""
+            try {
+              if (res.url) host = new URL(res.url).host.replace(/^www\./, "")
+            } catch {
+              host = res.url || ""
+            }
+            return (
+              <div key={i} className="flex flex-col gap-1">
+                <a href={res.url} target="_blank" rel="noreferrer" className="text-[13px] font-bold text-foreground hover:underline line-clamp-2 leading-snug">
+                  {res.title || res.url}
+                </a>
+                {res.url && (
+                  <div className="flex items-center gap-1.5 text-[12px] text-muted-foreground/80">
+                    {res.favicon ? (
+                      <img src={res.favicon} alt="" className="size-3.5 rounded-sm bg-background/50 object-cover shrink-0" />
+                    ) : (
+                      <Globe className="size-3.5 shrink-0" />
+                    )}
+                    <span className="truncate">{host}</span>
+                  </div>
+                )}
+                {res.preview && (
+                  <p className="text-[12px] text-muted-foreground/90 line-clamp-2 mt-0.5 leading-[1.6]">{res.preview}</p>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
 }
 
 function ChatroomThinkEntry({ entry }: { entry: StructuredReasoningEntry }) {
   return (
     <div className="py-1.5">
-      <p className="rounded-lg border border-foreground/[0.06] bg-secondary/30 px-3.5 py-2.5 text-sm leading-6 text-foreground/80 line-clamp-6 whitespace-pre-wrap">{entry.text}</p>
+      <p className="rounded-lg border border-foreground/[0.06] bg-secondary/30 px-3.5 py-2.5 text-sm leading-6 text-foreground/80 whitespace-pre-wrap">{entry.text}</p>
     </div>
   )
 }
@@ -390,7 +441,7 @@ export function StructuredReasoningPanel({
                         <p className="truncate text-[13px] leading-5 text-muted-foreground">
                           {resolveStructuredEntryLabel(entry.toolName, entry.visited, entry.status)}
                         </p>
-                        <p className="truncate text-sm font-medium leading-6 text-foreground">
+                        <p className="text-sm font-medium leading-6 text-foreground break-words whitespace-pre-wrap">
                           {formatSearchTextForDisplay(entry.text)}
                         </p>
                       </div>
