@@ -13,8 +13,7 @@ import {
   type SyntheticEvent,
 } from "react"
 import { ChevronDown, ChevronRight, Globe, ImageIcon, Search, X } from "lucide-react"
-import ReactMarkdown from "react-markdown"
-import remarkGfm from "remark-gfm"
+import { Streamdown } from "streamdown"
 import type { ChatCardAttachmentPayload, ChatReasoningEventDetail } from "@/domain/chat/types"
 import { cn } from "@/lib/utils"
 import { GrokLogo } from "./claude-logo"
@@ -1745,12 +1744,11 @@ function StructuredReasoningPanel({
           setExpanded((value) => !value)
         }}
       >
-        <ChevronRight
-          className={cn(
-            "size-4 shrink-0 text-muted-foreground/85 transition-transform duration-200",
-            bodyExpanded ? "rotate-90" : ""
-          )}
-        />
+        {bodyExpanded ? (
+          <ChevronDown className="size-4 shrink-0 text-muted-foreground/85 transition-transform duration-200" />
+        ) : (
+          <ChevronRight className="size-4 shrink-0 text-muted-foreground/85 transition-transform duration-200" />
+        )}
         <span className={cn(
           "inline-flex items-center gap-1.5 rounded-full py-1 px-2.5 transition-all duration-300",
           effectiveThinking
@@ -1775,6 +1773,7 @@ function StructuredReasoningPanel({
           bodyExpanded ? "mt-2 opacity-100" : "max-h-0 overflow-hidden opacity-0"
         )}
       >
+        <div className="rounded-2xl border border-border/40 bg-card/50 px-4 py-3">
         <div
           ref={timelineRef}
           className={cn(
@@ -1834,23 +1833,19 @@ function StructuredReasoningPanel({
                     </div>
                     <div className="flex shrink-0 items-center gap-1.5 pt-0.5">
                       {typeof entry.resultsCount === "number" ? (
-                        <span className="inline-flex items-center rounded border border-foreground/[0.06] px-1.5 py-0.5 text-[13px] tabular-nums text-muted-foreground">
+                        <span className="inline-flex items-center rounded-md border border-foreground/[0.06] bg-secondary/50 px-1.5 py-0.5 text-[12px] tabular-nums text-muted-foreground">
                           {entry.resultsCount} 结果
                         </span>
                       ) : null}
                       {effectiveThinking ? (
                         <span className="inline-flex shrink-0 items-center justify-center">
-                          {descriptor.isPrimary ? (
-                            <AgentCanvasOrb paletteIndex={0} isPrimary={true} active={active} thinking={effectiveThinking} size="lg" />
-                          ) : (
-                            <AgentIconOrb
-                              paletteIndex={descriptor.paletteIndex}
-                              active={active}
-                              thinking={effectiveThinking}
-                              size="sm"
-                              animationDelayMs={index * 110}
-                            />
-                          )}
+                          <AgentCanvasOrb
+                            paletteIndex={descriptor.isPrimary ? 0 : descriptor.paletteIndex}
+                            isPrimary={descriptor.isPrimary}
+                            active={active}
+                            thinking={effectiveThinking}
+                            size="sm"
+                          />
                         </span>
                       ) : null}
                       {active ? <span className="size-1.5 animate-pulse rounded-full bg-foreground/60" /> : null}
@@ -1870,10 +1865,11 @@ function StructuredReasoningPanel({
           )}
           {effectiveThinking ? (
             <>
-              <div className="pointer-events-none absolute inset-x-0 top-0 h-8 bg-gradient-to-b from-background via-background/88 to-transparent" />
-              <div className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-background via-background/84 to-transparent" />
+              <div className="pointer-events-none absolute inset-x-0 top-0 h-8 bg-gradient-to-b from-card/80 via-card/60 to-transparent" />
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-card/80 via-card/60 to-transparent" />
             </>
           ) : null}
+        </div>
         </div>
       </div>
     </div>
@@ -1952,8 +1948,7 @@ function collectImageParagraphNodes(children: ReactNode): ReactNode[] | null {
   return rows.length > 0 ? rows : null
 }
 
-// Global DOM cache to prevent images from flickering/reloading when ReactMarkdown remounts them
-const GLOBAL_IMAGE_CACHE = new Map<string, HTMLImageElement>()
+
 
 const MarkdownImage = memo(function({
   src,
@@ -2045,15 +2040,15 @@ const MarkdownImage = memo(function({
   )
 })
 
-function MarkdownBody({ content }: { content: string }) {
+function MarkdownBody({ content, streaming = false }: { content: string; streaming?: boolean }) {
   const normalized = useMemo(() => normalizeAssistantMarkdown(content), [content])
   if (!normalized) {
     return null
   }
 
   return (
-    <ReactMarkdown
-      remarkPlugins={[remarkGfm]}
+    <Streamdown
+      isAnimating={streaming}
       components={{
         h1: ({ children }) => <h1 className="mb-3 mt-5 text-xl font-bold">{children}</h1>,
         h2: ({ children }) => <h2 className="mb-2 mt-4 text-lg font-semibold">{children}</h2>,
@@ -2131,7 +2126,7 @@ function MarkdownBody({ content }: { content: string }) {
       }}
     >
       {normalized}
-    </ReactMarkdown>
+    </Streamdown>
   )
 }
 
@@ -2402,41 +2397,17 @@ export function MarkdownContent({
     [mergedCards, parsed.content]
   )
 
-  // Throttle content updates during streaming to prevent image flickering.
-  // ReactMarkdown recreates <img> DOM elements on each re-render; limiting
-  // re-renders to ~8fps during streaming eliminates the visible flash.
-  const latestContentRef = useRef(expandedContent)
-  latestContentRef.current = expandedContent
-  const [throttledContent, setThrottledContent] = useState(expandedContent)
-  useEffect(() => {
-    if (!streaming) {
-      setThrottledContent(expandedContent)
-      return
-    }
-    // Flush immediately on first render, then throttle
-    setThrottledContent(expandedContent)
-    const id = setInterval(() => {
-      setThrottledContent(latestContentRef.current)
-    }, 120)
-    return () => clearInterval(id)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [streaming])
-  // Also flush when streaming stops
-  useEffect(() => {
-    if (!streaming) {
-      setThrottledContent(latestContentRef.current)
-    }
-  }, [streaming, expandedContent])
+
 
   const hasStructuredReasoning = reasoningEvents.length > 0
   const shouldShowStructuredReasoning = hasStructuredReasoning
   const shouldRenderLegacyThink = !hasStructuredReasoning
   const sections = useMemo(
     () =>
-      parseThinkSections(throttledContent, {
+      parseThinkSections(expandedContent, {
         treatUnclosedThinkAsThinking: streaming,
       }),
-    [throttledContent, streaming]
+    [expandedContent, streaming]
   )
   const visibleSections = useMemo(
     () =>
@@ -2473,7 +2444,7 @@ export function MarkdownContent({
             />
           )
         }
-        return <MarkdownBody key={`text-${index}`} content={section.value} />
+        return <MarkdownBody key={`text-${index}`} content={section.value} streaming={streaming} />
       })}
     </div>
   )
