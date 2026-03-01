@@ -194,7 +194,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
   const [streamingReasoningDurationSeconds, setStreamingReasoningDurationSeconds] = useState(0)
   const [lastError, setLastError] = useState("")
   const [modelError, setModelError] = useState("")
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(true)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [voiceOpen, setVoiceOpen] = useState(false)
   const [modelOptions, setModelOptions] = useState<ModelOption[]>(() => getInitialModelOptions())
@@ -205,6 +205,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
   const [isRefreshingModels, setIsRefreshingModels] = useState(false)
 
   const abortRef = useRef<AbortController | null>(null)
+  const sidebarContainerRef = useRef<HTMLDivElement | null>(null)
   const activeConversationIdRef = useRef<string | null>(null)
   const messagesScrollRef = useRef<HTMLDivElement | null>(null)
   const shouldAutoScrollRef = useRef(true)
@@ -220,6 +221,32 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
   useEffect(() => {
     activeConversationIdRef.current = activeConversationId
   }, [activeConversationId])
+
+  useEffect(() => {
+    if (sidebarCollapsed) {
+      return
+    }
+    const handlePointerDown = (event: MouseEvent | TouchEvent) => {
+      const target = event.target
+      if (!(target instanceof Node)) {
+        return
+      }
+      const sidebarNode = sidebarContainerRef.current
+      if (!sidebarNode) {
+        return
+      }
+      if (sidebarNode.contains(target)) {
+        return
+      }
+      setSidebarCollapsed(true)
+    }
+    document.addEventListener("mousedown", handlePointerDown, true)
+    document.addEventListener("touchstart", handlePointerDown, true)
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown, true)
+      document.removeEventListener("touchstart", handlePointerDown, true)
+    }
+  }, [sidebarCollapsed])
 
   const resolveStreamingReasoningDurationSeconds = useCallback((): number => {
     const startedAt = streamingTurnStartedAtRef.current
@@ -877,18 +904,20 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
 
   return (
     <main className="flex h-dvh min-h-0 overflow-hidden bg-background">
-      <ChatSidebar
-        conversations={sidebarConversations}
-        activeId={activeConversationId}
-        onSelect={(id) => void handleSelectConversation(id)}
-        onNew={() => void handleNewConversation()}
-        onRename={(id, title) => void handleRenameConversation(id, title)}
-        onDelete={(id) => void handleDeleteConversation(id)}
-        onOpenSettings={() => setSettingsOpen(true)}
-        disableConversationActions={isStreaming}
-        isCollapsed={sidebarCollapsed}
-        onToggleCollapse={() => setSidebarCollapsed((prev) => !prev)}
-      />
+      <div ref={sidebarContainerRef} className="shrink-0">
+        <ChatSidebar
+          conversations={sidebarConversations}
+          activeId={activeConversationId}
+          onSelect={(id) => void handleSelectConversation(id)}
+          onNew={() => void handleNewConversation()}
+          onRename={(id, title) => void handleRenameConversation(id, title)}
+          onDelete={(id) => void handleDeleteConversation(id)}
+          onOpenSettings={() => setSettingsOpen(true)}
+          disableConversationActions={isStreaming}
+          isCollapsed={sidebarCollapsed}
+          onToggleCollapse={() => setSidebarCollapsed((prev) => !prev)}
+        />
+      </div>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <header className="flex items-center justify-between border-b border-border px-4 py-2.5">

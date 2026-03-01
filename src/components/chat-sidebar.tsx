@@ -282,7 +282,7 @@ export function ChatSidebar({
       </div>
 
       {/* Conversations list */}
-      <ScrollArea className="flex-1 px-3">
+      <ScrollArea className="chat-sidebar-scroll-area flex-1 px-3">
         {todayConvos.length > 0 && (
           <div className="mb-4">
             <p className="mb-1 px-2 text-xs font-medium text-muted-foreground">

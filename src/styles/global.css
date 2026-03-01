@@ -317,6 +317,23 @@
   animation: thinkAgentHaloPulse 1.8s ease-out infinite;
 }
 
+.chat-sidebar-scroll-area [data-slot="scroll-area-viewport"] {
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.chat-sidebar-scroll-area [data-slot="scroll-area-viewport"]::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
+.chat-sidebar-scroll-area [data-slot="scroll-area-scrollbar"] {
+  display: none;
+}
+
 .grok-md-image-grid .grok-md-image {
   height: 100%;
   min-height: 160px;
