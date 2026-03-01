@@ -4,7 +4,7 @@ import { User } from "lucide-react"
 import type { ChatReasoningEventDetail } from "@/domain/chat/types"
 import { cn } from "@/lib/utils"
 import { GrokAvatar } from "./claude-logo"
-import { MarkdownContent } from "./markdown-content"
+import { MarkdownContent } from "./markdown-content/index"
 
 export interface RenderChatMessage {
   id: string

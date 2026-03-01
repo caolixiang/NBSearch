@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test"
-import { expandGrokRenderTags, normalizeAssistantMarkdown, parseThinkSections } from "./markdown-content"
+import { expandGrokRenderTags, normalizeAssistantMarkdown, parseThinkSections } from "./markdown-content/index"
 
 describe("parseThinkSections", () => {
   it("splits think block and normal markdown content", () => {
