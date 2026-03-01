@@ -13,6 +13,7 @@ import { ModelSelector } from "@/components/model-selector"
 import { SettingsDialog } from "@/components/settings-dialog"
 import { VoiceMode } from "@/components/voice-mode"
 import { WelcomeScreen } from "@/components/welcome-screen"
+import { cn } from "@/lib/utils"
 import {
   DEFAULT_MODEL_OPTIONS,
   fetchRemoteModelOptions,
@@ -28,6 +29,7 @@ function newConversationId(): string {
 }
 
 const DRAFT_CONVERSATION_ID = "draft_new_conversation"
+const CHAT_INPUT_REVEAL_DELAY_MS = 1500
 
 function toRenderMessage(message: DomainChatMessage): RenderChatMessage | null {
   if (message.role !== "user" && message.role !== "assistant") {
@@ -195,6 +197,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
   const [lastError, setLastError] = useState("")
   const [modelError, setModelError] = useState("")
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true)
+  const [chatInputCollapsedByScroll, setChatInputCollapsedByScroll] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [voiceOpen, setVoiceOpen] = useState(false)
   const [modelOptions, setModelOptions] = useState<ModelOption[]>(() => getInitialModelOptions())
@@ -216,10 +219,26 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
   const streamingTurnStartedAtRef = useRef<number | null>(null)
   const streamingReasoningEventsRef = useRef<ChatReasoningEventDetail[]>([])
   const reasoningStopTimerRef = useRef<number | null>(null)
+  const chatInputRevealTimerRef = useRef<number | null>(null)
 
   useEffect(() => {
     activeConversationIdRef.current = activeConversationId
   }, [activeConversationId])
+
+  const clearChatInputRevealTimer = useCallback(() => {
+    if (chatInputRevealTimerRef.current) {
+      window.clearTimeout(chatInputRevealTimerRef.current)
+      chatInputRevealTimerRef.current = null
+    }
+  }, [])
+
+  const scheduleChatInputReveal = useCallback(() => {
+    clearChatInputRevealTimer()
+    chatInputRevealTimerRef.current = window.setTimeout(() => {
+      setChatInputCollapsedByScroll(false)
+      chatInputRevealTimerRef.current = null
+    }, CHAT_INPUT_REVEAL_DELAY_MS)
+  }, [clearChatInputRevealTimer])
 
   const resolveStreamingReasoningDurationSeconds = useCallback((): number => {
     const startedAt = streamingTurnStartedAtRef.current
@@ -474,9 +493,10 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
         window.clearTimeout(reasoningStopTimerRef.current)
         reasoningStopTimerRef.current = null
       }
+      clearChatInputRevealTimer()
       abortRef.current?.abort()
     }
-  }, [loadMessages, refreshConversations])
+  }, [clearChatInputRevealTimer, loadMessages, refreshConversations])
 
   useEffect(() => {
     const node = messagesScrollRef.current
@@ -540,6 +560,17 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     }
     const currentTop = node.scrollTop
     const previousTop = lastScrollTopRef.current
+    const hasVerticalOverflow = node.scrollHeight > node.clientHeight + 8
+    const hasScrolled = Math.abs(currentTop - previousTop) >= 1
+
+    if (!hasVerticalOverflow) {
+      clearChatInputRevealTimer()
+      setChatInputCollapsedByScroll(false)
+    } else if (hasScrolled) {
+      setChatInputCollapsedByScroll(true)
+      scheduleChatInputReveal()
+    }
+
     const isScrollingUp = currentTop + 2 < previousTop
     if (isScrollingUp) {
       // User intent wins: stop follow mode immediately to avoid jitter.
@@ -550,7 +581,12 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     const distanceToBottom = node.scrollHeight - node.scrollTop - node.clientHeight
     shouldAutoScrollRef.current = distanceToBottom < 80
     lastScrollTopRef.current = currentTop
-  }, [])
+  }, [clearChatInputRevealTimer, scheduleChatInputReveal])
+
+  useEffect(() => {
+    clearChatInputRevealTimer()
+    setChatInputCollapsedByScroll(false)
+  }, [activeConversationId, clearChatInputRevealTimer])
 
   const handleSendMessage = useCallback(
     async (text: string): Promise<void> => {
@@ -980,27 +1016,38 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
           )}
         </div>
 
-        <ChatInput
-          onSendMessage={(text) => {
-            void handleSendMessage(text)
-          }}
-          onVoiceStart={() => setVoiceOpen(true)}
-          isLoading={isStreaming}
-          onStop={() => {
-            abortRef.current?.abort()
-            setIsStreaming(false)
-            setStreamingAssistantText("")
-            streamingAssistantTextRef.current = ""
-            reasoningEverStartedRef.current = false
-            assistantOutputStartedRef.current = false
-            streamingTurnStartedAtRef.current = null
-            setStreamingReasoningDurationSeconds(0)
-            setStreamingReasoningEvents([])
-            setStreamingReasoningActive(false)
-            streamingReasoningEventsRef.current = []
-            leadAnchorMessageIdRef.current = null
-          }}
-        />
+        <div
+          className={cn(
+            "grid overflow-hidden transition-[grid-template-rows,opacity,transform] duration-300 ease-out",
+            chatInputCollapsedByScroll
+              ? "grid-rows-[0fr] opacity-0 translate-y-3 pointer-events-none"
+              : "grid-rows-[1fr] opacity-100 translate-y-0"
+          )}
+        >
+          <div className="min-h-0">
+            <ChatInput
+              onSendMessage={(text) => {
+                void handleSendMessage(text)
+              }}
+              onVoiceStart={() => setVoiceOpen(true)}
+              isLoading={isStreaming}
+              onStop={() => {
+                abortRef.current?.abort()
+                setIsStreaming(false)
+                setStreamingAssistantText("")
+                streamingAssistantTextRef.current = ""
+                reasoningEverStartedRef.current = false
+                assistantOutputStartedRef.current = false
+                streamingTurnStartedAtRef.current = null
+                setStreamingReasoningDurationSeconds(0)
+                setStreamingReasoningEvents([])
+                setStreamingReasoningActive(false)
+                streamingReasoningEventsRef.current = []
+                leadAnchorMessageIdRef.current = null
+              }}
+            />
+          </div>
+        </div>
       </div>
 
       <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
