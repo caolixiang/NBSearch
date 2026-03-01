@@ -94,11 +94,17 @@ function inferReasoningActive(events: ChatReasoningEventDetail[]): boolean {
     }
   }
 
+  // Upstream can leave tool_usage cards unresolved (especially image tools).
+  // If we received an explicit "not thinking" signal, treat it as authoritative.
+  if (explicitState === false) {
+    return false
+  }
+
   if (runningToolUsageCardIds.size > 0) {
     return true
   }
 
-  return explicitState ?? false
+  return explicitState === true
 }
 
 function appendReasoningEvent(
@@ -195,6 +201,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
   const messagesScrollRef = useRef<HTMLDivElement | null>(null)
   const shouldAutoScrollRef = useRef(true)
   const leadAnchorMessageIdRef = useRef<string | null>(null)
+  const streamingAssistantTextRef = useRef("")
   const streamingReasoningEventsRef = useRef<ChatReasoningEventDetail[]>([])
   const reasoningStopTimerRef = useRef<number | null>(null)
 
@@ -233,10 +240,10 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       })
       .filter((item): item is RenderChatMessage => item !== null)
 
-    const hasThinkMarkup = hasAnyThinkTag(streamingAssistantText)
-    const effectiveStreamingReasoningActive = hasThinkMarkup
-      ? hasOpenThinkTag(streamingAssistantText)
-      : streamingReasoningActive
+    const shouldUseThinkMarkupFallback = streamingReasoningEvents.length === 0
+    const hasThinkMarkup = shouldUseThinkMarkupFallback && hasAnyThinkTag(streamingAssistantText)
+    const effectiveStreamingReasoningActive =
+      hasThinkMarkup ? hasOpenThinkTag(streamingAssistantText) : streamingReasoningActive
     const hasRenderableStreamingAssistant =
       streamingAssistantText.trim().length > 0 ||
       streamingReasoningEvents.length > 0 ||
@@ -262,10 +269,10 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     streamingReasoningEvents,
   ])
 
-  const hasThinkMarkup = hasAnyThinkTag(streamingAssistantText)
-  const effectiveStreamingReasoningActive = hasThinkMarkup
-    ? hasOpenThinkTag(streamingAssistantText)
-    : streamingReasoningActive
+  const shouldUseThinkMarkupFallback = streamingReasoningEvents.length === 0
+  const hasThinkMarkup = shouldUseThinkMarkupFallback && hasAnyThinkTag(streamingAssistantText)
+  const effectiveStreamingReasoningActive =
+    hasThinkMarkup ? hasOpenThinkTag(streamingAssistantText) : streamingReasoningActive
   const isThinkingStreaming = isStreaming && effectiveStreamingReasoningActive
 
   const refreshModelOptions = useCallback(
@@ -453,6 +460,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
 
       setLastError("")
       setStreamingAssistantText("")
+      streamingAssistantTextRef.current = ""
       setStreamingReasoningEvents([])
       setStreamingReasoningActive(false)
       if (reasoningStopTimerRef.current) {
@@ -492,7 +500,22 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
           },
           (event) => {
             if (event.type === "delta") {
-              setStreamingAssistantText((prev) => prev + event.textDelta)
+              const nextText = `${streamingAssistantTextRef.current}${event.textDelta}`
+              streamingAssistantTextRef.current = nextText
+              setStreamingAssistantText(nextText)
+
+              // Once regular answer text starts, collapse reasoning panel immediately.
+              if (
+                event.textDelta.trim().length > 0 &&
+                streamingReasoningEventsRef.current.length > 0 &&
+                (!hasAnyThinkTag(nextText) || !hasOpenThinkTag(nextText))
+              ) {
+                if (reasoningStopTimerRef.current) {
+                  window.clearTimeout(reasoningStopTimerRef.current)
+                  reasoningStopTimerRef.current = null
+                }
+                setStreamingReasoningActive(false)
+              }
               return
             }
 
@@ -532,6 +555,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
                 }))
               }
               setStreamingAssistantText("")
+              streamingAssistantTextRef.current = ""
               setStreamingReasoningEvents([])
               setStreamingReasoningActive(false)
               streamingReasoningEventsRef.current = []
@@ -551,6 +575,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
                 reasoningStopTimerRef.current = null
               }
               setStreamingAssistantText("")
+              streamingAssistantTextRef.current = ""
               setStreamingReasoningEvents([])
               setStreamingReasoningActive(false)
               streamingReasoningEventsRef.current = []
@@ -567,6 +592,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
           reasoningStopTimerRef.current = null
         }
         setStreamingAssistantText("")
+        streamingAssistantTextRef.current = ""
         setStreamingReasoningEvents([])
         setStreamingReasoningActive(false)
         streamingReasoningEventsRef.current = []
@@ -591,6 +617,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       }
       setLastError("")
       setStreamingAssistantText("")
+      streamingAssistantTextRef.current = ""
       setStreamingReasoningEvents([])
       setStreamingReasoningActive(false)
       streamingReasoningEventsRef.current = []
@@ -611,6 +638,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     }
     setLastError("")
     setStreamingAssistantText("")
+    streamingAssistantTextRef.current = ""
     setStreamingReasoningEvents([])
     setStreamingReasoningActive(false)
     streamingReasoningEventsRef.current = []
@@ -655,6 +683,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       const list = await refreshConversations()
       setLastError("")
       setStreamingAssistantText("")
+      streamingAssistantTextRef.current = ""
       setStreamingReasoningEvents([])
       setStreamingReasoningActive(false)
       streamingReasoningEventsRef.current = []
@@ -744,6 +773,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
             abortRef.current?.abort()
             setIsStreaming(false)
             setStreamingAssistantText("")
+            streamingAssistantTextRef.current = ""
             setStreamingReasoningEvents([])
             setStreamingReasoningActive(false)
             streamingReasoningEventsRef.current = []

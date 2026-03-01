@@ -42,6 +42,10 @@ export function MarkdownBody({ content, streaming = false }: { content: string; 
         h2: ({ children }) => <h2 className="mb-2 mt-4 text-lg font-semibold">{children}</h2>,
         h3: ({ children }) => <h3 className="mb-2 mt-4 text-base font-semibold">{children}</h3>,
         p: ({ children }) => {
+          if (streaming) {
+            return <p className="leading-7">{children}</p>
+          }
+
           const imageNodes = collectImageParagraphNodes(children)
           if (!imageNodes) {
             return <p className="leading-7">{children}</p>
@@ -90,7 +94,12 @@ export function MarkdownBody({ content, streaming = false }: { content: string; 
             {children}
           </blockquote>
         ),
-        img: ({ src, alt }) => <MarkdownImage src={src || ""} alt={alt || ""} isStreaming={streaming} />,
+        img: ({ src, alt }) =>
+          streaming ? (
+            <div className="grok-md-image animate-pulse bg-secondary/40 h-full min-h-[160px] w-full rounded-[20px]" />
+          ) : (
+            <MarkdownImage src={src || ""} alt={alt || ""} />
+          ),
         pre: ({ children }) => (
           <pre className="my-3 overflow-x-auto rounded-lg border border-border bg-secondary/40 p-3">{children}</pre>
         ),

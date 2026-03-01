@@ -260,11 +260,10 @@ export function StructuredReasoningPanel({
   const timelineRef = useRef<HTMLDivElement | null>(null)
 
   // ---- Thinking state ----
-  // Use isStreaming as the DEFINITIVE "response still alive" signal.
-  // No debounce needed — isStreaming only becomes false when the SSE stream
-  // terminates (completed/failed event), which is the true end signal.
+  // "Thinking" should track active reasoning only.
+  // Keep historical entries visible after thinking stops, but freeze the timer.
   const hasReasoningActivity = isThinking || summary.entries.some((e) => e.status === "running")
-  const effectiveThinking = isStreaming && (hasReasoningActivity || summary.entries.length > 0)
+  const effectiveThinking = isStreaming && hasReasoningActivity
 
   // FIFO entries for the thinking animation view
   const displayEntries = useMemo(
@@ -402,7 +401,7 @@ export function StructuredReasoningPanel({
   }
 
   /* ---- Thinking: inline FIFO animation view ---- */
-  const thinkingLabel = hasAgentItems ? "代理人思维方式" : `思考中${durationSuffix}`
+  const thinkingLabel = hasAgentItems ? `代理人协作思考中${durationSuffix}` : `思考中${durationSuffix}`
 
   return (
     <div className="my-2 w-full">

@@ -234,6 +234,14 @@ export const MarkdownImage = memo(function({
     const primary = (primarySrc || "").trim()
     const fallback = (fallbackSrc || "").trim()
 
+    if (isStreaming) {
+      setRuntimeLoading(false)
+      setCurrentSrc(primary || fallback || "")
+      return () => {
+        cancelled = true
+      }
+    }
+
     if (!primary) {
       setCurrentSrc("")
       setRuntimeLoading(false)
@@ -297,7 +305,7 @@ export const MarkdownImage = memo(function({
     return () => {
       cancelled = true
     }
-  }, [primarySrc, fallbackSrc, isTauri, reloadNonce])
+  }, [primarySrc, fallbackSrc, isStreaming, isTauri, reloadNonce])
 
   if (isStreaming) {
     return (
