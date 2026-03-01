@@ -299,7 +299,7 @@ export function collectRolloutAgents(rolloutIds: string[]): AgentDescriptor[] {
 
   append({
     key: "grok_primary",
-    label: "Grok",
+    label: "NBSearch",
     paletteIndex: 0,
     isPrimary: true,
   })
@@ -335,7 +335,7 @@ export function groupEntriesByAgent(
   const resolveAgent = (key: string): AgentDescriptor =>
     agents.find((a) => a.key === key) || {
       key,
-      label: key === "grok_primary" ? "Grok" : key.replace(/_/g, " "),
+      label: key === "grok_primary" ? "NBSearch" : key.replace(/_/g, " "),
       paletteIndex: 0,
     }
 
@@ -376,7 +376,7 @@ export function resolveAgentDescriptorByKey(agents: AgentDescriptor[], key: stri
   }
   return {
     key,
-    label: key === "grok_primary" ? "Grok" : key.replace(/_/g, " "),
+    label: key === "grok_primary" ? "NBSearch" : key.replace(/_/g, " "),
     paletteIndex: 0,
     isPrimary: key === "grok_primary",
   }
