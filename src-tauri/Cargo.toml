@@ -1,8 +1,8 @@
 [package]
-name = "chat_app_tauri"
+name = "nbsearch"
 version = "0.1.0"
-description = "Chat App desktop shell"
-authors = ["chat-app"]
+description = "NBSearch desktop shell"
+authors = ["nbsearch"]
 edition = "2021"
 
 [build-dependencies]
