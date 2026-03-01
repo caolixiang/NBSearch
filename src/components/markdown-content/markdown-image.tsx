@@ -16,6 +16,9 @@ import { buildGrokChromeImageHeaders } from "@/infrastructure/http/chrome-image-
 import { runtimeFetch } from "@/infrastructure/http/runtime-fetch"
 import { tauriTlsImageFetch } from "@/infrastructure/http/tauri-tls-image-fetch"
 
+// Default off: keep TLS JA3/JA4 path as opt-in experiment.
+const ENABLE_TLS_IMAGE_FETCH_EXPERIMENT = false
+
 export function isAnchorImageNode(node: ReactNode): boolean {
   if (!isValidElement(node)) {
     return false
@@ -177,6 +180,19 @@ export const MarkdownImage = memo(function({
     }
   }, [])
 
+  const loadViaTlsProfile = async (url: string): Promise<string> => {
+    const target = (url || "").trim()
+    if (!/^https?:\/\//i.test(target)) {
+      return ""
+    }
+
+    const blob = await tauriTlsImageFetch(target, buildGrokChromeImageHeaders())
+    if (!blob || blob.size <= 0) {
+      return ""
+    }
+    return URL.createObjectURL(blob)
+  }
+
   const loadViaRuntimeFetch = async (url: string): Promise<string> => {
     const target = (url || "").trim()
     if (!/^https?:\/\//i.test(target)) {
@@ -201,19 +217,6 @@ export const MarkdownImage = memo(function({
     } catch {
       return ""
     }
-  }
-
-  const loadViaTlsProfile = async (url: string): Promise<string> => {
-    const target = (url || "").trim()
-    if (!/^https?:\/\//i.test(target)) {
-      return ""
-    }
-
-    const blob = await tauriTlsImageFetch(target, buildGrokChromeImageHeaders())
-    if (!blob || blob.size <= 0) {
-      return ""
-    }
-    return URL.createObjectURL(blob)
   }
 
   useEffect(() => {
@@ -255,8 +258,10 @@ export const MarkdownImage = memo(function({
 
       const candidates = buildRuntimeCandidates(primary, fallback)
       for (const candidate of candidates) {
-        // Try JA3/JA4-emulated TLS first, then fallback to tauri-plugin-http.
-        let objectUrl = await loadViaTlsProfile(candidate)
+        let objectUrl = ""
+        if (ENABLE_TLS_IMAGE_FETCH_EXPERIMENT) {
+          objectUrl = await loadViaTlsProfile(candidate)
+        }
         if (!objectUrl) {
           objectUrl = await loadViaRuntimeFetch(candidate)
         }
@@ -281,10 +286,9 @@ export const MarkdownImage = memo(function({
 
       if (!cancelled) {
         setRuntimeLoading(false)
-        // TEMP: Disable native <img> direct fallback to isolate runtimeFetch behavior.
-        // Keep this strict so we can verify whether fetch + custom headers works end-to-end.
-        setCurrentSrc("")
-        setFailed(true)
+        // Safety fallback: if runtime fetch path is blocked, still allow native image loading.
+        setCurrentSrc(primary || fallback || "")
+        setFailed(!(primary || fallback))
       }
     }
 
@@ -351,7 +355,7 @@ export const MarkdownImage = memo(function({
   }
 
   if (failed || !currentSrc.trim()) {
-    const fallbackLink = currentSrc.trim() || primarySrc || ""
+    const fallbackLink = (primarySrc || fallbackSrc || "").trim()
     return (
       <div className="flex w-full flex-col items-center justify-center gap-2 bg-secondary/30 px-4 py-4 text-center text-sm text-muted-foreground">
         <span>图片加载失败</span>

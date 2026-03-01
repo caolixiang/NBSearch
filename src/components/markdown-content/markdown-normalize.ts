@@ -78,17 +78,32 @@ export function expandGrokRenderTags(content: string, cards: Record<string, Imag
     return source
   }
 
-  const toMarkdownImageFromCard = (card: ImageCardMeta | undefined): string => {
+  const isRenderableImageCard = (card: ImageCardMeta | undefined): boolean => {
     if (!card) {
+      return false
+    }
+    const cardType = (card.cardType || "").toLowerCase()
+    const type = (card.type || "").toLowerCase()
+    if (cardType === "image_card" || type.includes("image")) {
+      return true
+    }
+
+    const original = normalizeCardImageUrl(card.image?.original || card.original || "")
+    const thumbnail = normalizeCardImageUrl(card.image?.thumbnail || card.thumbnail || "")
+    return Boolean(original || thumbnail)
+  }
+
+  const toMarkdownImageFromCard = (card: ImageCardMeta | undefined): string => {
+    if (!isRenderableImageCard(card)) {
       return ""
     }
-    const originalImageUrl = normalizeCardImageUrl(card.image?.original || card.original || "")
-    const thumbnailImageUrl = normalizeCardImageUrl(card.image?.thumbnail || card.thumbnail || "")
-    const cardImageUrl = normalizeCardImageUrl(card.url || "")
-    const sourceLinkUrl = normalizeCardTargetUrl(card.image?.link || card.link || "")
-    const cardLinkUrl = normalizeCardTargetUrl(card.url || "")
+    const resolved = card as ImageCardMeta
+    const originalImageUrl = normalizeCardImageUrl(resolved.image?.original || resolved.original || "")
+    const thumbnailImageUrl = normalizeCardImageUrl(resolved.image?.thumbnail || resolved.thumbnail || "")
+    const sourceLinkUrl = normalizeCardTargetUrl(resolved.image?.link || resolved.link || "")
+    const cardLinkUrl = normalizeCardTargetUrl(resolved.url || "")
 
-    let imageUrl = originalImageUrl || cardImageUrl || thumbnailImageUrl
+    let imageUrl = originalImageUrl || thumbnailImageUrl
     if (!imageUrl) {
       return ""
     }
@@ -105,7 +120,7 @@ export function expandGrokRenderTags(content: string, cards: Record<string, Imag
       normalizeCardTargetUrl(originalImageUrl) ||
       normalizeCardTargetUrl(thumbnailImageUrl)
 
-    const alt = escapeMarkdownText(card.image?.title || card.title || card.image?.source || card.source || "Generated Image") || "Generated Image"
+    const alt = escapeMarkdownText(resolved.image?.title || resolved.title || resolved.image?.source || resolved.source || "Generated Image") || "Generated Image"
     const imageMarkdown = `![${alt}](${wrapMarkdownUrl(imageUrl)})`
     return targetUrl ? `[${imageMarkdown}](${wrapMarkdownUrl(targetUrl)})` : imageMarkdown
   }

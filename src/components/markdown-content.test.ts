@@ -241,6 +241,24 @@ describe("expandGrokRenderTags", () => {
     expect(expanded).toContain("![sample](https://img.test/a.jpg)")
   })
 
+  it("ignores citation cards when expanding grok render tags", () => {
+    const expanded = expandGrokRenderTags(
+      "正文<grok:render card_id=\"c1\" card_type=\"citation_card\"></grok:render>结束",
+      {
+        c1: {
+          id: "c1",
+          cardType: "citation_card",
+          url: "https://www.britannica.com/biography/Mahmoud-Ahmadinejad",
+        },
+      }
+    )
+
+    expect(expanded).toContain("正文")
+    expect(expanded).toContain("结束")
+    expect(expanded).not.toContain("![")
+    expect(expanded).not.toContain("britannica.com/biography/Mahmoud-Ahmadinejad")
+  })
+
   it("falls back to thumbnail when original is blocked placeholder text", () => {
     const expanded = expandGrokRenderTags(
       '<grok:render card_id="abc" card_type="image_card" type="render_searched_image" />',
