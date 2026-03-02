@@ -591,6 +591,35 @@ function readOptionalString(value: unknown): string | undefined {
   return normalized ? normalized : undefined
 }
 
+function readOptionalExpiresAt(value: unknown): string | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    const millis = value > 1_000_000_000_000 ? value : value * 1000
+    const iso = new Date(millis).toISOString()
+    return iso === "Invalid Date" ? undefined : iso
+  }
+  if (typeof value !== "string") {
+    return undefined
+  }
+  const trimmed = value.trim()
+  if (!trimmed) {
+    return undefined
+  }
+  if (/^\d+(?:\.\d+)?$/.test(trimmed)) {
+    const parsed = Number.parseFloat(trimmed)
+    if (!Number.isFinite(parsed)) {
+      return undefined
+    }
+    const millis = parsed > 1_000_000_000_000 ? parsed : parsed * 1000
+    const iso = new Date(millis).toISOString()
+    return iso === "Invalid Date" ? undefined : iso
+  }
+  const millis = Date.parse(trimmed)
+  if (!Number.isFinite(millis)) {
+    return undefined
+  }
+  return new Date(millis).toISOString()
+}
+
 function readGeneratedImageAssetId(value: Record<string, unknown>): string | undefined {
   return (
     readOptionalString(value.assetId) ||
@@ -675,7 +704,7 @@ function readGeneratedImageAttachment(value: unknown): GeneratedImageAttachment 
     url,
     assetId,
     rawUrl: readOptionalString(value.rawUrl) || readOptionalString(value.raw_url),
-    urlExpiresAt: readOptionalString(value.urlExpiresAt) || readOptionalString(value.url_expires_at),
+    urlExpiresAt: readOptionalExpiresAt(value.urlExpiresAt) || readOptionalExpiresAt(value.url_expires_at),
   }
 }
 
@@ -808,7 +837,7 @@ function readCardAttachmentPayload(value: unknown): ChatCardAttachmentPayload | 
     url: directUrl || undefined,
     assetId: readGeneratedImageAssetId(parsed),
     rawUrl: readOptionalString(parsed.rawUrl) || readOptionalString(parsed.raw_url),
-    urlExpiresAt: readOptionalString(parsed.urlExpiresAt) || readOptionalString(parsed.url_expires_at),
+    urlExpiresAt: readOptionalExpiresAt(parsed.urlExpiresAt) || readOptionalExpiresAt(parsed.url_expires_at),
     image: image
       ? {
           thumbnail: typeof image.thumbnail === "string" ? image.thumbnail : undefined,

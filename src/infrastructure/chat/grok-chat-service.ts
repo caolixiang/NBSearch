@@ -343,7 +343,41 @@ function readCardRawUrl(value: Record<string, unknown>): string {
 }
 
 function readCardUrlExpiresAt(value: Record<string, unknown>): string {
-  return readTrimmedString(value.urlExpiresAt) || readTrimmedString(value.url_expires_at)
+  return normalizeExpiresAtValue(value.urlExpiresAt) || normalizeExpiresAtValue(value.url_expires_at)
+}
+
+function readCardAssetMeta(card: ChatCardAttachmentPayload): {
+  assetId: string
+  rawUrl: string
+  urlExpiresAt: string
+} {
+  const record = card as unknown as Record<string, unknown>
+  return {
+    assetId: readCardAssetId(record),
+    rawUrl: readCardRawUrl(record),
+    urlExpiresAt: readCardUrlExpiresAt(record),
+  }
+}
+
+function withCardAssetMeta(
+  card: ChatCardAttachmentPayload,
+  meta: {
+    assetId?: string
+    rawUrl?: string
+    urlExpiresAt?: string
+  }
+): ChatCardAttachmentPayload {
+  const next = { ...card } as ChatCardAttachmentPayload & Record<string, unknown>
+  if (typeof meta.assetId === "string") {
+    next["assetId"] = meta.assetId
+  }
+  if (typeof meta.rawUrl === "string") {
+    next["rawUrl"] = meta.rawUrl
+  }
+  if (typeof meta.urlExpiresAt === "string") {
+    next["urlExpiresAt"] = meta.urlExpiresAt
+  }
+  return next
 }
 
 function toMillisFromIso(value: string): number | null {
@@ -355,6 +389,86 @@ function toMillisFromIso(value: string): number | null {
     return null
   }
   return millis
+}
+
+function readSearchParamCaseInsensitive(url: URL, key: string): string {
+  const target = key.toLowerCase()
+  for (const [name, value] of url.searchParams.entries()) {
+    if (name.toLowerCase() === target) {
+      return value.trim()
+    }
+  }
+  return ""
+}
+
+function inferExpiresAtFromSignedUrl(url: string): string {
+  const trimmed = url.trim()
+  if (!/^https?:\/\//i.test(trimmed)) {
+    return ""
+  }
+  let parsed: URL
+  try {
+    parsed = new URL(trimmed)
+  } catch {
+    return ""
+  }
+
+  const amzDateRaw = readSearchParamCaseInsensitive(parsed, "X-Amz-Date")
+  const amzExpiresRaw = readSearchParamCaseInsensitive(parsed, "X-Amz-Expires")
+  if (/^\d{8}T\d{6}Z$/i.test(amzDateRaw) && /^\d+(?:\.\d+)?$/.test(amzExpiresRaw)) {
+    const isoDate = `${amzDateRaw.slice(0, 4)}-${amzDateRaw.slice(4, 6)}-${amzDateRaw.slice(6, 8)}T${amzDateRaw.slice(9, 11)}:${amzDateRaw.slice(11, 13)}:${amzDateRaw.slice(13, 15)}Z`
+    const baseMillis = Date.parse(isoDate)
+    const expiresSeconds = Number.parseFloat(amzExpiresRaw)
+    if (Number.isFinite(baseMillis) && Number.isFinite(expiresSeconds) && expiresSeconds > 0) {
+      const iso = new Date(baseMillis + expiresSeconds * 1000).toISOString()
+      return iso === "Invalid Date" ? "" : iso
+    }
+  }
+
+  const expiresRaw = readSearchParamCaseInsensitive(parsed, "Expires")
+  if (/^\d+(?:\.\d+)?$/.test(expiresRaw)) {
+    const parsedExpires = Number.parseFloat(expiresRaw)
+    if (Number.isFinite(parsedExpires)) {
+      const millis = parsedExpires > 1_000_000_000_000 ? parsedExpires : parsedExpires * 1000
+      const iso = new Date(millis).toISOString()
+      return iso === "Invalid Date" ? "" : iso
+    }
+  }
+
+  return ""
+}
+
+function normalizeExpiresAtValue(value: unknown): string {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    const millis = value > 1_000_000_000_000 ? value : value * 1000
+    const iso = new Date(millis).toISOString()
+    return iso === "Invalid Date" ? "" : iso
+  }
+
+  if (typeof value !== "string") {
+    return ""
+  }
+  const trimmed = value.trim()
+  if (!trimmed) {
+    return ""
+  }
+
+  if (/^\d+(?:\.\d+)?$/.test(trimmed)) {
+    const parsed = Number.parseFloat(trimmed)
+    if (!Number.isFinite(parsed)) {
+      return ""
+    }
+    const millis = parsed > 1_000_000_000_000 ? parsed : parsed * 1000
+    const iso = new Date(millis).toISOString()
+    return iso === "Invalid Date" ? "" : iso
+  }
+
+  const millis = Date.parse(trimmed)
+  if (!Number.isFinite(millis)) {
+    return ""
+  }
+  const iso = new Date(millis).toISOString()
+  return iso === "Invalid Date" ? "" : iso
 }
 
 export function parseRenewedAssetUrlResponse(raw: unknown): RenewedAssetUrlPayload | null {
@@ -394,8 +508,13 @@ export function parseRenewedAssetUrlResponse(raw: unknown): RenewedAssetUrlPaylo
     const assetId = readTrimmedString(candidate.asset_id) || readTrimmedString(candidate.assetId)
     const rawUrl = readTrimmedString(candidate.raw_url) || readTrimmedString(candidate.rawUrl)
     const url = readTrimmedString(candidate.url)
-    const urlExpiresAt = readTrimmedString(candidate.url_expires_at) || readTrimmedString(candidate.urlExpiresAt)
-    if (assetId && url && urlExpiresAt) {
+    const explicitExpiresAt = normalizeExpiresAtValue(candidate.url_expires_at) || normalizeExpiresAtValue(candidate.urlExpiresAt)
+    const inferredExpiresAt = inferExpiresAtFromSignedUrl(url)
+    const urlExpiresAt =
+      explicitExpiresAt ||
+      inferredExpiresAt ||
+      new Date(Date.now() + ASSET_URL_RENEW_TTL_SECONDS * 1000).toISOString()
+    if (assetId && url) {
       return {
         assetId,
         rawUrl,
@@ -425,19 +544,23 @@ export function parseRenewedAssetUrlResponse(raw: unknown): RenewedAssetUrlPaylo
   return null
 }
 
-export function shouldRenewCardAssetUrl(card: Pick<ChatCardAttachmentPayload, "assetId" | "url" | "rawUrl" | "urlExpiresAt">, now = Date.now()): boolean {
-  const assetId = (card.assetId || "").trim()
+export function shouldRenewCardAssetUrl(
+  card: ChatCardAttachmentPayload | (Record<string, unknown> & { url?: unknown }),
+  now = Date.now()
+): boolean {
+  const record = card as unknown as Record<string, unknown>
+  const assetId = readCardAssetId(record)
   if (!assetId) {
     return false
   }
-  const url = (card.url || "").trim()
+  const url = readTrimmedString(record.url)
   if (!url || !/^https?:\/\//i.test(url)) {
     return true
   }
-  if (!(card.rawUrl || "").trim()) {
+  if (!readCardRawUrl(record)) {
     return true
   }
-  const expiresAt = toMillisFromIso((card.urlExpiresAt || "").trim())
+  const expiresAt = toMillisFromIso(readCardUrlExpiresAt(record))
   if (!expiresAt) {
     return true
   }
@@ -449,7 +572,8 @@ function withCardAssetMetadata(
   payload: RenewedAssetUrlPayload
 ): ChatCardAttachmentPayload {
   const nextUrl = payload.url.trim()
-  const nextRawUrl = payload.rawUrl.trim() || card.rawUrl
+  const currentMeta = readCardAssetMeta(card)
+  const nextRawUrl = payload.rawUrl.trim() || currentMeta.rawUrl
   const image = card.image
     ? {
         ...card.image,
@@ -459,14 +583,219 @@ function withCardAssetMetadata(
       ? { original: nextUrl }
       : undefined
 
-  return {
-    ...card,
+  const nextCard = withCardAssetMeta(card, {
     assetId: payload.assetId,
     rawUrl: nextRawUrl,
     urlExpiresAt: payload.urlExpiresAt,
+  })
+
+  return {
+    ...nextCard,
     url: nextUrl || card.url,
     image,
   }
+}
+
+function collectCardUrlReplacements(
+  beforeCards: ChatCardAttachmentPayload[],
+  afterCards: ChatCardAttachmentPayload[]
+): Map<string, string> {
+  const replacements = new Map<string, string>()
+  const beforeById = new Map<string, ChatCardAttachmentPayload>()
+  for (const card of beforeCards) {
+    const id = (card.id || "").trim()
+    if (!id) {
+      continue
+    }
+    beforeById.set(id, card)
+  }
+
+  for (const nextCard of afterCards) {
+    const id = (nextCard.id || "").trim()
+    if (!id) {
+      continue
+    }
+    const previousCard = beforeById.get(id)
+    if (!previousCard) {
+      continue
+    }
+
+    const nextUrl = (nextCard.image?.original || nextCard.url || "").trim()
+    if (!nextUrl || !/^https?:\/\//i.test(nextUrl)) {
+      continue
+    }
+
+    const candidates = [
+      (previousCard.image?.original || "").trim(),
+      (previousCard.url || "").trim(),
+    ]
+
+    for (const previousUrl of candidates) {
+      if (!previousUrl || previousUrl === nextUrl || !/^https?:\/\//i.test(previousUrl)) {
+        continue
+      }
+      replacements.set(previousUrl, nextUrl)
+    }
+  }
+
+  return replacements
+}
+
+function applyUrlReplacementsOutsideToolMeta(content: string, replacements: Map<string, string>): string {
+  if (!content || replacements.size === 0) {
+    return content
+  }
+
+  const entries = Array.from(replacements.entries())
+    .filter(([from, to]) => Boolean(from) && Boolean(to) && from !== to)
+    .sort((a, b) => b[0].length - a[0].length)
+
+  if (entries.length === 0) {
+    return content
+  }
+
+  const segments = content.split(/(<tool-meta>[\s\S]*?<\/tool-meta>)/gi)
+  for (let index = 0; index < segments.length; index += 1) {
+    const segment = segments[index] || ""
+    if (/^<tool-meta>[\s\S]*<\/tool-meta>$/i.test(segment)) {
+      continue
+    }
+
+    let nextSegment = segment
+    for (const [from, to] of entries) {
+      if (!nextSegment.includes(from)) {
+        continue
+      }
+      nextSegment = nextSegment.split(from).join(to)
+    }
+    segments[index] = nextSegment
+  }
+
+  return segments.join("")
+}
+
+function cloneCardAttachmentPayload(card: ChatCardAttachmentPayload): ChatCardAttachmentPayload {
+  return {
+    ...card,
+    image: card.image ? { ...card.image } : undefined,
+  }
+}
+
+function appendMissingCardsFromReasoningEvents(
+  cards: ChatCardAttachmentPayload[],
+  events: ChatReasoningEventDetail[] | undefined
+): ChatCardAttachmentPayload[] {
+  if (!Array.isArray(events) || events.length === 0) {
+    return []
+  }
+
+  const existingIds = new Set(
+    cards
+      .map((card) => (card.id || "").trim())
+      .filter((id) => id.length > 0)
+  )
+  const appended: ChatCardAttachmentPayload[] = []
+
+  for (const event of events) {
+    if (event.kind !== "card_attachment") {
+      continue
+    }
+    const cardId = (event.card.id || "").trim()
+    if (!cardId || existingIds.has(cardId)) {
+      continue
+    }
+    const cloned = cloneCardAttachmentPayload(event.card)
+    cards.push(cloned)
+    appended.push(cloned)
+    existingIds.add(cardId)
+  }
+
+  return appended
+}
+
+function appendMissingGeneratedImageMarkdownOutsideToolMeta(content: string, urls: Set<string>): string {
+  if (!content || urls.size === 0) {
+    return content
+  }
+
+  const normalizedUrls = Array.from(urls)
+    .map((value) => value.trim())
+    .filter((value) => /^https?:\/\//i.test(value))
+  if (normalizedUrls.length === 0) {
+    return content
+  }
+
+  const segments = content.split(/(<tool-meta>[\s\S]*?<\/tool-meta>)/gi)
+  const textIndexes = segments
+    .map((segment, index) => ({ segment, index }))
+    .filter(({ segment }) => !/^<tool-meta>[\s\S]*<\/tool-meta>$/i.test(segment))
+    .map(({ index }) => index)
+  if (textIndexes.length === 0) {
+    return content
+  }
+
+  const plainContent = textIndexes.map((index) => segments[index] || "").join("\n")
+  const missingUrls = normalizedUrls.filter((url) => !plainContent.includes(url))
+  if (missingUrls.length === 0) {
+    return content
+  }
+
+  const markdownLines = missingUrls.map((url) => `![Generated Image](<${url}>)`).join("\n")
+  const targetIndex = textIndexes[0]
+  const target = (segments[targetIndex] || "").trimEnd()
+  segments[targetIndex] = target ? `${target}\n${markdownLines}\n` : `${markdownLines}\n`
+  return segments.join("")
+}
+
+function collectGeneratedImageUrls(cards: ChatCardAttachmentPayload[]): Set<string> {
+  const urls = new Set<string>()
+  for (const card of cards) {
+    if ((card.type || "").toLowerCase() !== "generated_image") {
+      continue
+    }
+    const value = (card.image?.original || card.url || "").trim()
+    if (!/^https?:\/\//i.test(value)) {
+      continue
+    }
+    urls.add(value)
+  }
+  return urls
+}
+
+function mergeRenewedCardsIntoReasoningEvents(
+  events: ChatReasoningEventDetail[] | undefined,
+  renewedCardsById: Map<string, ChatCardAttachmentPayload>
+): ChatReasoningEventDetail[] | undefined {
+  if (!Array.isArray(events) || events.length === 0 || renewedCardsById.size === 0) {
+    return events
+  }
+
+  let changed = false
+  const nextEvents = events.map((event) => {
+    if (event.kind !== "card_attachment") {
+      return event
+    }
+    const cardId = (event.card.id || "").trim()
+    if (!cardId) {
+      return event
+    }
+    const renewed = renewedCardsById.get(cardId)
+    if (!renewed) {
+      return event
+    }
+    const before = JSON.stringify(event.card)
+    const after = JSON.stringify(renewed)
+    if (before === after) {
+      return event
+    }
+    changed = true
+    return {
+      ...event,
+      card: renewed,
+    }
+  })
+
+  return changed ? nextEvents : events
 }
 
 function isGeneratedImageNarration(text: string): boolean {
@@ -593,8 +922,10 @@ function preferGeneratedCardByUrlQuality(
   if (!existingProxy && nextProxy) {
     return existing
   }
-  const existingHasSignedMeta = Boolean((existing.rawUrl || "").trim() && (existing.urlExpiresAt || "").trim())
-  const nextHasSignedMeta = Boolean((next.rawUrl || "").trim() && (next.urlExpiresAt || "").trim())
+  const existingMeta = readCardAssetMeta(existing)
+  const nextMeta = readCardAssetMeta(next)
+  const existingHasSignedMeta = Boolean(existingMeta.rawUrl && existingMeta.urlExpiresAt)
+  const nextHasSignedMeta = Boolean(nextMeta.rawUrl && nextMeta.urlExpiresAt)
   if (!existingHasSignedMeta && nextHasSignedMeta) {
     return next
   }
@@ -675,16 +1006,18 @@ function coerceToolMetaCard(value: unknown): ChatCardAttachmentPayload | null {
       }
     : undefined
 
-  return {
+  const baseCard: ChatCardAttachmentPayload = {
     id,
     cardType: readTrimmedString(value.cardType) || undefined,
     type: readTrimmedString(value.type) || undefined,
     url: readTrimmedString(value.url) || undefined,
+    image,
+  }
+  return withCardAssetMeta(baseCard, {
     assetId: readCardAssetId(value) || undefined,
     rawUrl: readCardRawUrl(value) || undefined,
     urlExpiresAt: readCardUrlExpiresAt(value) || undefined,
-    image,
-  }
+  })
 }
 
 export class GrokChatService implements ChatService {
@@ -775,17 +1108,17 @@ export class GrokChatService implements ChatService {
           return
         }
         const current = cards[index]
+        const currentMeta = readCardAssetMeta(current)
         const inferredAssetId =
-          (current.assetId || "").trim() ||
+          currentMeta.assetId ||
           inferGeneratedImageAssetId((current.image?.original || current.url || "").trim())
         if (!inferredAssetId) {
           return
         }
-        if (current.assetId !== inferredAssetId) {
-          cards[index] = {
-            ...current,
+        if (currentMeta.assetId !== inferredAssetId) {
+          cards[index] = withCardAssetMeta(current, {
             assetId: inferredAssetId,
-          }
+          })
         }
         if (!shouldRenewCardAssetUrl(cards[index])) {
           return
@@ -824,6 +1157,9 @@ export class GrokChatService implements ChatService {
       let nextContent = message.content
       let offset = 0
       let changed = false
+      const replacementByUrl = new Map<string, string>()
+      const renewedCardsById = new Map<string, ChatCardAttachmentPayload>()
+      const ensuredMarkdownImageUrls = new Set<string>()
 
       for (const match of matches) {
         const fullBlock = match[0]
@@ -846,11 +1182,40 @@ export class GrokChatService implements ChatService {
           continue
         }
 
-        const before = JSON.stringify(cards)
+        const payloadCardsBefore = cards.map((card) => cloneCardAttachmentPayload(card))
+        const restoredCards = appendMissingCardsFromReasoningEvents(cards, message.reasoningEvents)
+        for (const restoredCard of restoredCards) {
+          if ((restoredCard.type || "").toLowerCase() !== "generated_image") {
+            continue
+          }
+          const restoredUrl = (restoredCard.image?.original || restoredCard.url || "").trim()
+          if (!/^https?:\/\//i.test(restoredUrl)) {
+            continue
+          }
+          ensuredMarkdownImageUrls.add(restoredUrl)
+        }
+
+        const cardsBeforeHydration = cards.map((card) => cloneCardAttachmentPayload(card))
         await this.hydrateGeneratedImageCards(cards, renewCache)
-        const after = JSON.stringify(cards)
-        if (before === after) {
+        for (const imageUrl of collectGeneratedImageUrls(cards)) {
+          ensuredMarkdownImageUrls.add(imageUrl)
+        }
+
+        const payloadChanged = JSON.stringify(payloadCardsBefore) !== JSON.stringify(cards)
+        if (!payloadChanged) {
           continue
+        }
+
+        const replacements = collectCardUrlReplacements(cardsBeforeHydration, cards)
+        for (const [from, to] of replacements.entries()) {
+          replacementByUrl.set(from, to)
+        }
+        for (const card of cards) {
+          const id = (card.id || "").trim()
+          if (!id) {
+            continue
+          }
+          renewedCardsById.set(id, card)
         }
 
         payload.cards = cards
@@ -863,7 +1228,20 @@ export class GrokChatService implements ChatService {
       }
 
       if (changed) {
-        const nextMessage = { ...message, content: nextContent }
+        const replacedContent = applyUrlReplacementsOutsideToolMeta(nextContent, replacementByUrl)
+        const nextVisibleContent = appendMissingGeneratedImageMarkdownOutsideToolMeta(
+          replacedContent,
+          ensuredMarkdownImageUrls
+        )
+        const nextReasoningEvents = mergeRenewedCardsIntoReasoningEvents(
+          message.reasoningEvents,
+          renewedCardsById
+        )
+        const nextMessage = {
+          ...message,
+          content: nextVisibleContent,
+          reasoningEvents: nextReasoningEvents,
+        }
         refreshed.push(nextMessage)
         updated.push(nextMessage)
       } else {
@@ -983,17 +1361,18 @@ export class GrokChatService implements ChatService {
         for (const item of items) {
           const isGeneratedImage = (item.type || "").toLowerCase() === "generated_image"
           const sourceBeforeNormalize = (item.image?.original || item.url || "").trim()
+          const itemMeta = readCardAssetMeta(item)
           const normalizedItem =
-            isGeneratedImage && !(item.assetId || "").trim()
-              ? {
-                  ...item,
+            isGeneratedImage && !itemMeta.assetId
+              ? withCardAssetMeta(item, {
                   assetId: inferGeneratedImageAssetId(sourceBeforeNormalize) || undefined,
-                }
+                })
               : item
           let canonicalGeneratedKey = ""
           let nextIsPart = false
+          const normalizedMeta = readCardAssetMeta(normalizedItem)
           const generatedAssetId = isGeneratedImage
-            ? (normalizedItem.assetId || "").trim() || inferGeneratedImageAssetId(sourceBeforeNormalize)
+            ? normalizedMeta.assetId || inferGeneratedImageAssetId(sourceBeforeNormalize)
             : ""
           if (isGeneratedImage) {
             hasStructuredGeneratedImages = true

@@ -1,5 +1,7 @@
 import { describe, expect, it } from "bun:test"
+import { MemoryAppRepository } from "../storage/memory/repository"
 import {
+  GrokChatService,
   inferGeneratedImageAssetId,
   parseRenewedAssetUrlResponse,
   resolveGatewayMediaUrl,
@@ -70,7 +72,7 @@ describe("parseRenewedAssetUrlResponse", () => {
       assetId: "asset_1",
       rawUrl: "https://assets.grok.com/users/u-1/generated/asset_1/image.jpg",
       url: "https://bucket.s3.ap-east-1.amazonaws.com/a.jpg?X-Amz-Signature=abc",
-      urlExpiresAt: "2026-03-02T10:00:00Z",
+      urlExpiresAt: new Date("2026-03-02T10:00:00Z").toISOString(),
     })
   })
 
@@ -88,6 +90,34 @@ describe("parseRenewedAssetUrlResponse", () => {
 
     expect(parsed?.assetId).toBe("asset_2")
     expect(parsed?.url).toContain("b.jpg")
+  })
+
+  it("parses unix timestamp expires field", () => {
+    const parsed = parseRenewedAssetUrlResponse({
+      asset_id: "asset_3",
+      raw_url: "https://assets.grok.com/users/u-1/generated/asset_3/image.jpg",
+      url: "https://bucket.s3.ap-east-1.amazonaws.com/c.jpg?X-Amz-Signature=ghi",
+      url_expires_at: 1772411111,
+    })
+
+    expect(parsed).toEqual({
+      assetId: "asset_3",
+      rawUrl: "https://assets.grok.com/users/u-1/generated/asset_3/image.jpg",
+      url: "https://bucket.s3.ap-east-1.amazonaws.com/c.jpg?X-Amz-Signature=ghi",
+      urlExpiresAt: new Date(1772411111 * 1000).toISOString(),
+    })
+  })
+
+  it("infers expires_at from signed url when field is missing", () => {
+    const parsed = parseRenewedAssetUrlResponse({
+      asset_id: "asset_4",
+      raw_url: "https://assets.grok.com/users/u-1/generated/asset_4/image.jpg",
+      url: "https://s3.bitiful.net/grok/assets/image/2026/03/demo.jpg?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=test%2F20260302%2Fs3.bitiful.net%2Fs3%2Faws4_request&X-Amz-Date=20260302T020000Z&X-Amz-Expires=7200&X-Amz-Signature=abc&X-Amz-SignedHeaders=host",
+    })
+
+    expect(parsed?.assetId).toBe("asset_4")
+    expect(parsed?.url).toContain("demo.jpg")
+    expect(parsed?.urlExpiresAt).toBe(new Date("2026-03-02T04:00:00Z").toISOString())
   })
 })
 
@@ -128,4 +158,183 @@ describe("inferGeneratedImageAssetId", () => {
     )
     expect(assetId).toBe("25da98c5-a40f-426f-86f2-5713538aa1b1")
   })
+})
+
+describe("listMessages asset url refresh", () => {
+  it("rewrites markdown image urls when generated-image cards are renewed", async () => {
+    const repository = new MemoryAppRepository()
+    const service = new GrokChatService(repository, {
+      apiBaseUrl: "http://127.0.0.1:8787",
+      apiKey: "test-key",
+      defaultModel: "grok-4.1-fast",
+      voiceEnabled: false,
+    })
+
+    const expiredUrl = "https://s3.bitiful.net/grok/assets/image/2026/03/expired.jpg?X-Amz-Signature=old"
+    const renewedUrl = "https://s3.bitiful.net/grok/assets/image/2026/03/renewed.jpg?X-Amz-Signature=new"
+    const card = {
+      id: "card_1",
+      cardType: "image_card",
+      type: "generated_image",
+      url: expiredUrl,
+      assetId: "asset_1",
+      rawUrl: "https://assets.grok.com/users/u-1/generated/asset_1/image.jpg",
+      image: {
+        original: expiredUrl,
+      },
+    }
+    const content = `![Generated Image](<${expiredUrl}>)\n<tool-meta>${JSON.stringify({
+      webSearch: [],
+      cards: [card],
+    })}</tool-meta>`
+
+    await repository.appendMessage("conv_1", {
+      id: "asst_1",
+      role: "assistant",
+      content,
+      reasoningEvents: [
+        {
+          kind: "card_attachment",
+          card,
+        },
+      ],
+      createdAt: 1,
+      status: "completed",
+    })
+
+    const mockedFetch = (async () =>
+      new Response(
+        JSON.stringify({
+          asset_id: "asset_1",
+          raw_url: "https://assets.grok.com/users/u-1/generated/asset_1/image.jpg",
+          url: renewedUrl,
+          url_expires_at: 1772411111,
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }
+      )) as unknown as typeof fetch
+    ;(mockedFetch as unknown as { preconnect: (url: string) => void }).preconnect = () => {}
+    ;(service as unknown as { runtimeFetch: typeof fetch }).runtimeFetch = mockedFetch
+
+    const messages = await service.listMessages("conv_1")
+    expect(messages).toHaveLength(1)
+    expect(messages[0]?.content).toContain(`![Generated Image](<${renewedUrl}>)`)
+    expect(messages[0]?.content).not.toContain(`![Generated Image](<${expiredUrl}>)`)
+
+    const cardEvent = messages[0]?.reasoningEvents?.find((event) => event.kind === "card_attachment")
+    if (!cardEvent || cardEvent.kind !== "card_attachment") {
+      throw new Error("expected card attachment event")
+    }
+    expect(cardEvent.card.url).toBe(renewedUrl)
+    expect(cardEvent.card.image?.original).toBe(renewedUrl)
+    expect(cardEvent.card.urlExpiresAt).toBe(new Date(1772411111 * 1000).toISOString())
+
+    const persisted = await repository.listMessages("conv_1")
+    expect(persisted[0]?.content).toContain(`![Generated Image](<${renewedUrl}>)`)
+  })
+
+  it("restores missing generated-image cards from reasoning events", async () => {
+    const repository = new MemoryAppRepository()
+    const service = new GrokChatService(repository, {
+      apiBaseUrl: "http://127.0.0.1:8787",
+      apiKey: "test-key",
+      defaultModel: "grok-4.1-fast",
+      voiceEnabled: false,
+    })
+
+    const proxy1 = "http://127.0.0.1:8787/images/p_a"
+    const proxy2 = "http://127.0.0.1:8787/images/p_b"
+    const signed1 = "https://s3.bitiful.net/grok/assets/image/2026/03/a.jpg?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Signature=sig1"
+    const signed2 = "https://s3.bitiful.net/grok/assets/image/2026/03/b.jpg?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Signature=sig2"
+
+    const cards = [
+      {
+        id: "card_a",
+        cardType: "image_card",
+        type: "generated_image",
+        url: proxy1,
+        assetId: "asset_a",
+        rawUrl: "https://assets.grok.com/users/u-1/generated/asset_a/image.jpg",
+        urlExpiresAt: "2026-03-03T00:00:00Z",
+        image: { original: proxy1 },
+      },
+      {
+        id: "card_b",
+        cardType: "image_card",
+        type: "generated_image",
+        url: proxy2,
+        assetId: "asset_b",
+        rawUrl: "https://assets.grok.com/users/u-1/generated/asset_b/image.jpg",
+        urlExpiresAt: "2026-03-03T00:00:00Z",
+        image: { original: proxy2 },
+      },
+    ]
+
+    const content = [
+      `![Generated Image](<${proxy1}>)`,
+      `![Generated Image](<${proxy2}>)`,
+      `<tool-meta>${JSON.stringify({ webSearch: [], cards })}</tool-meta>`,
+    ].join("\n")
+
+    await repository.appendMessage("conv_3", {
+      id: "asst_3",
+      role: "assistant",
+      content,
+      reasoningEvents: [
+        {
+          kind: "card_attachment",
+          card: cards[0]!,
+        },
+        {
+          kind: "card_attachment",
+          card: cards[1]!,
+        },
+        {
+          kind: "card_attachment",
+          card: {
+            id: "card_c",
+            cardType: "image_card",
+            type: "generated_image",
+            url: signed1,
+            image: { original: signed1 },
+          },
+        },
+        {
+          kind: "card_attachment",
+          card: {
+            id: "card_d",
+            cardType: "image_card",
+            type: "generated_image",
+            url: signed2,
+            image: { original: signed2 },
+          },
+        },
+      ],
+      createdAt: 3,
+      status: "completed",
+    })
+
+    const mockedFetch = (async () =>
+      new Response("{}", {
+        status: 500,
+        headers: {
+          "Content-Type": "application/json",
+        },
+      })) as unknown as typeof fetch
+    ;(mockedFetch as unknown as { preconnect: (url: string) => void }).preconnect = () => {}
+    ;(service as unknown as { runtimeFetch: typeof fetch }).runtimeFetch = mockedFetch
+
+    const messages = await service.listMessages("conv_3")
+    expect(messages).toHaveLength(1)
+    const next = messages[0]?.content || ""
+    expect(next).toContain(`![Generated Image](<${proxy1}>)`)
+    expect(next).toContain(`![Generated Image](<${proxy2}>)`)
+    expect(next).toContain(signed1)
+    expect(next).toContain(signed2)
+  })
+
 })

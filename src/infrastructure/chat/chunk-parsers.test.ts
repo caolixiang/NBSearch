@@ -291,7 +291,7 @@ describe("extractCardAttachmentsFromRawChunk", () => {
     expect(cards[0]?.rawUrl).toBe(
       "https://assets.grok.com/users/abc/generated/25da98c5-a40f-426f-86f2-5713538aa1b1/image.jpg"
     )
-    expect(cards[0]?.urlExpiresAt).toBe("2026-03-02T10:00:00Z")
+    expect(cards[0]?.urlExpiresAt).toBe(new Date("2026-03-02T10:00:00Z").toISOString())
   })
 
   it("ignores intermediate streaming generated image chunks (progress < 100)", () => {
