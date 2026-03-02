@@ -106,12 +106,39 @@ const ASSET_URL_RENEW_TTL_SECONDS = 7200
 const ASSET_URL_RENEW_THRESHOLD_MS = 60 * 1000
 const STREAM_HEARTBEAT_INTERVAL_MS = 2000
 const STREAM_IDLE_TIMEOUT_MS = 20_000
+const STREAM_IDLE_RETRY_MAX_ATTEMPTS = 1
+const STREAM_IDLE_RETRY_DELAY_MS = 450
 
 class StreamIdleTimeoutError extends Error {
   constructor(timeoutMs: number) {
     super(`stream_idle_timeout_${timeoutMs}ms`)
     this.name = "StreamIdleTimeoutError"
   }
+}
+
+async function waitForRetryDelay(ms: number, signal?: AbortSignal): Promise<void> {
+  if (ms <= 0) {
+    return
+  }
+  await new Promise<void>((resolve, reject) => {
+    const timeoutHandle = setTimeout(() => {
+      cleanup()
+      resolve()
+    }, ms)
+    const onAbort = () => {
+      clearTimeout(timeoutHandle)
+      cleanup()
+      reject(new Error("aborted"))
+    }
+    const cleanup = () => {
+      signal?.removeEventListener("abort", onAbort)
+    }
+    if (signal?.aborted) {
+      onAbort()
+      return
+    }
+    signal?.addEventListener("abort", onAbort, { once: true })
+  })
 }
 
 type RenewedAssetUrlPayload = {
@@ -1525,6 +1552,7 @@ export class GrokChatService implements ChatService {
 
     try {
       const contentBlocks = await buildResponsesInputContent(input.text, input.attachments)
+      const previousResponseId = input.anchors.lastResponseId?.trim() || ""
       const requestBody = JSON.stringify({
         model: input.model,
         input: [
@@ -1534,29 +1562,9 @@ export class GrokChatService implements ChatService {
           },
         ],
         session_id: sessionId,
+        ...(previousResponseId ? { previous_response_id: previousResponseId } : {}),
         stream: true,
       })
-
-      const response = await this.runtimeFetch(this.apiUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(this.apiKey ? { Authorization: `Bearer ${this.apiKey}` } : {}),
-        },
-        body: requestBody,
-        signal,
-      })
-
-      if (!response.ok) {
-        const errorText = await response.text().catch(() => "")
-        emitFailed(`http_${response.status}`, errorText || `HTTP ${response.status}`)
-        return
-      }
-
-      if (!response.body) {
-        emitFailed("no_body", "Response has no body")
-        return
-      }
 
       let upstreamConversationTitle = ""
       let assistantText = ""
@@ -1674,152 +1682,192 @@ export class GrokChatService implements ChatService {
         }
       }
 
-      // Read the streaming response as concatenated JSON objects
-      const reader = response.body.getReader()
-      const decoder = new TextDecoder()
-      let buffer = ""
-      let lastChunkAt = Date.now()
-      let lastHeartbeatSentAt = 0
-      const readChunkWithTimeout = async (): Promise<ReadableStreamReadResult<Uint8Array>> => {
-        let timeoutHandle: ReturnType<typeof setTimeout> | null = null
-        const timeoutPromise = new Promise<ReadableStreamReadResult<Uint8Array>>((_resolve, reject) => {
-          timeoutHandle = setTimeout(() => {
-            reject(new StreamIdleTimeoutError(STREAM_IDLE_TIMEOUT_MS))
-          }, STREAM_IDLE_TIMEOUT_MS)
+      let idleRetryAttempts = 0
+      while (true) {
+        const response = await this.runtimeFetch(this.apiUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(this.apiKey ? { Authorization: `Bearer ${this.apiKey}` } : {}),
+          },
+          body: requestBody,
+          signal,
         })
-        try {
-          return await Promise.race([reader.read(), timeoutPromise])
-        } finally {
-          if (timeoutHandle) {
-            clearTimeout(timeoutHandle)
-          }
+
+        if (!response.ok) {
+          const errorText = await response.text().catch(() => "")
+          emitFailed(`http_${response.status}`, errorText || `HTTP ${response.status}`)
+          return
         }
-      }
 
-      try {
-        while (true) {
-          const { done, value } = await readChunkWithTimeout()
-          if (done) {
-            break
-          }
+        if (!response.body) {
+          emitFailed("no_body", "Response has no body")
+          return
+        }
 
-          const chunkArrivedAt = Date.now()
-          const idleMs = Math.max(0, chunkArrivedAt - lastChunkAt)
-          if (
-            lastHeartbeatSentAt === 0 ||
-            chunkArrivedAt - lastHeartbeatSentAt >= STREAM_HEARTBEAT_INTERVAL_MS
-          ) {
-            emitHeartbeat(idleMs, gatewayResponseId)
-            lastHeartbeatSentAt = chunkArrivedAt
-          }
-          lastChunkAt = chunkArrivedAt
-
-          buffer += decoder.decode(value, { stream: true })
-
-          // Parse complete JSON objects from the buffer
-          const segments = parseJsonObjectStrings(buffer)
-          if (segments.length === 0) {
-            continue
-          }
-
-          // Find the position of the last parsed segment to trim the buffer
-          let lastEnd = 0
-          for (const segment of segments) {
-            const idx = buffer.indexOf(segment, lastEnd)
-            if (idx >= 0) {
-              lastEnd = idx + segment.length
+        // Read the streaming response as concatenated JSON objects
+        const reader = response.body.getReader()
+        const decoder = new TextDecoder()
+        let buffer = ""
+        let lastChunkAt = Date.now()
+        let lastHeartbeatSentAt = 0
+        const readChunkWithTimeout = async (): Promise<ReadableStreamReadResult<Uint8Array>> => {
+          let timeoutHandle: ReturnType<typeof setTimeout> | null = null
+          const timeoutPromise = new Promise<ReadableStreamReadResult<Uint8Array>>((_resolve, reject) => {
+            timeoutHandle = setTimeout(() => {
+              reject(new StreamIdleTimeoutError(STREAM_IDLE_TIMEOUT_MS))
+            }, STREAM_IDLE_TIMEOUT_MS)
+          })
+          try {
+            return await Promise.race([reader.read(), timeoutPromise])
+          } finally {
+            if (timeoutHandle) {
+              clearTimeout(timeoutHandle)
             }
           }
-          buffer = buffer.slice(lastEnd)
+        }
 
-          // Process each parsed JSON object — batch events per network chunk
-          // to minimize React re-renders (prevents image flickering)
-          let chunkDelta = ""
-          const chunkReasoningDetails: ChatReasoningEventDetail[] = []
+        try {
+          while (true) {
+            const { done, value } = await readChunkWithTimeout()
+            if (done) {
+              break
+            }
 
-          for (const segment of segments) {
-            let parsed: unknown
-            try {
-              parsed = JSON.parse(segment)
-            } catch {
+            const chunkArrivedAt = Date.now()
+            const idleMs = Math.max(0, chunkArrivedAt - lastChunkAt)
+            if (
+              lastHeartbeatSentAt === 0 ||
+              chunkArrivedAt - lastHeartbeatSentAt >= STREAM_HEARTBEAT_INTERVAL_MS
+            ) {
+              emitHeartbeat(idleMs, gatewayResponseId)
+              lastHeartbeatSentAt = chunkArrivedAt
+            }
+            lastChunkAt = chunkArrivedAt
+
+            buffer += decoder.decode(value, { stream: true })
+
+            // Parse complete JSON objects from the buffer
+            const segments = parseJsonObjectStrings(buffer)
+            if (segments.length === 0) {
               continue
             }
 
-            // Detect thinking -> output transition
-            const chunkIsThinking = extractChunkIsThinking(parsed)
-            if (chunkIsThinking === true) {
-              wasThinking = true
-            } else if (chunkIsThinking === false && wasThinking && pendingToolUsageCardIds.size > 0) {
-              for (const id of pendingToolUsageCardIds) {
-                chunkReasoningDetails.push({
-                  kind: "tool_result",
-                  result: { toolUsageCardId: id, isThinking: false },
-                })
+            // Find the position of the last parsed segment to trim the buffer
+            let lastEnd = 0
+            for (const segment of segments) {
+              const idx = buffer.indexOf(segment, lastEnd)
+              if (idx >= 0) {
+                lastEnd = idx + segment.length
               }
-              pendingToolUsageCardIds.clear()
-              wasThinking = false
             }
+            buffer = buffer.slice(lastEnd)
 
-            // Extract reasoning events
-            const reasoningEvents = extractReasoningEventsFromRawChunk(parsed)
-            for (const detail of reasoningEvents) {
-              if (detail.kind === "tool_usage") {
-                pendingToolUsageCardIds.add(detail.usage.toolUsageCardId)
+            // Process each parsed JSON object — batch events per network chunk
+            // to minimize React re-renders (prevents image flickering)
+            let chunkDelta = ""
+            const chunkReasoningDetails: ChatReasoningEventDetail[] = []
+
+            for (const segment of segments) {
+              let parsed: unknown
+              try {
+                parsed = JSON.parse(segment)
+              } catch {
+                continue
               }
-              if (detail.kind === "tool_result" && detail.result.toolUsageCardId) {
-                pendingToolUsageCardIds.delete(detail.result.toolUsageCardId)
+
+              // Detect thinking -> output transition
+              const chunkIsThinking = extractChunkIsThinking(parsed)
+              if (chunkIsThinking === true) {
+                wasThinking = true
+              } else if (chunkIsThinking === false && wasThinking && pendingToolUsageCardIds.size > 0) {
+                for (const id of pendingToolUsageCardIds) {
+                  chunkReasoningDetails.push({
+                    kind: "tool_result",
+                    result: { toolUsageCardId: id, isThinking: false },
+                  })
+                }
+                pendingToolUsageCardIds.clear()
+                wasThinking = false
               }
-              chunkReasoningDetails.push(detail)
+
+              // Extract reasoning events
+              const reasoningEvents = extractReasoningEventsFromRawChunk(parsed)
+              for (const detail of reasoningEvents) {
+                if (detail.kind === "tool_usage") {
+                  pendingToolUsageCardIds.add(detail.usage.toolUsageCardId)
+                }
+                if (detail.kind === "tool_result" && detail.result.toolUsageCardId) {
+                  pendingToolUsageCardIds.delete(detail.result.toolUsageCardId)
+                }
+                chunkReasoningDetails.push(detail)
+              }
+
+              // Extract response ID
+              const nextResponseId = extractGatewayResponseIdFromRawChunk(parsed)
+              if (nextResponseId) {
+                gatewayResponseId = nextResponseId
+              }
+
+              // Extract final message
+              const nextFinalMessage = extractGatewayFinalMessageFromRawChunk(parsed)
+              if (nextFinalMessage) {
+                gatewayFinalMessage = nextFinalMessage
+              }
+
+              // Extract title
+              const nextTitle = extractResponseNewTitleFromRawChunk(parsed)
+              if (nextTitle) {
+                upstreamConversationTitle = nextTitle
+              }
+
+              // Extract web search meta & cards (collect only)
+              appendWebSearchMeta(extractWebSearchToolMetaFromRawChunk(parsed))
+              appendCards(extractCardAttachmentsFromRawChunk(parsed))
+              if (extractGeneratedImageModeratedFromRawChunk(parsed)) {
+                hasModeratedGeneratedImages = true
+              }
+
+              // Accumulate text delta (emit once after all segments)
+              const delta = extractGatewayTextDeltaFromRawChunk(parsed)
+              if (
+                delta &&
+                !hasStructuredGeneratedImages &&
+                !isGeneratedImageNarration(delta)
+              ) {
+                assistantText += delta
+                chunkDelta += delta
+              }
             }
 
-            // Extract response ID
-            const nextResponseId = extractGatewayResponseIdFromRawChunk(parsed)
-            if (nextResponseId) {
-              gatewayResponseId = nextResponseId
+            // Emit batched events — React 18 batches these into a single render
+            for (const detail of chunkReasoningDetails) {
+              collectedReasoningEvents.push(detail)
+              emitReasoning(detail, readReasoningEventResponseId(detail))
             }
-
-            // Extract final message
-            const nextFinalMessage = extractGatewayFinalMessageFromRawChunk(parsed)
-            if (nextFinalMessage) {
-              gatewayFinalMessage = nextFinalMessage
-            }
-
-            // Extract title
-            const nextTitle = extractResponseNewTitleFromRawChunk(parsed)
-            if (nextTitle) {
-              upstreamConversationTitle = nextTitle
-            }
-
-            // Extract web search meta & cards (collect only)
-            appendWebSearchMeta(extractWebSearchToolMetaFromRawChunk(parsed))
-            appendCards(extractCardAttachmentsFromRawChunk(parsed))
-            if (extractGeneratedImageModeratedFromRawChunk(parsed)) {
-              hasModeratedGeneratedImages = true
-            }
-
-            // Accumulate text delta (emit once after all segments)
-            const delta = extractGatewayTextDeltaFromRawChunk(parsed)
-            if (
-              delta &&
-              !hasStructuredGeneratedImages &&
-              !isGeneratedImageNarration(delta)
-            ) {
-              assistantText += delta
-              chunkDelta += delta
+            if (chunkDelta) {
+              emitDelta(chunkDelta, gatewayResponseId)
             }
           }
-
-          // Emit batched events — React 18 batches these into a single render
-          for (const detail of chunkReasoningDetails) {
-            collectedReasoningEvents.push(detail)
-            emitReasoning(detail, readReasoningEventResponseId(detail))
+          break
+        } catch (error) {
+          const shouldRetryFromIdleTimeout =
+            error instanceof StreamIdleTimeoutError &&
+            idleRetryAttempts < STREAM_IDLE_RETRY_MAX_ATTEMPTS &&
+            !assistantText.trim() &&
+            !gatewayFinalMessage.trim() &&
+            collectedReasoningEvents.length === 0 &&
+            !hasStructuredGeneratedImages &&
+            !hasModeratedGeneratedImages
+          if (shouldRetryFromIdleTimeout) {
+            idleRetryAttempts += 1
+            await waitForRetryDelay(STREAM_IDLE_RETRY_DELAY_MS, signal)
+            continue
           }
-          if (chunkDelta) {
-            emitDelta(chunkDelta, gatewayResponseId)
-          }
+          throw error
+        } finally {
+          reader.releaseLock()
         }
-      } finally {
-        reader.releaseLock()
       }
 
       const renewCache = new Map<string, Promise<RenewedAssetUrlPayload | null>>()

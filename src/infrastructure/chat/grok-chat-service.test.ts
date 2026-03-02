@@ -607,4 +607,104 @@ describe("streamTurn heartbeats and timeout", () => {
     expect(failed?.code).toBe("stream_idle_timeout")
     expect(events.some((event) => event.type === "completed")).toBe(false)
   })
+
+  it("retries once on initial idle timeout and preserves previous_response_id", async () => {
+    const repository = new MemoryAppRepository()
+    const service = new GrokChatService(repository, {
+      apiBaseUrl: "http://127.0.0.1:8787",
+      apiKey: "test-key",
+      defaultModel: "grok-4.1-fast",
+      voiceEnabled: false,
+    })
+
+    const streamChunk = [
+      JSON.stringify({
+        type: "response.created",
+        response: {
+          id: "resp_retry_1",
+        },
+      }),
+      JSON.stringify({
+        type: "response.output_text.delta",
+        delta: "Recovered",
+      }),
+      JSON.stringify({
+        type: "response.completed",
+        response: {
+          id: "resp_retry_1",
+          output: [
+            {
+              type: "message",
+              content: [
+                {
+                  type: "output_text",
+                  text: "Recovered",
+                },
+              ],
+            },
+          ],
+        },
+      }),
+    ].join("")
+
+    let fetchCallCount = 0
+    const requestBodies: string[] = []
+    const mockedFetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      fetchCallCount += 1
+      requestBodies.push(typeof init?.body === "string" ? init.body : "")
+      if (fetchCallCount === 1) {
+        return createPendingStreamingResponse()
+      }
+      return createStreamingResponse([streamChunk])
+    }) as unknown as typeof fetch
+    ;(mockedFetch as unknown as { preconnect: (url: string) => void }).preconnect = () => {}
+    ;(service as unknown as { runtimeFetch: typeof fetch }).runtimeFetch = mockedFetch
+
+    const originalSetTimeout = globalThis.setTimeout
+    globalThis.setTimeout = ((handler: TimerHandler) => {
+      return originalSetTimeout(() => {
+        if (typeof handler === "function") {
+          handler()
+        }
+      }, 0)
+    }) as unknown as typeof setTimeout
+
+    const events: Array<{ type: string; code?: string; result?: { assistantMessage?: { content: string } } }> = []
+    try {
+      await service.streamTurn(
+        {
+          model: "grok-4.1-fast",
+          text: "retry please",
+          anchors: {
+            conversationId: "conv_retry_1",
+            sessionId: "sess_retry_1",
+            lastResponseId: "resp_prev_42",
+          },
+        },
+        (event) => {
+          events.push(event)
+        }
+      )
+    } finally {
+      globalThis.setTimeout = originalSetTimeout
+    }
+
+    expect(fetchCallCount).toBe(2)
+    expect(events.some((event) => event.type === "failed")).toBe(false)
+    expect(events.some((event) => event.type === "completed")).toBe(true)
+    const completed = events.find((event) => event.type === "completed")
+    expect(completed?.result?.assistantMessage?.content).toContain("Recovered")
+
+    const parsedRequestBodies = requestBodies
+      .map((raw) => {
+        try {
+          return JSON.parse(raw) as Record<string, unknown>
+        } catch {
+          return {}
+        }
+      })
+      .filter((payload) => Object.keys(payload).length > 0)
+    expect(parsedRequestBodies).toHaveLength(2)
+    expect(parsedRequestBodies.every((payload) => payload["previous_response_id"] === "resp_prev_42")).toBe(true)
+  })
 })
