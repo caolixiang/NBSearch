@@ -1053,7 +1053,9 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
           {visibleMessages.length === 0 ? (
             <WelcomeScreen />
           ) : (
-            <div className="mx-auto max-w-5xl">
+            <div
+              className="mx-auto w-full max-w-full transition-[max-width] duration-200 ease-out xl:max-w-[min(78%,64rem)]"
+            >
               {visibleMessages.map((message) => (
                 <div key={message.id} data-message-id={message.id}>
                   <ChatMessage message={message} />
