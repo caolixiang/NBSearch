@@ -316,6 +316,11 @@ export const MarkdownImage = memo(function({
       return ""
     }
 
+    const cachedBlob = await tauriTlsImageFetch(target, buildGrokChromeImageHeaders())
+    if (cachedBlob && cachedBlob.size > 0) {
+      return URL.createObjectURL(cachedBlob)
+    }
+
     const init: RequestInit = {
       method: "GET",
       headers: buildGrokChromeImageHeaders(),

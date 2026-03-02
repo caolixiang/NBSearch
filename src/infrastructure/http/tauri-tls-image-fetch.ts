@@ -10,7 +10,8 @@ interface TlsImageFetchResponse {
 
 export async function tauriTlsImageFetch(
   url: string,
-  headers?: Record<string, string>
+  headers?: Record<string, string>,
+  ttlSeconds?: number
 ): Promise<Blob | null> {
   if (!hasTauriRuntime()) {
     return null
@@ -18,9 +19,10 @@ export async function tauriTlsImageFetch(
 
   try {
     const { invoke } = await import("@tauri-apps/api/core")
-    const payload = await invoke<TlsImageFetchResponse>("fetch_image_with_tls_profile", {
+    const payload = await invoke<TlsImageFetchResponse>("fetch_image_with_cache", {
       url,
       headers,
+      ttlSeconds,
     })
     if (!payload || !Array.isArray(payload.body) || payload.body.length === 0) {
       return null
@@ -29,7 +31,20 @@ export async function tauriTlsImageFetch(
       type: payload.contentType || "application/octet-stream",
     })
   } catch {
-    return null
+    try {
+      const { invoke } = await import("@tauri-apps/api/core")
+      const payload = await invoke<TlsImageFetchResponse>("fetch_image_with_tls_profile", {
+        url,
+        headers,
+      })
+      if (!payload || !Array.isArray(payload.body) || payload.body.length === 0) {
+        return null
+      }
+      return new Blob([new Uint8Array(payload.body)], {
+        type: payload.contentType || "application/octet-stream",
+      })
+    } catch {
+      return null
+    }
   }
 }
-

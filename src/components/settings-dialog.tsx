@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import {
   Dialog,
   DialogContent,
@@ -8,6 +8,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
+import { hasTauriRuntime } from "@/app/runtime-info"
 import { cn } from "@/lib/utils"
 import { Globe, Key, Palette, Bell, Shield, Database } from "lucide-react"
 
@@ -26,10 +27,74 @@ const tabs = [
 
 type TabId = (typeof tabs)[number]["id"]
 
+type ImageCacheStats = {
+  rootPath: string
+  items: number
+  bytes: number
+}
+
+function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) {
+    return "0 B"
+  }
+  const units = ["B", "KB", "MB", "GB"]
+  let value = bytes
+  let index = 0
+  while (value >= 1024 && index < units.length - 1) {
+    value /= 1024
+    index += 1
+  }
+  return `${value >= 100 || index === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[index]}`
+}
+
 export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   const [activeTab, setActiveTab] = useState<TabId>("gateway")
   const [baseUrl, setBaseUrl] = useState("")
   const [apiKey, setApiKey] = useState("")
+  const [imageCacheStats, setImageCacheStats] = useState<ImageCacheStats | null>(null)
+  const [cacheBusy, setCacheBusy] = useState(false)
+  const [cacheMessage, setCacheMessage] = useState("")
+
+  const loadImageCacheStats = useCallback(async () => {
+    if (!hasTauriRuntime()) {
+      setImageCacheStats(null)
+      return
+    }
+    try {
+      const { invoke } = await import("@tauri-apps/api/core")
+      const stats = await invoke<ImageCacheStats>("get_image_cache_stats")
+      setImageCacheStats(stats)
+    } catch {
+      setImageCacheStats(null)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!open || activeTab !== "data") {
+      return
+    }
+    void loadImageCacheStats()
+  }, [activeTab, loadImageCacheStats, open])
+
+  const clearImageCache = async () => {
+    if (!hasTauriRuntime() || cacheBusy) {
+      return
+    }
+    setCacheBusy(true)
+    setCacheMessage("")
+    try {
+      const { invoke } = await import("@tauri-apps/api/core")
+      const result = await invoke<{ clearedItems: number; clearedBytes: number }>("clear_image_cache")
+      setCacheMessage(
+        `已清除 ${result.clearedItems} 项缓存（${formatBytes(result.clearedBytes)}）`
+      )
+      await loadImageCacheStats()
+    } catch {
+      setCacheMessage("清除图片缓存失败")
+    } finally {
+      setCacheBusy(false)
+    }
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -200,6 +265,31 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                   <p className="mt-0.5 text-xs text-muted-foreground">导出或删除你的数据</p>
                 </div>
                 <div className="space-y-3">
+                  <div className="rounded-lg border border-input p-3">
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="min-w-0">
+                        <p className="text-sm text-foreground">图片缓存</p>
+                        <p className="mt-0.5 text-xs text-muted-foreground">
+                          {hasTauriRuntime()
+                            ? imageCacheStats
+                              ? `${imageCacheStats.items} 项 · ${formatBytes(imageCacheStats.bytes)}`
+                              : "读取缓存信息中..."
+                            : "仅桌面端可用"}
+                        </p>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={clearImageCache}
+                        disabled={!hasTauriRuntime() || cacheBusy}
+                      >
+                        {cacheBusy ? "清理中..." : "清除图片缓存"}
+                      </Button>
+                    </div>
+                    {cacheMessage ? (
+                      <p className="mt-2 text-xs text-muted-foreground">{cacheMessage}</p>
+                    ) : null}
+                  </div>
                   <button className="w-full rounded-lg border border-input p-3 text-left text-sm text-foreground hover:bg-secondary transition-colors">
                     导出所有对话
                   </button>

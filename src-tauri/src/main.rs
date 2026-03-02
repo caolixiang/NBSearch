@@ -1,9 +1,16 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use std::{collections::HashMap, path::PathBuf, time::Duration};
+use std::{
+    collections::HashMap,
+    fs,
+    path::{Path, PathBuf},
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use tauri::Manager;
+use url::Url;
 use wreq::Client;
 use wreq::header::{HeaderMap, HeaderName, HeaderValue};
 use wreq_util::{Emulation, EmulationOS, EmulationOption};
@@ -58,6 +65,45 @@ struct DownloadImageResponse {
     bytes: usize,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StoragePaths {
+    root_path: String,
+    data_path: String,
+    db_path: String,
+    image_cache_path: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ImageCacheStats {
+    root_path: String,
+    items: usize,
+    bytes: u64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ImageCacheClearResult {
+    root_path: String,
+    cleared_items: usize,
+    cleared_bytes: u64,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ImageCacheMeta {
+    source_key: String,
+    final_url: String,
+    content_type: String,
+    cached_at_ms: u64,
+    ttl_seconds: u64,
+}
+
+const IMAGE_CACHE_DEFAULT_TTL_SECONDS: u64 = 24 * 60 * 60;
+const IMAGE_CACHE_MIN_TTL_SECONDS: u64 = 60;
+const IMAGE_CACHE_MAX_TTL_SECONDS: u64 = 30 * 24 * 60 * 60;
+
 fn host_emulation_os() -> EmulationOS {
     match std::env::consts::OS {
         "windows" => EmulationOS::Windows,
@@ -66,6 +112,181 @@ fn host_emulation_os() -> EmulationOS {
         "ios" => EmulationOS::IOS,
         _ => EmulationOS::MacOS,
     }
+}
+
+fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|v| v.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+fn resolve_nbsearch_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let home = app
+        .path()
+        .home_dir()
+        .map_err(|e| format!("resolve home dir failed: {e}"))?;
+    let root = home.join(".nbsearch");
+    fs::create_dir_all(&root).map_err(|e| format!("create nbsearch root failed: {e}"))?;
+    Ok(root)
+}
+
+fn resolve_image_cache_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let dir = resolve_nbsearch_root(app)?.join("cache").join("images");
+    fs::create_dir_all(&dir).map_err(|e| format!("create image cache dir failed: {e}"))?;
+    Ok(dir)
+}
+
+fn resolve_nbsearch_data_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let dir = resolve_nbsearch_root(app)?.join("data");
+    fs::create_dir_all(&dir).map_err(|e| format!("create nbsearch data dir failed: {e}"))?;
+    Ok(dir)
+}
+
+fn resolve_nbsearch_db_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    Ok(resolve_nbsearch_data_dir(app)?.join("chat-app.db"))
+}
+
+fn sqlite_sidecar_path(base: &Path, suffix: &str) -> PathBuf {
+    PathBuf::from(format!("{}{}", base.to_string_lossy(), suffix))
+}
+
+fn copy_file_if_exists(from: &Path, to: &Path) -> Result<(), String> {
+    if !from.exists() {
+        return Ok(());
+    }
+    if let Some(parent) = to.parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("prepare target dir failed: {e}"))?;
+    }
+    fs::copy(from, to).map_err(|e| format!("copy {} -> {} failed: {e}", from.display(), to.display()))?;
+    Ok(())
+}
+
+fn migrate_legacy_db_if_needed(app: &tauri::AppHandle, target_db: &Path) -> Result<(), String> {
+    if target_db.exists() {
+        return Ok(());
+    }
+
+    let legacy_dir = match app.path().app_config_dir() {
+        Ok(dir) => dir,
+        Err(_) => return Ok(()),
+    };
+    let legacy_db = legacy_dir.join("chat-app.db");
+    if !legacy_db.exists() {
+        return Ok(());
+    }
+
+    copy_file_if_exists(&legacy_db, target_db)?;
+    let legacy_wal = sqlite_sidecar_path(&legacy_db, "-wal");
+    let legacy_shm = sqlite_sidecar_path(&legacy_db, "-shm");
+    let target_wal = sqlite_sidecar_path(target_db, "-wal");
+    let target_shm = sqlite_sidecar_path(target_db, "-shm");
+    copy_file_if_exists(&legacy_wal, &target_wal)?;
+    copy_file_if_exists(&legacy_shm, &target_shm)?;
+    Ok(())
+}
+
+fn canonicalize_image_cache_key(url: &str) -> String {
+    if let Ok(parsed) = Url::parse(url) {
+        let host = parsed.host_str().unwrap_or_default().to_ascii_lowercase();
+        let mut canonical = String::with_capacity(url.len());
+        canonical.push_str(parsed.scheme());
+        canonical.push_str("://");
+        canonical.push_str(&host);
+        canonical.push_str(parsed.path());
+        if canonical.ends_with('/') {
+            canonical.pop();
+        }
+        if canonical.is_empty() {
+            url.trim().to_string()
+        } else {
+            canonical
+        }
+    } else {
+        url.trim().to_string()
+    }
+}
+
+fn image_cache_hash_key(url: &str) -> String {
+    let canonical = canonicalize_image_cache_key(url);
+    let digest = Sha256::digest(canonical.as_bytes());
+    format!("{digest:x}")
+}
+
+fn image_cache_paths(cache_dir: &Path, key: &str) -> (PathBuf, PathBuf) {
+    let body_path = cache_dir.join(format!("{key}.bin"));
+    let meta_path = cache_dir.join(format!("{key}.json"));
+    (body_path, meta_path)
+}
+
+fn read_image_cache(
+    body_path: &Path,
+    meta_path: &Path,
+    now: u64,
+) -> Result<Option<(ImageCacheMeta, Vec<u8>)>, String> {
+    if !body_path.exists() || !meta_path.exists() {
+        return Ok(None);
+    }
+
+    let meta_bytes = fs::read(meta_path).map_err(|e| format!("read image cache meta failed: {e}"))?;
+    let meta: ImageCacheMeta =
+        serde_json::from_slice(&meta_bytes).map_err(|e| format!("parse image cache meta failed: {e}"))?;
+
+    let expires_at = meta
+        .cached_at_ms
+        .saturating_add(meta.ttl_seconds.saturating_mul(1000));
+    if expires_at <= now {
+        let _ = fs::remove_file(body_path);
+        let _ = fs::remove_file(meta_path);
+        return Ok(None);
+    }
+
+    let body = fs::read(body_path).map_err(|e| format!("read image cache body failed: {e}"))?;
+    if body.is_empty() {
+        let _ = fs::remove_file(body_path);
+        let _ = fs::remove_file(meta_path);
+        return Ok(None);
+    }
+
+    Ok(Some((meta, body)))
+}
+
+fn write_image_cache(
+    body_path: &Path,
+    meta_path: &Path,
+    body: &[u8],
+    meta: &ImageCacheMeta,
+) -> Result<(), String> {
+    fs::write(body_path, body).map_err(|e| format!("write image cache body failed: {e}"))?;
+    let meta_json = serde_json::to_vec(meta).map_err(|e| format!("encode image cache meta failed: {e}"))?;
+    fs::write(meta_path, meta_json).map_err(|e| format!("write image cache meta failed: {e}"))?;
+    Ok(())
+}
+
+fn compute_image_cache_stats(cache_dir: &Path) -> Result<(usize, u64), String> {
+    if !cache_dir.exists() {
+        return Ok((0, 0));
+    }
+
+    let mut items: usize = 0;
+    let mut bytes: u64 = 0;
+    let entries = fs::read_dir(cache_dir).map_err(|e| format!("read image cache dir failed: {e}"))?;
+    for entry in entries {
+        let entry = entry.map_err(|e| format!("read image cache entry failed: {e}"))?;
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let ext = path.extension().and_then(|v| v.to_str()).unwrap_or_default();
+        if ext.eq_ignore_ascii_case("bin") {
+            items = items.saturating_add(1);
+            let metadata = entry
+                .metadata()
+                .map_err(|e| format!("read image cache entry metadata failed: {e}"))?;
+            bytes = bytes.saturating_add(metadata.len());
+        }
+    }
+    Ok((items, bytes))
 }
 
 fn build_header_map(raw: Option<HashMap<String, String>>) -> Result<HeaderMap, String> {
@@ -242,6 +463,152 @@ async fn fetch_image_with_tls_profile(
 }
 
 #[tauri::command(rename_all = "camelCase")]
+async fn fetch_image_with_cache(
+    app: tauri::AppHandle,
+    url: String,
+    headers: Option<HashMap<String, String>>,
+    ttl_seconds: Option<u64>,
+) -> Result<TlsImageFetchResponse, String> {
+    let trimmed_url = url.trim();
+    if trimmed_url.is_empty() {
+        return Err("empty url".to_string());
+    }
+
+    let ttl = ttl_seconds
+        .unwrap_or(IMAGE_CACHE_DEFAULT_TTL_SECONDS)
+        .clamp(IMAGE_CACHE_MIN_TTL_SECONDS, IMAGE_CACHE_MAX_TTL_SECONDS);
+
+    let cache_dir = resolve_image_cache_dir(&app)?;
+    let key = image_cache_hash_key(trimmed_url);
+    let (body_path, meta_path) = image_cache_paths(&cache_dir, &key);
+    let now = now_ms();
+
+    match read_image_cache(&body_path, &meta_path, now) {
+        Ok(Some((meta, body))) => {
+            return Ok(TlsImageFetchResponse {
+                status: 200,
+                content_type: meta.content_type,
+                final_url: meta.final_url,
+                body,
+                profile: "cache/hit".to_string(),
+            });
+        }
+        Ok(None) => {}
+        Err(_) => {
+            let _ = fs::remove_file(&body_path);
+            let _ = fs::remove_file(&meta_path);
+        }
+    }
+
+    let emulation = EmulationOption::builder()
+        .emulation(Emulation::Chrome145)
+        .emulation_os(host_emulation_os())
+        .build();
+
+    let mut builder = Client::builder()
+        .emulation(emulation)
+        .connect_timeout(Duration::from_secs(12))
+        .timeout(Duration::from_secs(20))
+        .cert_verification(true);
+
+    let header_map = build_header_map(headers)?;
+    if !header_map.is_empty() {
+        builder = builder.default_headers(header_map);
+    }
+
+    let client = builder
+        .build()
+        .map_err(|e| format!("build cache fetch client failed: {e}"))?;
+    let response = client
+        .get(trimmed_url)
+        .send()
+        .await
+        .map_err(|e| format!("cache fetch request failed: {e}"))?;
+
+    let status = response.status().as_u16();
+    if !(200..300).contains(&status) {
+        return Err(format!("http_{status}"));
+    }
+
+    let content_type = response
+        .headers()
+        .get(wreq::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default()
+        .to_string();
+    let final_url = response.uri().to_string();
+    let body = response
+        .bytes()
+        .await
+        .map_err(|e| format!("read cache fetch body failed: {e}"))?
+        .to_vec();
+    if body.is_empty() {
+        return Err("empty_body".to_string());
+    }
+
+    let meta = ImageCacheMeta {
+        source_key: canonicalize_image_cache_key(trimmed_url),
+        final_url: final_url.clone(),
+        content_type: content_type.clone(),
+        cached_at_ms: now_ms(),
+        ttl_seconds: ttl,
+    };
+    let _ = write_image_cache(&body_path, &meta_path, &body, &meta);
+
+    Ok(TlsImageFetchResponse {
+        status,
+        content_type,
+        final_url,
+        body,
+        profile: "wreq/chrome145+cache".to_string(),
+    })
+}
+
+#[tauri::command]
+fn get_image_cache_stats(app: tauri::AppHandle) -> Result<ImageCacheStats, String> {
+    let cache_dir = resolve_image_cache_dir(&app)?;
+    let (items, bytes) = compute_image_cache_stats(&cache_dir)?;
+    Ok(ImageCacheStats {
+        root_path: cache_dir.to_string_lossy().to_string(),
+        items,
+        bytes,
+    })
+}
+
+#[tauri::command]
+fn clear_image_cache(app: tauri::AppHandle) -> Result<ImageCacheClearResult, String> {
+    let cache_dir = resolve_image_cache_dir(&app)?;
+    let (cleared_items, cleared_bytes) = compute_image_cache_stats(&cache_dir)?;
+
+    if cache_dir.exists() {
+        fs::remove_dir_all(&cache_dir).map_err(|e| format!("clear image cache failed: {e}"))?;
+    }
+    fs::create_dir_all(&cache_dir).map_err(|e| format!("recreate image cache dir failed: {e}"))?;
+
+    Ok(ImageCacheClearResult {
+        root_path: cache_dir.to_string_lossy().to_string(),
+        cleared_items,
+        cleared_bytes,
+    })
+}
+
+#[tauri::command]
+fn resolve_storage_paths(app: tauri::AppHandle) -> Result<StoragePaths, String> {
+    let root = resolve_nbsearch_root(&app)?;
+    let data = resolve_nbsearch_data_dir(&app)?;
+    let db = resolve_nbsearch_db_path(&app)?;
+    migrate_legacy_db_if_needed(&app, &db)?;
+    let image_cache = resolve_image_cache_dir(&app)?;
+
+    Ok(StoragePaths {
+        root_path: root.to_string_lossy().to_string(),
+        data_path: data.to_string_lossy().to_string(),
+        db_path: db.to_string_lossy().to_string(),
+        image_cache_path: image_cache.to_string_lossy().to_string(),
+    })
+}
+
+#[tauri::command(rename_all = "camelCase")]
 async fn download_image_to_downloads(
     app: tauri::AppHandle,
     url: String,
@@ -348,7 +715,11 @@ fn main() {
         .plugin(tauri_plugin_sql::Builder::default().build())
         .invoke_handler(tauri::generate_handler![
             runtime_info,
+            resolve_storage_paths,
             fetch_image_with_tls_profile,
+            fetch_image_with_cache,
+            get_image_cache_stats,
+            clear_image_cache,
             download_image_to_downloads
         ])
         .run(tauri::generate_context!())
