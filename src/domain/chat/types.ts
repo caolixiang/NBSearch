@@ -111,25 +111,37 @@ export interface ChatTurnResult {
   usage?: ChatUsage
 }
 
+export interface ChatStreamEventMeta {
+  seq: number
+  ts: number
+  conversationId: string
+  responseId?: string
+}
+
 export type ChatStreamEvent =
   | {
       type: "started"
       requestId: string
+      meta: ChatStreamEventMeta
     }
   | {
       type: "delta"
       textDelta: string
+      meta: ChatStreamEventMeta
     }
   | {
       type: "reasoning"
       detail: ChatReasoningEventDetail
+      meta: ChatStreamEventMeta
     }
   | {
       type: "completed"
       result: ChatTurnResult
+      meta: ChatStreamEventMeta
     }
   | {
       type: "failed"
       code: string
       message: string
+      meta: ChatStreamEventMeta
     }

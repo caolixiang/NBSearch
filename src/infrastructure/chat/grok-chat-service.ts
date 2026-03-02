@@ -6,6 +6,7 @@ import type {
   ChatMessage,
   ChatReasoningEventDetail,
   ChatStreamEvent,
+  ChatStreamEventMeta,
   SendChatTurnInput,
 } from "../../domain/chat/types"
 import type { AppRepository, ConversationRecord } from "../../domain/storage/repository"
@@ -84,6 +85,19 @@ function createConversationRecord(
 function hasAnyThinkTag(value: string): boolean {
   const lower = value.toLowerCase()
   return lower.includes("<think") || lower.includes("</think>")
+}
+
+function readReasoningEventResponseId(detail: ChatReasoningEventDetail): string {
+  if (detail.kind === "ui_layout") {
+    return detail.responseId?.trim() || ""
+  }
+  if (detail.kind === "tool_usage") {
+    return detail.usage.responseId?.trim() || ""
+  }
+  if (detail.kind === "tool_result") {
+    return detail.result.responseId?.trim() || ""
+  }
+  return ""
 }
 
 const MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024
@@ -1439,7 +1453,62 @@ export class GrokChatService implements ChatService {
 
     const requestId = `req_${crypto.randomUUID()}`
     const streamStartedAt = Date.now()
-    onEvent({ type: "started", requestId })
+    let gatewayResponseId = ""
+    let streamEventSeq = 0
+    const nextStreamMeta = (responseId?: string): ChatStreamEventMeta => {
+      streamEventSeq += 1
+      const meta: ChatStreamEventMeta = {
+        seq: streamEventSeq,
+        ts: Date.now(),
+        conversationId,
+      }
+      const normalizedResponseId = responseId?.trim() || gatewayResponseId.trim()
+      if (normalizedResponseId) {
+        meta.responseId = normalizedResponseId
+      }
+      return meta
+    }
+    const emitStarted = (startedRequestId: string) => {
+      onEvent({
+        type: "started",
+        requestId: startedRequestId,
+        meta: nextStreamMeta(),
+      })
+    }
+    const emitDelta = (textDelta: string, responseId?: string) => {
+      onEvent({
+        type: "delta",
+        textDelta,
+        meta: nextStreamMeta(responseId),
+      })
+    }
+    const emitReasoning = (detail: ChatReasoningEventDetail, responseId?: string) => {
+      onEvent({
+        type: "reasoning",
+        detail,
+        meta: nextStreamMeta(responseId),
+      })
+    }
+    const emitCompleted = (result: ChatStreamEvent extends infer E
+      ? E extends { type: "completed"; result: infer R }
+        ? R
+        : never
+      : never, responseId?: string) => {
+      onEvent({
+        type: "completed",
+        result,
+        meta: nextStreamMeta(responseId),
+      })
+    }
+    const emitFailed = (code: string, message: string, responseId?: string) => {
+      onEvent({
+        type: "failed",
+        code,
+        message,
+        meta: nextStreamMeta(responseId),
+      } as ChatStreamEvent)
+    }
+    emitStarted(requestId)
 
     try {
       const contentBlocks = await buildResponsesInputContent(input.text, input.attachments)
@@ -1467,26 +1536,17 @@ export class GrokChatService implements ChatService {
 
       if (!response.ok) {
         const errorText = await response.text().catch(() => "")
-        onEvent({
-          type: "failed",
-          code: `http_${response.status}`,
-          message: errorText || `HTTP ${response.status}`,
-        })
+        emitFailed(`http_${response.status}`, errorText || `HTTP ${response.status}`)
         return
       }
 
       if (!response.body) {
-        onEvent({
-          type: "failed",
-          code: "no_body",
-          message: "Response has no body",
-        })
+        emitFailed("no_body", "Response has no body")
         return
       }
 
       let upstreamConversationTitle = ""
       let assistantText = ""
-      let gatewayResponseId = ""
       let gatewayFinalMessage = ""
       const collectedWebSearchMeta: WebSearchToolMeta[] = []
       const collectedWebSearchSeen = new Set<string>()
@@ -1711,10 +1771,10 @@ export class GrokChatService implements ChatService {
           // Emit batched events — React 18 batches these into a single render
           for (const detail of chunkReasoningDetails) {
             collectedReasoningEvents.push(detail)
-            onEvent({ type: "reasoning", detail })
+            emitReasoning(detail, readReasoningEventResponseId(detail))
           }
           if (chunkDelta) {
-            onEvent({ type: "delta", textDelta: chunkDelta })
+            emitDelta(chunkDelta, gatewayResponseId)
           }
         }
       } finally {
@@ -1783,20 +1843,13 @@ export class GrokChatService implements ChatService {
         )
       )
 
-      onEvent({
-        type: "completed",
-        result: {
+      emitCompleted({
           assistantMessage,
           anchors,
-        },
-      })
+        }, assistantMessage.responseId)
     } catch (error) {
       const message = error instanceof Error ? error.message : "unknown_error"
-      onEvent({
-        type: "failed",
-        code: "chat_stream_error",
-        message,
-      })
+      emitFailed("chat_stream_error", message)
     }
   }
 }
