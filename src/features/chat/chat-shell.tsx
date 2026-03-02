@@ -17,11 +17,8 @@ import { cn } from "@/lib/utils"
 import {
   getConversationStreamingState,
   isConversationStreaming,
-  patchConversationStreamingState,
-  removeConversationStreamingState,
-  upsertConversationStreamingState,
-  type ConversationStreamingState,
 } from "./conversation-streaming-state"
+import { useChatConversationStore } from "./chat-conversation-store"
 import {
   DEFAULT_MODEL_OPTIONS,
   fetchRemoteModelOptions,
@@ -200,20 +197,32 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
   const chatService = runtime.services.chat
 
   const [conversations, setConversations] = useState<ConversationRecord[]>([])
-  const [hasDraftConversation, setHasDraftConversation] = useState(false)
-  const [draftConversationUpdatedAt, setDraftConversationUpdatedAt] = useState(0)
-  const [activeConversationId, setActiveConversationId] = useState<string | null>(null)
-  const [messagesByConversationId, setMessagesByConversationId] = useState<Record<string, DomainChatMessage[]>>({})
-  const [streamingStateByConversationId, setStreamingStateByConversationId] = useState<
-    Record<string, ConversationStreamingState>
-  >({})
-  const [persistedReasoningByConversationId, setPersistedReasoningByConversationId] = useState<
-    Record<string, Record<string, ChatReasoningEventDetail[]>>
-  >({})
-  const [persistedReasoningDurationByConversationId, setPersistedReasoningDurationByConversationId] = useState<
-    Record<string, Record<string, number>>
-  >({})
-  const [lastErrorByConversationId, setLastErrorByConversationId] = useState<Record<string, string>>({})
+  const {
+    hasDraftConversation,
+    draftConversationUpdatedAt,
+    activeConversationId,
+    messagesByConversationId,
+    streamingStateByConversationId,
+    persistedReasoningByConversationId,
+    persistedReasoningDurationByConversationId,
+    lastErrorByConversationId,
+    setHasDraftConversation,
+    setDraftConversationUpdatedAt,
+    setActiveConversationId,
+    setMessagesForConversation,
+    appendMessageForConversation,
+    clearMessagesForConversation,
+    removeConversationCaches,
+    setStreamingStateForConversation,
+    patchStreamingStateForConversation,
+    removeStreamingStateForConversation,
+    setPersistedReasoningForConversation,
+    upsertPersistedReasoningEntry,
+    setPersistedReasoningDurationForConversation,
+    upsertPersistedReasoningDurationEntry,
+    setLastErrorForConversation,
+    clearLastErrorForConversation,
+  } = useChatConversationStore()
   const [modelError, setModelError] = useState("")
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true)
   const [chatInputCollapsedByScroll, setChatInputCollapsedByScroll] = useState(false)
@@ -454,10 +463,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
   const loadMessages = useCallback(
     async (conversationId: string): Promise<void> => {
       const list = await chatService.listMessages(conversationId)
-      setMessagesByConversationId((prev) => ({
-        ...prev,
-        [conversationId]: list,
-      }))
+      setMessagesForConversation(conversationId, list)
 
       const nextReasoningByMessageId: Record<string, ChatReasoningEventDetail[]> = {}
       const nextReasoningDurationByMessageId: Record<string, number> = {}
@@ -489,16 +495,10 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
         }
       }
 
-      setPersistedReasoningByConversationId((prev) => ({
-        ...prev,
-        [conversationId]: nextReasoningByMessageId,
-      }))
-      setPersistedReasoningDurationByConversationId((prev) => ({
-        ...prev,
-        [conversationId]: nextReasoningDurationByMessageId,
-      }))
+      setPersistedReasoningForConversation(conversationId, nextReasoningByMessageId)
+      setPersistedReasoningDurationForConversation(conversationId, nextReasoningDurationByMessageId)
     },
-    [chatService]
+    [chatService, setMessagesForConversation, setPersistedReasoningDurationForConversation, setPersistedReasoningForConversation]
   )
 
   const createConversation = useCallback(
@@ -518,13 +518,10 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       setDraftConversationUpdatedAt(0)
       setActiveConversationId(id)
       await refreshConversations()
-      setMessagesByConversationId((prev) => ({
-        ...prev,
-        [id]: [],
-      }))
+      clearMessagesForConversation(id)
       return id
     },
-    [repository, refreshConversations]
+    [clearMessagesForConversation, repository, refreshConversations, setActiveConversationId, setDraftConversationUpdatedAt, setHasDraftConversation]
   )
 
   const ensureConversation = useCallback(
@@ -673,10 +670,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
         return
       }
       const optimisticContent = buildUserMessageContent(content, selectedAttachments)
-      setLastErrorByConversationId((prev) => ({
-        ...prev,
-        [conversationId]: "",
-      }))
+      clearLastErrorForConversation(conversationId)
       const current = conversations.find((item) => item.id === conversationId)
       const anchors =
         current?.anchors && Object.keys(current.anchors).length > 0
@@ -691,10 +685,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
         status: "completed",
       }
       shouldAutoScrollRef.current = activeConversationIdRef.current === conversationId
-      setMessagesByConversationId((prev) => ({
-        ...prev,
-        [conversationId]: [...(prev[conversationId] || []), optimisticMessage],
-      }))
+      appendMessageForConversation(conversationId, optimisticMessage)
 
       const startedAt = Date.now()
       let assistantText = ""
@@ -704,28 +695,20 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       let reasoningEverStarted = false
       let reasoningStopTimer: number | null = null
 
-      setStreamingStateByConversationId((prev) => ({
-        ...upsertConversationStreamingState(prev, conversationId, {
-          assistantText: "",
-          reasoningEvents: [],
-          reasoningActive: false,
-          reasoningDurationSeconds: 0,
-          startedAt,
-          leadAnchorMessageId: optimisticMessage.id,
-        }),
-      }))
+      setStreamingStateForConversation(conversationId, {
+        assistantText: "",
+        reasoningEvents: [],
+        reasoningActive: false,
+        reasoningDurationSeconds: 0,
+        startedAt,
+        leadAnchorMessageId: optimisticMessage.id,
+      })
 
       const syncStreamingState = () => {
-        setStreamingStateByConversationId((prev) => {
-          const currentState = getConversationStreamingState(prev, conversationId)
-          if (!currentState) {
-            return prev
-          }
-          return patchConversationStreamingState(prev, conversationId, {
-            assistantText,
-            reasoningEvents,
-            reasoningActive,
-          })
+        patchStreamingStateForConversation(conversationId, {
+          assistantText,
+          reasoningEvents,
+          reasoningActive,
         })
       }
 
@@ -737,18 +720,9 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       }
 
       const durationTimer = window.setInterval(() => {
-        setStreamingStateByConversationId((prev) => {
-          const currentState = getConversationStreamingState(prev, conversationId)
-          if (!currentState) {
-            return prev
-          }
-          const nextDuration = Math.max(1, Math.round((Date.now() - startedAt) / 1000))
-          if (currentState.reasoningDurationSeconds === nextDuration) {
-            return prev
-          }
-          return patchConversationStreamingState(prev, conversationId, {
-            reasoningDurationSeconds: nextDuration,
-          })
+        const nextDuration = Math.max(1, Math.round((Date.now() - startedAt) / 1000))
+        patchStreamingStateForConversation(conversationId, {
+          reasoningDurationSeconds: nextDuration,
         })
       }, 1000)
 
@@ -756,9 +730,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
         clearReasoningStopTimer()
         window.clearInterval(durationTimer)
         delete abortControllerByConversationIdRef.current[conversationId]
-        setStreamingStateByConversationId((prev) => {
-          return removeConversationStreamingState(prev, conversationId)
-        })
+        removeStreamingStateForConversation(conversationId)
       }
 
       const controller = new AbortController()
@@ -835,35 +807,24 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
               if (reasoningSnapshot.length > 0) {
                 const messageId = event.result.assistantMessage.id.trim()
                 const responseId = event.result.assistantMessage.responseId?.trim() || ""
-                setPersistedReasoningByConversationId((prev) => ({
-                  ...prev,
-                  [conversationId]: {
-                    ...(prev[conversationId] || {}),
-                    [messageId]: reasoningSnapshot,
-                    ...(responseId ? { [responseId]: reasoningSnapshot } : {}),
-                  },
-                }))
+                upsertPersistedReasoningEntry(conversationId, messageId, responseId, reasoningSnapshot)
                 if (shouldPersistReasoningDuration) {
-                  setPersistedReasoningDurationByConversationId((prev) => ({
-                    ...prev,
-                    [conversationId]: {
-                      ...(prev[conversationId] || {}),
-                      [messageId]: finalDurationSeconds,
-                      ...(responseId ? { [responseId]: finalDurationSeconds } : {}),
-                    },
-                  }))
+                  upsertPersistedReasoningDurationEntry(
+                    conversationId,
+                    messageId,
+                    responseId,
+                    finalDurationSeconds
+                  )
                 }
               } else if (shouldPersistReasoningDuration) {
                 const messageId = event.result.assistantMessage.id.trim()
                 const responseId = event.result.assistantMessage.responseId?.trim() || ""
-                setPersistedReasoningDurationByConversationId((prev) => ({
-                  ...prev,
-                  [conversationId]: {
-                    ...(prev[conversationId] || {}),
-                    [messageId]: finalDurationSeconds,
-                    ...(responseId ? { [responseId]: finalDurationSeconds } : {}),
-                  },
-                }))
+                upsertPersistedReasoningDurationEntry(
+                  conversationId,
+                  messageId,
+                  responseId,
+                  finalDurationSeconds
+                )
               }
               shouldAutoScrollRef.current = true
               clearStreamingState()
@@ -885,10 +846,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
 
             if (event.type === "failed") {
               clearStreamingState()
-              setLastErrorByConversationId((prev) => ({
-                ...prev,
-                [conversationId]: event.message,
-              }))
+              setLastErrorForConversation(conversationId, event.message)
             }
           },
           controller.signal
@@ -899,21 +857,26 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
         if (wasAborted) {
           return
         }
-        setLastErrorByConversationId((prev) => ({
-          ...prev,
-          [conversationId]: error instanceof Error ? error.message : "chat_stream_error",
-        }))
+        setLastErrorForConversation(conversationId, error instanceof Error ? error.message : "chat_stream_error")
       }
     },
     [
+      appendMessageForConversation,
       chatService,
+      clearLastErrorForConversation,
       conversations,
       ensureConversation,
       loadMessages,
+      patchStreamingStateForConversation,
+      removeStreamingStateForConversation,
       setProgrammaticScrollTop,
+      setStreamingStateForConversation,
+      setLastErrorForConversation,
       refreshConversations,
       selectedModel,
       streamingStateByConversationId,
+      upsertPersistedReasoningDurationEntry,
+      upsertPersistedReasoningEntry,
     ]
   )
 
@@ -924,12 +887,9 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       }
       if (conversationId === DRAFT_CONVERSATION_ID) {
         setHasDraftConversation(true)
-        setDraftConversationUpdatedAt((prev) => prev || Date.now())
+        setDraftConversationUpdatedAt(draftConversationUpdatedAt || Date.now())
         setActiveConversationId(DRAFT_CONVERSATION_ID)
-        setMessagesByConversationId((prev) => ({
-          ...prev,
-          [DRAFT_CONVERSATION_ID]: prev[DRAFT_CONVERSATION_ID] || [],
-        }))
+        clearMessagesForConversation(DRAFT_CONVERSATION_ID)
         return
       }
       setActiveConversationId(conversationId)
@@ -938,25 +898,19 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
         await loadMessages(conversationId)
       }
     },
-    [loadMessages, streamingStateByConversationId]
+    [clearMessagesForConversation, draftConversationUpdatedAt, loadMessages, setActiveConversationId, setDraftConversationUpdatedAt, setHasDraftConversation, streamingStateByConversationId]
   )
 
   const handleNewConversation = useCallback(() => {
     if (activeConversationIdRef.current === DRAFT_CONVERSATION_ID) {
-      setMessagesByConversationId((prev) => ({
-        ...prev,
-        [DRAFT_CONVERSATION_ID]: [],
-      }))
+      clearMessagesForConversation(DRAFT_CONVERSATION_ID)
       return
     }
     setHasDraftConversation(true)
     setDraftConversationUpdatedAt(Date.now())
     setActiveConversationId(DRAFT_CONVERSATION_ID)
-    setMessagesByConversationId((prev) => ({
-      ...prev,
-      [DRAFT_CONVERSATION_ID]: [],
-    }))
-  }, [])
+    clearMessagesForConversation(DRAFT_CONVERSATION_ID)
+  }, [clearMessagesForConversation, setActiveConversationId, setDraftConversationUpdatedAt, setHasDraftConversation])
 
   const handleRenameConversation = useCallback(
     async (conversationId: string, title: string): Promise<void> => {
@@ -982,11 +936,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       if (conversationId === DRAFT_CONVERSATION_ID) {
         setHasDraftConversation(false)
         setDraftConversationUpdatedAt(0)
-        setMessagesByConversationId((prev) => {
-          const next = { ...prev }
-          delete next[DRAFT_CONVERSATION_ID]
-          return next
-        })
+        removeConversationCaches(DRAFT_CONVERSATION_ID)
         if (activeConversationIdRef.current === DRAFT_CONVERSATION_ID) {
           if (conversations.length === 0) {
             setActiveConversationId(null)
@@ -1006,26 +956,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       }
       await repository.deleteConversation(conversationId)
       const list = await refreshConversations()
-      setMessagesByConversationId((prev) => {
-        const next = { ...prev }
-        delete next[conversationId]
-        return next
-      })
-      setPersistedReasoningByConversationId((prev) => {
-        const next = { ...prev }
-        delete next[conversationId]
-        return next
-      })
-      setPersistedReasoningDurationByConversationId((prev) => {
-        const next = { ...prev }
-        delete next[conversationId]
-        return next
-      })
-      setLastErrorByConversationId((prev) => {
-        const next = { ...prev }
-        delete next[conversationId]
-        return next
-      })
+      removeConversationCaches(conversationId)
 
       if (activeConversationIdRef.current !== conversationId) {
         return
@@ -1046,7 +977,18 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
         await loadMessages(nextConversationId)
       }
     },
-    [conversations, hasDraftConversation, loadMessages, refreshConversations, repository, streamingStateByConversationId]
+    [
+      conversations,
+      hasDraftConversation,
+      loadMessages,
+      refreshConversations,
+      removeConversationCaches,
+      repository,
+      setActiveConversationId,
+      setDraftConversationUpdatedAt,
+      setHasDraftConversation,
+      streamingStateByConversationId,
+    ]
   )
 
   return (
