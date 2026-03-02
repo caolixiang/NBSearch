@@ -1,11 +1,11 @@
 "use client"
 
-import { useMemo } from "react"
+import { Children, useMemo } from "react"
 import { Streamdown, defaultRehypePlugins } from "streamdown"
 import { cn } from "@/lib/utils"
 import { normalizeAssistantMarkdown } from "./markdown-normalize"
 import { ImageCardActions, MarkdownImage } from "./markdown-image"
-import { collectImageParagraphNodes, extractImageSource, isGeneratedImageNode } from "./markdown-image-nodes"
+import { collectImageParagraphNodes, extractImageSource, isGeneratedImageNode, isImageNode } from "./markdown-image-nodes"
 import { harden } from "rehype-harden"
 
 export function MarkdownBody({ content, streaming = false }: { content: string; streaming?: boolean }) {
@@ -54,6 +54,8 @@ export function MarkdownBody({ content, streaming = false }: { content: string; 
 
           const imageCount = imageNodes.length
           const allGeneratedImages = imageCount > 0 && imageNodes.every((node) => isGeneratedImageNode(node))
+          const isSingleGeneratedImage = imageCount === 1 && allGeneratedImages
+          const isSingleNonGeneratedImage = imageCount === 1 && !allGeneratedImages
 
           let gridClass = "grid-cols-1"
           if (imageCount === 2) gridClass = "grid-cols-2"
@@ -68,7 +70,9 @@ export function MarkdownBody({ content, streaming = false }: { content: string; 
                   imageCount === 1
                     ? cn(
                         "grok-md-image-grid-single grid-cols-1 [&_.grok-md-image]:!rounded-[24px]",
-                        allGeneratedImages ? "w-[75%] max-w-none ml-auto mr-0" : "max-w-[48rem] mx-auto"
+                        isSingleGeneratedImage
+                          ? "w-fit max-w-[75%] ml-auto mr-0 [&_a]:inline-block [&_a]:max-w-full [&_.grok-md-image]:!w-auto [&_.grok-md-image]:!max-w-full"
+                          : "w-fit max-w-full mx-auto [&_a]:block [&_a]:w-full [&_.grok-md-image]:!w-full [&_.grok-md-image]:!max-w-full [&_.grok-md-image]:!max-h-none"
                       )
                     : gridClass,
                   imageCount > 1 && !allGeneratedImages
@@ -83,7 +87,14 @@ export function MarkdownBody({ content, streaming = false }: { content: string; 
                   <div
                     key={index}
                     className={cn(
-                      "relative group/image w-full overflow-hidden rounded-[24px]",
+                      "relative group/image overflow-hidden rounded-[24px]",
+                      imageCount === 1
+                        ? cn(
+                            isSingleGeneratedImage
+                              ? "w-fit max-w-[75%] ml-auto mr-0"
+                              : "w-fit max-w-full min-w-0 sm:min-w-[560px] lg:min-w-[600px] mx-auto"
+                          )
+                        : "w-full",
                       imageCount > 1 && !allGeneratedImages ? "aspect-square" : ""
                     )}
                   >
@@ -100,16 +111,25 @@ export function MarkdownBody({ content, streaming = false }: { content: string; 
         ul: ({ children }) => <ul className="my-2 list-disc space-y-1 pl-6">{children}</ul>,
         ol: ({ children }) => <ol className="my-2 list-decimal space-y-1 pl-6">{children}</ol>,
         li: ({ children }) => <li className="leading-7">{children}</li>,
-        a: ({ href, children }) => (
-          <a
-            href={href}
-            className="text-claude-sienna underline decoration-claude-sienna/50 underline-offset-2"
-            target="_blank"
-            rel="noreferrer noopener"
-          >
-            {children}
-          </a>
-        ),
+        a: ({ href, children }) => {
+          const nonEmptyChildren = Children.toArray(children).filter(
+            (child) => !(typeof child === "string" && child.trim() === "")
+          )
+          const imageOnlyLink = nonEmptyChildren.length === 1 && isImageNode(nonEmptyChildren[0])
+
+          return (
+            <a
+              href={href}
+              className={cn(
+                imageOnlyLink ? "block w-full" : "text-claude-sienna underline decoration-claude-sienna/50 underline-offset-2"
+              )}
+              target="_blank"
+              rel="noreferrer noopener"
+            >
+              {children}
+            </a>
+          )
+        },
         blockquote: ({ children }) => (
           <blockquote className="my-3 border-l-2 border-claude-sienna pl-3 text-muted-foreground italic">
             {children}

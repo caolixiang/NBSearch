@@ -187,29 +187,47 @@ fn migrate_legacy_db_if_needed(app: &tauri::AppHandle, target_db: &Path) -> Resu
 }
 
 fn canonicalize_image_cache_key(url: &str) -> String {
-    if let Ok(parsed) = Url::parse(url) {
-        let host = parsed.host_str().unwrap_or_default().to_ascii_lowercase();
-        let mut canonical = String::with_capacity(url.len());
+    let trimmed = url.trim();
+    if let Ok(parsed) = Url::parse(trimmed) {
+        let Some(host) = parsed.host_str() else {
+            return trimmed.to_string();
+        };
+
+        let mut canonical = String::with_capacity(trimmed.len() + 16);
         canonical.push_str(parsed.scheme());
         canonical.push_str("://");
-        canonical.push_str(&host);
-        canonical.push_str(parsed.path());
-        if canonical.ends_with('/') {
-            canonical.pop();
+        canonical.push_str(&host.to_ascii_lowercase());
+
+        if let Some(port) = parsed.port() {
+            let is_default_port = (parsed.scheme() == "http" && port == 80)
+                || (parsed.scheme() == "https" && port == 443);
+            if !is_default_port {
+                canonical.push(':');
+                canonical.push_str(&port.to_string());
+            }
         }
-        if canonical.is_empty() {
-            url.trim().to_string()
+
+        let path = parsed.path();
+        if path.is_empty() {
+            canonical.push('/');
         } else {
-            canonical
+            canonical.push_str(path);
         }
+
+        if let Some(query) = parsed.query() {
+            canonical.push('?');
+            canonical.push_str(query);
+        }
+
+        canonical
     } else {
-        url.trim().to_string()
+        trimmed.to_string()
     }
 }
 
 fn image_cache_hash_key(url: &str) -> String {
     let canonical = canonicalize_image_cache_key(url);
-    let digest = Sha256::digest(canonical.as_bytes());
+    let digest = Sha256::digest(format!("v2|{canonical}").as_bytes());
     format!("{digest:x}")
 }
 

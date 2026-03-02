@@ -153,6 +153,16 @@ describe("normalizeAssistantMarkdown", () => {
     expect(normalized).not.toContain("Generated Image")
   })
 
+  it("keeps linked markdown image with escaped bracket alt intact", () => {
+    const normalized = normalizeAssistantMarkdown(
+      "[![Well known \\[紅楓葉- 愛麗絲亞 京都\\]](https://img.test/photo.jpg#fallback=https%3A%2F%2Fimg.test%2Fthumb.jpg)](https://source.test/article)"
+    )
+    expect(normalized).toBe(
+      "![Well known \\[紅楓葉- 愛麗絲亞 京都\\]](https://img.test/photo.jpg#fallback=https%3A%2F%2Fimg.test%2Fthumb.jpg)"
+    )
+    expect(normalized).not.toContain("Generated Image")
+  })
+
   it("splits inline linked image from paragraph text without creating generated-image duplicates", () => {
     const normalized = normalizeAssistantMarkdown(
       "这是一段说明文字。[![alt](https://img.test/photo.jpg)](https://source.test/article)"

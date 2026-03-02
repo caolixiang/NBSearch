@@ -159,7 +159,7 @@ export function expandGrokRenderTags(content: string, cards: Record<string, Imag
   const expanded = withPairTags.replace(/<grok:render\b[^>]*card_id="([^"]+)"[^>]*\/>/gi, replaceRenderTag)
   const expandedWithFallbackHints = injectFallbackHintsFromCards(expanded, cards)
 
-  const hasMarkdownImage = /!\[[^\]]*]\((?:<[^>]+>|[^)]+)\)/.test(expandedWithFallbackHints)
+  const hasMarkdownImage = /!\[(?:\\.|[^\]])*]\((?:<[^>]+>|[^)]+)\)/.test(expandedWithFallbackHints)
   if (hasMarkdownImage) {
     return expandedWithFallbackHints
   }
@@ -183,8 +183,8 @@ function isImageMarkdownLine(line: string): boolean {
     return false
   }
   return (
-    /^\s*!\[[^\]]*]\((?:<[^>]+>|[^)]+)\)\s*$/.test(value) ||
-    /^\s*\[!\[[^\]]*]\((?:<[^>]+>|[^)]+)\)]\((?:<[^>]+>|[^)]+)\)\s*$/.test(value)
+    /^\s*!\[(?:\\.|[^\]])*]\((?:<[^>]+>|[^)]+)\)\s*$/.test(value) ||
+    /^\s*\[!\[(?:\\.|[^\]])*]\((?:<[^>]+>|[^)]+)\)]\((?:<[^>]+>|[^)]+)\)\s*$/.test(value)
   )
 }
 
@@ -392,7 +392,7 @@ function injectFallbackHintsFromCards(content: string, cards: Record<string, Ima
     return content
   }
 
-  return content.replace(/!\[([^\]]*)\]\((<[^>]+>|[^)\n]+)\)/g, (raw, alt, srcRaw) => {
+  return content.replace(/!\[((?:\\.|[^\]])*)\]\((<[^>]+>|[^)\n]+)\)/g, (raw, alt, srcRaw) => {
     const srcText = String(srcRaw || "").trim()
     const hadAngleWrapper = srcText.startsWith("<") && srcText.endsWith(">")
     const normalizedSrc = normalizeCardImageUrl(srcText)
@@ -479,13 +479,13 @@ function isLikelyInternalRelayJson(value: Record<string, unknown>): boolean {
 
 function isStandaloneImageMarkdown(value: string): boolean {
   return (
-    /^\s*!\[[^\]]*]\((?:<[^>]+>|[^)]+)\)\s*$/.test(value) ||
-    /^\s*\[!\[[^\]]*]\((?:<[^>]+>|[^)]+)\)]\((?:<[^>]+>|[^)]+)\)\s*$/.test(value)
+    /^\s*!\[(?:\\.|[^\]])*]\((?:<[^>]+>|[^)]+)\)\s*$/.test(value) ||
+    /^\s*\[!\[(?:\\.|[^\]])*]\((?:<[^>]+>|[^)]+)\)]\((?:<[^>]+>|[^)]+)\)\s*$/.test(value)
   )
 }
 
 function hasMarkdownImage(value: string): boolean {
-  return /\[!\[[^\]]*]\((?:<[^>\n]+>|[^)\n]+)\)\]\((?:<[^>\n]+>|[^)\n]+)\)|!\[[^\]]*]\((?:<[^>\n]+>|[^)\n]+)\)/.test(value)
+  return /\[!\[(?:\\.|[^\]])*]\((?:<[^>\n]+>|[^)\n]+)\)\]\((?:<[^>\n]+>|[^)\n]+)\)|!\[(?:\\.|[^\]])*]\((?:<[^>\n]+>|[^)\n]+)\)/.test(value)
 }
 
 function splitInlineImageMarkdownParagraphs(content: string): string {
@@ -516,7 +516,7 @@ function splitInlineImageMarkdownParagraphs(content: string): string {
     const imageTokens: string[] = []
     const textChunks: string[] = []
     const tokenMatcher =
-      /\[!\[[^\]]*]\((?:<[^>\n]+>|[^)\n]+)\)\]\((?:<[^>\n]+>|[^)\n]+)\)|!\[[^\]]*]\((?:<[^>\n]+>|[^)\n]+)\)/g
+      /\[!\[(?:\\.|[^\]])*]\((?:<[^>\n]+>|[^)\n]+)\)\]\((?:<[^>\n]+>|[^)\n]+)\)|!\[(?:\\.|[^\]])*]\((?:<[^>\n]+>|[^)\n]+)\)/g
     let cursor = 0
     let match: RegExpExecArray | null = tokenMatcher.exec(line)
     while (match) {
@@ -754,7 +754,7 @@ export function normalizeAssistantMarkdown(content: string): string {
   // --- Image markdown repair ---
   // Step 1: Unwrap single-line linked images: [![alt](img)](link) → ![alt](img)
   normalized = normalized.replace(
-    /\[(!\[[^\]]*\]\([^)]+\))\]\([^)]+\)/g,
+    /\[(!\[(?:\\.|[^\]])*]\([^)]+\))\]\([^)]+\)/g,
     "$1"
   )
   // Step 2: Fix multi-line linked images: [![alt\ntext](img)](link) → ![alt text](img)
@@ -776,7 +776,7 @@ export function normalizeAssistantMarkdown(content: string): string {
   )
   // Step 4: Fix URLs with spaces: ![alt](https://encrypted - tbn0...) → remove spaces in URL
   normalized = normalized.replace(
-    /(!\[[^\]]*\]\()(https?:\/\/[^)]+)(\))/g,
+    /(!\[(?:\\.|[^\]])*]\()(https?:\/\/[^)]+)(\))/g,
     (_, prefix, url, suffix) => {
       const fixedUrl = url.replace(/\s+/g, "")
       return `${prefix}${fixedUrl}${suffix}`
