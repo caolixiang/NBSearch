@@ -208,6 +208,18 @@ describe("normalizeAssistantMarkdown", () => {
     const normalized = normalizeAssistantMarkdown("**1. 艰辛童年：从流浪儿到革命后代**")
     expect(normalized).toBe("**1. 艰辛童年：从流浪儿到革命后代**")
   })
+
+  it("normalizes broken year range lines to avoid markdown list bullets", () => {
+    const normalized = normalizeAssistantMarkdown("字节跳动内部晋升路径（2017\n- 2021）")
+    expect(normalized).toBe("字节跳动内部晋升路径（2017 - 2021）")
+    expect(normalized).not.toContain("\n- 2021")
+  })
+
+  it("keeps heading year ranges intact without forcing list split", () => {
+    const normalized = normalizeAssistantMarkdown("### 字节跳动内部晋升路径（2017-2021）")
+    expect(normalized).toBe("### 字节跳动内部晋升路径（2017-2021）")
+    expect(normalized).not.toContain("\n- 2021")
+  })
 })
 
 describe("expandGrokRenderTags", () => {

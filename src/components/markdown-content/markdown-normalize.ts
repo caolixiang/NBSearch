@@ -726,6 +726,22 @@ function rewriteToolJsonLines(content: string): string {
   return next.join("\n")
 }
 
+function fixBrokenYearRanges(content: string): string {
+  if (!content) {
+    return ""
+  }
+
+  // Upstream sometimes emits year ranges across a hard line break:
+  // "（2017\n- 2021）" which markdown then parses as a list item.
+  // Normalize it back to an inline range before markdown rendering.
+  let normalized = content.replace(
+    /([（(]\s*)(\d{4})\s*\n+\s*-\s*(\d{4})(\s*[）)])/g,
+    "$1$2 - $3$4"
+  )
+  normalized = normalized.replace(/(\d{4})\s*\n+\s*-\s*(\d{4})(?!\d)/g, "$1 - $2")
+  return normalized
+}
+
 export function normalizeAssistantMarkdown(content: string): string {
   if (!content) {
     return ""
@@ -739,11 +755,11 @@ export function normalizeAssistantMarkdown(content: string): string {
   normalized = normalized.replace(/<\/think>/gi, "")
   normalized = rewriteImageTags(normalized)
   normalized = rewriteToolJsonLines(normalized)
+  normalized = fixBrokenYearRanges(normalized)
   normalized = splitInlineImageMarkdownParagraphs(normalized)
   normalized = mergeConsecutiveImageLines(normalized)
   normalized = normalized.replace(/([^\n])(?=\s#{1,6}\s)/g, "$1\n")
   normalized = normalized.replace(/(^|\n)(#{1,6})([^[\s#])/g, "$1$2 $3")
-  normalized = normalized.replace(/(^|\n)(#{1,6}\s[^\n-]+)-\s?/g, "$1$2\n- ")
   // Remove upstream "[Image blocked: ...]" text which Grok inserts when it refuses an image,
   // since we render the card attachments anyway.
   normalized = normalized.replace(/\[Image blocked:[^\]]*\](?:\([^)]*\))?/gi, "")

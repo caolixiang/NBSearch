@@ -243,6 +243,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
   const lastScrollTopRef = useRef(0)
   const programmaticScrollRef = useRef(false)
   const chatInputRevealTimerRef = useRef<number | null>(null)
+  const bottomLockRef = useRef(false)
 
   useEffect(() => {
     activeConversationIdRef.current = activeConversationId
@@ -413,9 +414,9 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     const base = isThinkingStreaming ? 40 : 16
     // Keep enough trailing scroll range even when composer is auto-collapsed,
     // so the last lines can always be dragged above the bottom composer area.
-    const effectiveInputHeight = chatInputHeight > 0 ? chatInputHeight : 220
-    const comfortBuffer = Math.round(effectiveInputHeight + 24)
-    return Math.max(base, comfortBuffer)
+    const effectiveInputHeight = chatInputHeight > 0 ? chatInputHeight : 140
+    const comfortBuffer = Math.round(effectiveInputHeight * 0.72 + 20)
+    return Math.max(base, Math.min(comfortBuffer, 180))
   }, [chatInputHeight, isThinkingStreaming])
 
   const refreshModelOptions = useCallback(
@@ -629,30 +630,55 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     }
 
     const hasVerticalOverflow = node.scrollHeight > node.clientHeight + 8
-    const hasScrolled = Math.abs(currentTop - previousTop) >= 1
+    const delta = currentTop - previousTop
+    const hasScrolled = Math.abs(delta) >= 1
+    const isScrollingUp = delta < -1
+    const distanceToBottom = node.scrollHeight - node.scrollTop - node.clientHeight
+    const effectiveInputHeight = chatInputHeight > 0 ? chatInputHeight : 140
+    const bottomLockEnterPx = Math.max(64, Math.min(128, Math.round(effectiveInputHeight * 0.45)))
+    const bottomLockExitPx = Math.max(
+      bottomLockEnterPx + 56,
+      Math.min(220, Math.round(effectiveInputHeight * 0.95))
+    )
+    const isInBottomLockZone = distanceToBottom <= bottomLockEnterPx
+    if (!hasVerticalOverflow) {
+      bottomLockRef.current = false
+    } else if (bottomLockRef.current) {
+      // Hysteresis: once locked near bottom, require a larger move-away distance
+      // before unlocking, preventing expand/collapse ping-pong at the edge.
+      if (distanceToBottom > bottomLockExitPx) {
+        bottomLockRef.current = false
+      }
+    } else if (isInBottomLockZone) {
+      bottomLockRef.current = true
+    }
 
     if (!hasVerticalOverflow) {
       clearChatInputRevealTimer()
       setChatInputCollapsedByScroll(false)
+    } else if (bottomLockRef.current) {
+      // Keep composer stable in bottom lock zone.
+      clearChatInputRevealTimer()
+      setChatInputCollapsedByScroll(false)
     } else if (hasScrolled) {
+      // Keep the original scroll-collapse interaction outside bottom lock zone.
       setChatInputCollapsedByScroll(true)
       scheduleChatInputReveal()
     }
 
-    const isScrollingUp = currentTop + 2 < previousTop
     if (isScrollingUp) {
       // User intent wins: stop follow mode immediately to avoid jitter.
       shouldAutoScrollRef.current = false
       lastScrollTopRef.current = currentTop
       return
     }
-    const distanceToBottom = node.scrollHeight - node.scrollTop - node.clientHeight
-    shouldAutoScrollRef.current = distanceToBottom < 80
+    shouldAutoScrollRef.current = distanceToBottom < bottomLockEnterPx
     lastScrollTopRef.current = currentTop
-  }, [clearChatInputRevealTimer, scheduleChatInputReveal])
+  }, [chatInputHeight, clearChatInputRevealTimer, scheduleChatInputReveal])
 
   useEffect(() => {
     clearChatInputRevealTimer()
+    bottomLockRef.current = false
     setChatInputCollapsedByScroll(false)
   }, [activeConversationId, clearChatInputRevealTimer])
 
@@ -1029,7 +1055,11 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
           )}
         </header>
 
-        <div ref={messagesScrollRef} onScroll={handleMessagesScroll} className="flex-1 min-h-0 overflow-y-auto">
+        <div
+          ref={messagesScrollRef}
+          onScroll={handleMessagesScroll}
+          className="flex-1 min-h-0 overflow-y-auto overscroll-y-none"
+        >
           {visibleMessages.length === 0 ? (
             <WelcomeScreen />
           ) : (
