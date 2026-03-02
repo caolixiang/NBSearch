@@ -354,7 +354,7 @@ export function StructuredReasoningPanel({
 
   const hasAgentItems = agents.length > 1
   const durationSuffix = durationSeconds > 0 ? ` ${durationSeconds}s` : ""
-  const hasAnyRecords = summary.entries.length > 0 || durationSeconds > 0
+  const hasAnyRecords = summary.entries.length > 0
   const showPanel = effectiveThinking || hasAnyRecords
 
   if (!showPanel) {
