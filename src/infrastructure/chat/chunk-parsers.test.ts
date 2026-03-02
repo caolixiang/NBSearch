@@ -476,6 +476,56 @@ describe("extractCardAttachmentsFromRawChunk", () => {
     expect(cards[0]?.image?.original).toBe("https://img.test/parsed-a.jpg")
   })
 
+  it("drops generated image cards from response.output_item.added", () => {
+    const cards = extractCardAttachmentsFromRawChunk({
+      type: "response.output_item.added",
+      cardAttachmentParsed: {
+        id: "card_added_generated",
+        cardType: "image_card",
+        type: "generated_image",
+        image: {
+          original: "https://assets.grok.com/users/u-1/generated/g-1/image.jpg",
+        },
+      },
+    })
+
+    expect(cards).toHaveLength(0)
+  })
+
+  it("drops generated image cardAttachment when progress is incomplete", () => {
+    const cards = extractCardAttachmentsFromRawChunk({
+      type: "response.output_item.done",
+      cardAttachmentParsed: {
+        id: "card_progress_partial",
+        cardType: "image_card",
+        type: "generated_image",
+        progress: 42,
+        image: {
+          original: "https://assets.grok.com/users/u-1/generated/g-1/image.jpg",
+        },
+      },
+    })
+
+    expect(cards).toHaveLength(0)
+  })
+
+  it("drops moderated generated image cardAttachment", () => {
+    const cards = extractCardAttachmentsFromRawChunk({
+      type: "response.output_item.done",
+      cardAttachmentParsed: {
+        id: "card_generated_moderated",
+        cardType: "image_card",
+        type: "generated_image",
+        moderated: true,
+        image: {
+          original: "https://assets.grok.com/users/u-1/generated/g-1/image.jpg",
+        },
+      },
+    })
+
+    expect(cards).toHaveLength(0)
+  })
+
   it("extracts cards from concatenated gateway json chunks", () => {
     const rawChunk =
       JSON.stringify({

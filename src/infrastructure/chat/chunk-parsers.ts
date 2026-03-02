@@ -920,7 +920,14 @@ function parseCardAttachmentRecord(value: unknown): Record<string, unknown> | nu
   return parseRecords(value)[0] ?? null
 }
 
-function readCardAttachmentPayload(value: unknown): ChatCardAttachmentPayload | null {
+type CardAttachmentParseOptions = {
+  dropGeneratedImageCard?: boolean
+}
+
+function readCardAttachmentPayload(
+  value: unknown,
+  options: CardAttachmentParseOptions = {}
+): ChatCardAttachmentPayload | null {
   const parsed = parseCardAttachmentRecord(value)
   if (!parsed) {
     return null
@@ -931,6 +938,27 @@ function readCardAttachmentPayload(value: unknown): ChatCardAttachmentPayload | 
   const imageOriginal = image && typeof image.original === "string" ? image.original.trim() : ""
   const imageThumbnail = image && typeof image.thumbnail === "string" ? image.thumbnail.trim() : ""
   const stableUrl = imageOriginal || directUrl || imageThumbnail
+  const normalizedType = typeof parsed.type === "string" ? parsed.type.trim().toLowerCase() : ""
+  const isGeneratedImageCard =
+    normalizedType === "generated_image" ||
+    normalizedType.includes("generated_image") ||
+    /(?:^|\/)generated\//i.test(stableUrl) ||
+    /\/assets\/image\//i.test(stableUrl)
+  if (isGeneratedImageCard && options.dropGeneratedImageCard) {
+    return null
+  }
+  if (isGeneratedImageCard) {
+    if (isIntermediateGeneratedImageUrl(stableUrl)) {
+      return null
+    }
+    const progress = toOptionalNumber(parsed.progress) ?? (image ? toOptionalNumber(image.progress) : null)
+    if (typeof progress === "number" && progress < 100) {
+      return null
+    }
+    if (readGeneratedImageModeratedFlag(parsed) || (image && readGeneratedImageModeratedFlag(image))) {
+      return null
+    }
+  }
   const idRaw = typeof parsed.id === "string" ? parsed.id.trim() : ""
   const id = idRaw || (stableUrl ? `image_card_${encodeURIComponent(stableUrl)}` : "")
   if (!id) {
@@ -958,14 +986,17 @@ function readCardAttachmentPayload(value: unknown): ChatCardAttachmentPayload | 
   }
 }
 
-function collectCardAttachmentsFromUnknownList(value: unknown): ChatCardAttachmentPayload[] {
+function collectCardAttachmentsFromUnknownList(
+  value: unknown,
+  options: CardAttachmentParseOptions = {}
+): ChatCardAttachmentPayload[] {
   if (!Array.isArray(value)) {
     return []
   }
 
   const cards: ChatCardAttachmentPayload[] = []
   for (const item of value) {
-    const card = readCardAttachmentPayload(item)
+    const card = readCardAttachmentPayload(item, options)
     if (card) {
       cards.push(card)
     }
@@ -973,7 +1004,10 @@ function collectCardAttachmentsFromUnknownList(value: unknown): ChatCardAttachme
   return cards
 }
 
-function collectCardAttachmentsFromEnvelope(value: unknown): ChatCardAttachmentPayload[] {
+function collectCardAttachmentsFromEnvelope(
+  value: unknown,
+  options: CardAttachmentParseOptions = {}
+): ChatCardAttachmentPayload[] {
   if (!isRecord(value)) {
     return []
   }
@@ -985,7 +1019,9 @@ function collectCardAttachmentsFromEnvelope(value: unknown): ChatCardAttachmentP
   for (const item of imageGenerationData) {
     const generated = readGeneratedImageAttachment(item)
     if (generated) {
-      cards.push(buildGeneratedImageCard(generated))
+      if (!options.dropGeneratedImageCard) {
+        cards.push(buildGeneratedImageCard(generated))
+      }
     }
   }
 
@@ -993,29 +1029,33 @@ function collectCardAttachmentsFromEnvelope(value: unknown): ChatCardAttachmentP
   for (const item of responseData) {
     const generated = readGeneratedImageAttachment(item)
     if (generated) {
-      cards.push(buildGeneratedImageCard(generated))
+      if (!options.dropGeneratedImageCard) {
+        cards.push(buildGeneratedImageCard(generated))
+      }
     }
   }
 
   for (const generated of collectGeneratedImageAttachmentsFromEnvelope(value)) {
-    cards.push(buildGeneratedImageCard(generated))
+    if (!options.dropGeneratedImageCard) {
+      cards.push(buildGeneratedImageCard(generated))
+    }
   }
 
-  const inlineCard = readCardAttachmentPayload(value.cardAttachment)
+  const inlineCard = readCardAttachmentPayload(value.cardAttachment, options)
   if (inlineCard) {
     cards.push(inlineCard)
   }
 
-  const inlineCardParsed = readCardAttachmentPayload(value.cardAttachmentParsed)
+  const inlineCardParsed = readCardAttachmentPayload(value.cardAttachmentParsed, options)
   if (inlineCardParsed) {
     cards.push(inlineCardParsed)
   }
 
-  for (const card of collectCardAttachmentsFromUnknownList(value.cardAttachmentsJson)) {
+  for (const card of collectCardAttachmentsFromUnknownList(value.cardAttachmentsJson, options)) {
     cards.push(card)
   }
 
-  for (const card of collectCardAttachmentsFromUnknownList(value.cardAttachments)) {
+  for (const card of collectCardAttachmentsFromUnknownList(value.cardAttachments, options)) {
     cards.push(card)
   }
 
@@ -1032,7 +1072,9 @@ export function extractCardAttachmentsFromRawChunk(rawChunk: unknown): ChatCardA
   const seen = new Set<string>()
 
   for (const candidate of candidates) {
-    for (const card of collectCardAttachmentsFromEnvelope(candidate)) {
+    const eventType = typeof candidate.type === "string" ? candidate.type.trim() : ""
+    const dropGeneratedImageCard = eventType === "response.output_item.added"
+    for (const card of collectCardAttachmentsFromEnvelope(candidate, { dropGeneratedImageCard })) {
       if (seen.has(card.id)) {
         continue
       }
