@@ -293,6 +293,40 @@ describe("extractCardAttachmentsFromRawChunk", () => {
     expect(cards[0]?.urlExpiresAt).toBe("2026-03-02T10:00:00Z")
   })
 
+  it("ignores intermediate streaming generated image chunks (progress < 100)", () => {
+    const cards = extractCardAttachmentsFromRawChunk({
+      result: {
+        response: {
+          streamingImageGenerationResponse: {
+            imageUrl: "users/abc/generated/img-1-part-0/image.jpg",
+            progress: 50,
+            moderated: false,
+            imageIndex: 0,
+          },
+        },
+      },
+    })
+
+    expect(cards).toHaveLength(0)
+  })
+
+  it("ignores moderated generated image chunks", () => {
+    const cards = extractCardAttachmentsFromRawChunk({
+      result: {
+        response: {
+          streamingImageGenerationResponse: {
+            imageUrl: "users/abc/generated/img-1/image.jpg",
+            progress: 100,
+            moderated: true,
+            imageIndex: 0,
+          },
+        },
+      },
+    })
+
+    expect(cards).toHaveLength(0)
+  })
+
   it("extracts generated images from modelResponse.generatedImageUrls payload", () => {
     const cards = extractCardAttachmentsFromRawChunk({
       result: {

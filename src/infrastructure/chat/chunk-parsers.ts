@@ -607,10 +607,27 @@ type GeneratedImageAttachment = {
   urlExpiresAt?: string
 }
 
+function toOptionalNumber(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value
+  }
+  if (typeof value === "string") {
+    const parsed = Number.parseFloat(value.trim())
+    if (Number.isFinite(parsed)) {
+      return parsed
+    }
+  }
+  return undefined
+}
+
+function isIntermediateGeneratedImageUrl(url: string): boolean {
+  return /-part-\d+(?=\/|$)/i.test(url)
+}
+
 function readGeneratedImageAttachment(value: unknown): GeneratedImageAttachment | null {
   if (typeof value === "string") {
     const url = value.trim()
-    if (!url) {
+    if (!url || isIntermediateGeneratedImageUrl(url)) {
       return null
     }
     return { url }
@@ -622,9 +639,34 @@ function readGeneratedImageAttachment(value: unknown): GeneratedImageAttachment 
   if (!url) {
     return null
   }
+  const assetId = readGeneratedImageAssetId(value)
+  const moderated = value.moderated === true
+  const rrated = value.rRated === true || value.r_rated === true
+  if (moderated || rrated) {
+    return null
+  }
+
+  const progress = toOptionalNumber(value.progress)
+  const isStreamingImageGeneration =
+    "streamingImageGenerationResponse" in value ||
+    "imageId" in value ||
+    "image_id" in value ||
+    "imageIndex" in value ||
+    "image_index" in value ||
+    "progress" in value ||
+    "seq" in value
+
+  // Match Grok behavior: ignore intermediate "-part-*" images and keep only final outputs.
+  if (isIntermediateGeneratedImageUrl(url)) {
+    return null
+  }
+  if (isStreamingImageGeneration && typeof progress === "number" && progress < 100 && !assetId) {
+    return null
+  }
+
   return {
     url,
-    assetId: readGeneratedImageAssetId(value),
+    assetId,
     rawUrl: readOptionalString(value.rawUrl) || readOptionalString(value.raw_url),
     urlExpiresAt: readOptionalString(value.urlExpiresAt) || readOptionalString(value.url_expires_at),
   }

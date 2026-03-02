@@ -555,6 +555,49 @@ function canonicalizeGeneratedImagePath(raw: string): { key: string; isPart: boo
   return { key, isPart }
 }
 
+function isGatewayImageProxyUrl(raw: string, apiUrl: string): boolean {
+  const value = raw.trim()
+  if (!value) {
+    return false
+  }
+  try {
+    const gateway = new URL(apiUrl)
+    const target = new URL(value, gateway.origin)
+    return target.origin === gateway.origin && target.pathname.startsWith("/images/")
+  } catch {
+    return false
+  }
+}
+
+function preferGeneratedCardByUrlQuality(
+  existing: ChatCardAttachmentPayload,
+  next: ChatCardAttachmentPayload,
+  apiUrl: string
+): ChatCardAttachmentPayload {
+  const existingUrl = (existing.image?.original || existing.url || "").trim()
+  const nextUrl = (next.image?.original || next.url || "").trim()
+  if (!existingUrl) {
+    return next
+  }
+  if (!nextUrl) {
+    return existing
+  }
+  const existingProxy = isGatewayImageProxyUrl(existingUrl, apiUrl)
+  const nextProxy = isGatewayImageProxyUrl(nextUrl, apiUrl)
+  if (existingProxy && !nextProxy) {
+    return next
+  }
+  if (!existingProxy && nextProxy) {
+    return existing
+  }
+  const existingHasSignedMeta = Boolean((existing.rawUrl || "").trim() && (existing.urlExpiresAt || "").trim())
+  const nextHasSignedMeta = Boolean((next.rawUrl || "").trim() && (next.urlExpiresAt || "").trim())
+  if (!existingHasSignedMeta && nextHasSignedMeta) {
+    return next
+  }
+  return existing
+}
+
 export function inferGeneratedImageAssetId(raw: string): string {
   const sourcePath = resolveGeneratedImageSourcePath(raw)
   if (!sourcePath) {
@@ -912,6 +955,7 @@ export class GrokChatService implements ChatService {
       const collectedCards: ChatCardAttachmentPayload[] = []
       const collectedCardIds = new Set<string>()
       const generatedImageIndexByCanonical = new Map<string, number>()
+      const generatedImageIndexByAssetId = new Map<string, number>()
       const collectedReasoningEvents: ChatReasoningEventDetail[] = []
       let hasStructuredGeneratedImages = false
 
@@ -944,6 +988,9 @@ export class GrokChatService implements ChatService {
               : item
           let canonicalGeneratedKey = ""
           let nextIsPart = false
+          const generatedAssetId = isGeneratedImage
+            ? (normalizedItem.assetId || "").trim() || inferGeneratedImageAssetId(sourceBeforeNormalize)
+            : ""
           if (isGeneratedImage) {
             hasStructuredGeneratedImages = true
             const canonical = canonicalizeGeneratedImagePath(sourceBeforeNormalize)
@@ -952,6 +999,29 @@ export class GrokChatService implements ChatService {
           }
 
           const normalized = normalizeCardAttachmentUrls(normalizedItem, this.apiUrl)
+          if (isGeneratedImage && generatedAssetId) {
+            const existingByAssetIndex = generatedImageIndexByAssetId.get(generatedAssetId)
+            if (
+              typeof existingByAssetIndex === "number" &&
+              existingByAssetIndex >= 0 &&
+              existingByAssetIndex < collectedCards.length
+            ) {
+              const existing = collectedCards[existingByAssetIndex]
+              const preferred = preferGeneratedCardByUrlQuality(existing, normalized, this.apiUrl)
+              if (preferred.id !== existing.id && collectedCardIds.has(preferred.id)) {
+                continue
+              }
+              collectedCardIds.delete(existing.id)
+              collectedCardIds.add(preferred.id)
+              collectedCards[existingByAssetIndex] = preferred
+              if (canonicalGeneratedKey) {
+                generatedImageIndexByCanonical.set(canonicalGeneratedKey, existingByAssetIndex)
+              }
+              generatedImageIndexByAssetId.set(generatedAssetId, existingByAssetIndex)
+              continue
+            }
+          }
+
           if (isGeneratedImage && canonicalGeneratedKey) {
             const existingIndex = generatedImageIndexByCanonical.get(canonicalGeneratedKey)
             if (typeof existingIndex === "number" && existingIndex >= 0 && existingIndex < collectedCards.length) {
@@ -966,6 +1036,9 @@ export class GrokChatService implements ChatService {
                 collectedCardIds.delete(existing.id)
                 collectedCardIds.add(normalized.id)
                 collectedCards[existingIndex] = normalized
+                if (generatedAssetId) {
+                  generatedImageIndexByAssetId.set(generatedAssetId, existingIndex)
+                }
               }
               continue
             }
@@ -977,6 +1050,9 @@ export class GrokChatService implements ChatService {
           collectedCards.push(normalized)
           if (isGeneratedImage && canonicalGeneratedKey) {
             generatedImageIndexByCanonical.set(canonicalGeneratedKey, collectedCards.length - 1)
+          }
+          if (isGeneratedImage && generatedAssetId) {
+            generatedImageIndexByAssetId.set(generatedAssetId, collectedCards.length - 1)
           }
         }
       }
