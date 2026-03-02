@@ -21,6 +21,7 @@ import {
   extractGatewayFinalMessageFromRawChunk,
   extractGatewayResponseIdFromRawChunk,
   extractGatewayTextDeltaFromRawChunk,
+  extractGeneratedImageModeratedFromRawChunk,
   isRecord,
   extractReasoningEventsFromRawChunk,
   extractResponseNewTitleFromRawChunk,
@@ -28,6 +29,8 @@ import {
   parseJsonObjectStrings,
   resolveConversationTitle,
 } from "./chunk-parsers"
+
+const GENERATED_IMAGE_MODERATED_NOTICE = "内容已管理。请尝试一个不同的想法。"
 
 function normalizeApiBaseUrl(input: string): string {
   const trimmed = input.trim().replace(/\/+$/, "")
@@ -958,6 +961,7 @@ export class GrokChatService implements ChatService {
       const generatedImageIndexByAssetId = new Map<string, number>()
       const collectedReasoningEvents: ChatReasoningEventDetail[] = []
       let hasStructuredGeneratedImages = false
+      let hasModeratedGeneratedImages = false
 
       // Track thinking state: image_search tools never send raw_function_result,
       // so we detect thinking->output transition and emit synthetic tool_results.
@@ -1148,6 +1152,9 @@ export class GrokChatService implements ChatService {
             // Extract web search meta & cards (collect only)
             appendWebSearchMeta(extractWebSearchToolMetaFromRawChunk(parsed))
             appendCards(extractCardAttachmentsFromRawChunk(parsed))
+            if (extractGeneratedImageModeratedFromRawChunk(parsed)) {
+              hasModeratedGeneratedImages = true
+            }
 
             // Accumulate text delta (emit once after all segments)
             const delta = extractGatewayTextDeltaFromRawChunk(parsed)
@@ -1178,6 +1185,12 @@ export class GrokChatService implements ChatService {
 
       if (hasStructuredGeneratedImages) {
         assistantText = extractGeneratedImageMarkdown(collectedCards)
+        gatewayFinalMessage = ""
+      }
+
+      if (hasModeratedGeneratedImages) {
+        const notice = `_${GENERATED_IMAGE_MODERATED_NOTICE}_`
+        assistantText = assistantText.trim() ? `${assistantText}\n\n${notice}` : notice
         gatewayFinalMessage = ""
       }
 

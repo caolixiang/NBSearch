@@ -600,6 +600,13 @@ function readGeneratedImageAssetId(value: Record<string, unknown>): string | und
   )
 }
 
+function readGeneratedImageModeratedFlag(value: unknown): boolean {
+  if (!isRecord(value)) {
+    return false
+  }
+  return value.moderated === true || value.rRated === true || value.r_rated === true
+}
+
 type GeneratedImageAttachment = {
   url: string
   assetId?: string
@@ -725,6 +732,49 @@ function collectGeneratedImageAttachmentsFromEnvelope(value: Record<string, unkn
   }
 
   return attachments
+}
+
+export function extractGeneratedImageModeratedFromRawChunk(rawChunk: unknown): boolean {
+  const candidates = collectRawChunkCandidates(rawChunk)
+  if (candidates.length === 0) {
+    return false
+  }
+
+  for (const candidate of candidates) {
+    if (readGeneratedImageModeratedFlag(candidate)) {
+      return true
+    }
+
+    const streamingImageGeneration = isRecord(candidate.streamingImageGenerationResponse)
+      ? candidate.streamingImageGenerationResponse
+      : null
+    if (streamingImageGeneration && readGeneratedImageModeratedFlag(streamingImageGeneration)) {
+      return true
+    }
+
+    const arraysToCheck: unknown[][] = []
+    if (Array.isArray(candidate.generatedImageUrls)) {
+      arraysToCheck.push(candidate.generatedImageUrls)
+    }
+    if (Array.isArray(candidate.data)) {
+      arraysToCheck.push(candidate.data)
+    }
+    if (isRecord(candidate.image_generation) && Array.isArray(candidate.image_generation.data)) {
+      arraysToCheck.push(candidate.image_generation.data)
+    }
+    if (isRecord(candidate.modelResponse) && Array.isArray(candidate.modelResponse.generatedImageUrls)) {
+      arraysToCheck.push(candidate.modelResponse.generatedImageUrls)
+    }
+    for (const list of arraysToCheck) {
+      for (const item of list) {
+        if (readGeneratedImageModeratedFlag(item)) {
+          return true
+        }
+      }
+    }
+  }
+
+  return false
 }
 
 function parseCardAttachmentRecord(value: unknown): Record<string, unknown> | null {

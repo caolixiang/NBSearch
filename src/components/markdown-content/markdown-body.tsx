@@ -4,7 +4,8 @@ import { useMemo } from "react"
 import { Streamdown, defaultRehypePlugins } from "streamdown"
 import { cn } from "@/lib/utils"
 import { normalizeAssistantMarkdown } from "./markdown-normalize"
-import { MarkdownImage, collectImageParagraphNodes, isGeneratedImageNode } from "./markdown-image"
+import { ImageCardActions, MarkdownImage } from "./markdown-image"
+import { collectImageParagraphNodes, extractImageSource, isGeneratedImageNode } from "./markdown-image-nodes"
 import { harden } from "rehype-harden"
 
 export function MarkdownBody({ content, streaming = false }: { content: string; streaming?: boolean }) {
@@ -63,13 +64,18 @@ export function MarkdownBody({ content, streaming = false }: { content: string; 
             <div className="my-2 w-full">
               <div
                 className={cn(
-                  "grok-md-image-grid grid gap-3",
-                  imageCount === 1 ? "grok-md-image-grid-single grid-cols-1 max-w-[40rem] mx-auto [&_.grok-md-image]:!rounded-[20px]" : gridClass,
+                  "grok-md-image-grid grid gap-1.5",
+                  imageCount === 1
+                    ? cn(
+                        "grok-md-image-grid-single grid-cols-1 [&_.grok-md-image]:!rounded-[24px]",
+                        allGeneratedImages ? "w-[75%] max-w-none ml-auto mr-0" : "max-w-[48rem] mx-auto"
+                      )
+                    : gridClass,
                   imageCount > 1 && !allGeneratedImages
-                    ? "[&_.grok-md-image]:!m-0 [&_.grok-md-image]:!absolute [&_.grok-md-image]:!inset-0 [&_.grok-md-image]:!w-full [&_.grok-md-image]:!h-full [&_.grok-md-image]:!max-h-none [&_.grok-md-image]:!object-cover [&_.grok-md-image]:!rounded-[16px] [&_.grok-md-image]:!bg-transparent [&_a]:block [&_a]:w-full [&_a]:h-full"
+                    ? "[&_.grok-md-image]:!m-0 [&_.grok-md-image]:!absolute [&_.grok-md-image]:!inset-0 [&_.grok-md-image]:!w-full [&_.grok-md-image]:!h-full [&_.grok-md-image]:!max-h-none [&_.grok-md-image]:!object-cover [&_.grok-md-image]:!rounded-[24px] [&_.grok-md-image]:!bg-transparent [&_a]:block [&_a]:w-full [&_a]:h-full"
                     : "",
                   imageCount > 1 && allGeneratedImages
-                    ? "grok-md-image-grid-generated mx-auto max-w-[64rem] gap-3.5 [&_a]:block [&_a]:w-full [&_.grok-md-image]:!rounded-[26px] [&_.grok-md-image]:!max-h-[78vh] [&_.grok-md-image]:!bg-transparent"
+                    ? "grok-md-image-grid-generated w-[75%] max-w-none ml-auto mr-0 grid-cols-2 gap-1.5 [&_a]:block [&_a]:w-full [&_.grok-md-image]:!rounded-[24px] [&_.grok-md-image]:!max-h-[72vh] [&_.grok-md-image]:!bg-transparent"
                     : ""
                 )}
               >
@@ -77,11 +83,14 @@ export function MarkdownBody({ content, streaming = false }: { content: string; 
                   <div
                     key={index}
                     className={cn(
-                      "relative w-full",
+                      "relative group/image w-full overflow-hidden rounded-[24px]",
                       imageCount > 1 && !allGeneratedImages ? "aspect-square" : ""
                     )}
                   >
                     {node}
+                    {allGeneratedImages ? (
+                      <ImageCardActions src={extractImageSource(node)} />
+                    ) : null}
                   </div>
                 ))}
               </div>

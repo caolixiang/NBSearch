@@ -4,6 +4,7 @@ import {
   extractGatewayFinalMessageFromRawChunk,
   extractGatewayResponseIdFromRawChunk,
   extractGatewayTextDeltaFromRawChunk,
+  extractGeneratedImageModeratedFromRawChunk,
   extractReasoningEventsFromRawChunk,
   extractWebSearchToolMetaFromRawChunk,
   extractResponseNewTitleFromRawChunk,
@@ -455,6 +456,40 @@ describe("extractCardAttachmentsFromRawChunk", () => {
     expect(cards).toHaveLength(2)
     expect(cards.some((item) => item.id === "card_concat_1")).toBe(true)
     expect(cards.some((item) => item.id === "card_concat_2")).toBe(true)
+  })
+})
+
+describe("extractGeneratedImageModeratedFromRawChunk", () => {
+  it("detects moderated image chunk", () => {
+    const moderated = extractGeneratedImageModeratedFromRawChunk({
+      result: {
+        response: {
+          streamingImageGenerationResponse: {
+            imageUrl: "users/abc/generated/img-1/image.jpg",
+            progress: 100,
+            moderated: true,
+          },
+        },
+      },
+    })
+
+    expect(moderated).toBe(true)
+  })
+
+  it("returns false for normal image chunk", () => {
+    const moderated = extractGeneratedImageModeratedFromRawChunk({
+      result: {
+        response: {
+          streamingImageGenerationResponse: {
+            imageUrl: "users/abc/generated/img-1/image.jpg",
+            progress: 100,
+            moderated: false,
+          },
+        },
+      },
+    })
+
+    expect(moderated).toBe(false)
   })
 })
 
