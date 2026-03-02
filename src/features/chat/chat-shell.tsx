@@ -129,6 +129,55 @@ function inferReasoningActive(events: ChatReasoningEventDetail[]): boolean {
   return explicitState === true
 }
 
+function normalizeConversationError(message: string): string {
+  const text = message.trim()
+  if (!text) {
+    return ""
+  }
+  if (/stream_idle_timeout/i.test(text)) {
+    return "连接超时，流式已中断，请重试。"
+  }
+  return text
+}
+
+function resolveStreamingConnectionHealth(
+  isStreaming: boolean,
+  lastHeartbeatAt: number | undefined,
+  startedAt: number | undefined,
+  now: number
+): {
+  level: "healthy" | "degraded" | "waiting"
+  label: string
+} | null {
+  if (!isStreaming) {
+    return null
+  }
+  const base = lastHeartbeatAt || startedAt || 0
+  if (base <= 0) {
+    return {
+      level: "waiting",
+      label: "连接中...",
+    }
+  }
+  const idleMs = Math.max(0, now - base)
+  if (idleMs <= 6000) {
+    return {
+      level: "healthy",
+      label: "连接稳定",
+    }
+  }
+  if (idleMs <= 12000) {
+    return {
+      level: "degraded",
+      label: `连接波动 · ${Math.max(1, Math.round(idleMs / 1000))}s`,
+    }
+  }
+  return {
+    level: "waiting",
+    label: `等待数据 · ${Math.max(1, Math.round(idleMs / 1000))}s`,
+  }
+}
+
 function appendReasoningEvent(
   previous: ChatReasoningEventDetail[],
   detail: ChatReasoningEventDetail
@@ -276,6 +325,9 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     }
     return lastErrorByConversationId[activeConversationId] || ""
   }, [activeConversationId, lastErrorByConversationId])
+  const activeVisibleError = useMemo(() => {
+    return normalizeConversationError(activeLastError)
+  }, [activeLastError])
 
   const activeStreamingState = useMemo(() => {
     return getConversationStreamingState(streamingStateByConversationId, activeConversationId)
@@ -400,6 +452,19 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
   const activeStreamingReasoningEvents = activeStreamingState?.reasoningEvents || []
   const activeStreamingReasoningActive = activeStreamingState?.reasoningActive || false
   const activeStreamingReasoningDurationSeconds = activeStreamingState?.reasoningDurationSeconds || 0
+  const activeConnectionHealth = useMemo(() => {
+    return resolveStreamingConnectionHealth(
+      isActiveConversationStreaming,
+      activeStreamingState?.lastHeartbeatAt,
+      activeStreamingState?.startedAt,
+      Date.now()
+    )
+  }, [
+    isActiveConversationStreaming,
+    activeStreamingReasoningDurationSeconds,
+    activeStreamingState?.lastHeartbeatAt,
+    activeStreamingState?.startedAt,
+  ])
 
   const shouldUseThinkMarkupFallback = activeStreamingReasoningEvents.length === 0
   const hasThinkMarkup = shouldUseThinkMarkupFallback && hasAnyThinkTag(activeStreamingAssistantText)
@@ -1099,8 +1164,28 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
             }}
             isRefreshing={isRefreshingModels}
           />
-          {activeLastError || modelError ? (
-            <span className="text-xs text-destructive">{activeLastError || modelError}</span>
+          {activeConnectionHealth || activeVisibleError || modelError ? (
+            <div className="flex min-w-0 items-center gap-2">
+              {activeConnectionHealth ? (
+                <span
+                  className={cn(
+                    "inline-flex shrink-0 items-center rounded-full border px-2 py-0.5 text-[11px]",
+                    activeConnectionHealth.level === "healthy"
+                      ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                      : activeConnectionHealth.level === "degraded"
+                        ? "border-amber-500/25 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+                        : "border-border bg-muted text-muted-foreground"
+                  )}
+                >
+                  {activeConnectionHealth.label}
+                </span>
+              ) : null}
+              {activeVisibleError || modelError ? (
+                <span className="truncate text-xs text-destructive">
+                  {activeVisibleError || modelError}
+                </span>
+              ) : null}
+            </div>
           ) : (
             <div />
           )}
