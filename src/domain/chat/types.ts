@@ -79,6 +79,7 @@ export interface ChatCardAttachmentPayload {
   type?: string
   url?: string
   assetId?: string
+  asset_id?: string
   rawUrl?: string
   urlExpiresAt?: string
   image?: ChatCardImagePayload

@@ -279,6 +279,7 @@ describe("extractCardAttachmentsFromRawChunk", () => {
           streamingImageGenerationResponse: {
             imageUrl: "users/abc/generated/25da98c5-a40f-426f-86f2-5713538aa1b1/image.jpg",
             assetId: "25da98c5-a40f-426f-86f2-5713538aa1b1",
+            asset_id: "image_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             raw_url: "https://assets.grok.com/users/abc/generated/25da98c5-a40f-426f-86f2-5713538aa1b1/image.jpg",
             url_expires_at: "2026-03-02T10:00:00Z",
           },
@@ -288,6 +289,7 @@ describe("extractCardAttachmentsFromRawChunk", () => {
 
     expect(cards).toHaveLength(1)
     expect(cards[0]?.assetId).toBe("25da98c5-a40f-426f-86f2-5713538aa1b1")
+    expect(cards[0]?.asset_id).toBe("image_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
     expect(cards[0]?.rawUrl).toBe(
       "https://assets.grok.com/users/abc/generated/25da98c5-a40f-426f-86f2-5713538aa1b1/image.jpg"
     )
@@ -303,6 +305,23 @@ describe("extractCardAttachmentsFromRawChunk", () => {
             progress: 50,
             moderated: false,
             imageIndex: 0,
+          },
+        },
+      },
+    })
+
+    expect(cards).toHaveLength(0)
+  })
+
+  it("ignores intermediate streaming generated image chunks even when asset id exists", () => {
+    const cards = extractCardAttachmentsFromRawChunk({
+      result: {
+        response: {
+          streamingImageGenerationResponse: {
+            imageUrl: "users/abc/generated/img-1/image.jpg",
+            asset_id: "image_deadbeef",
+            progress: 60,
+            moderated: false,
           },
         },
       },
@@ -346,6 +365,41 @@ describe("extractCardAttachmentsFromRawChunk", () => {
     expect(cards[0]?.type).toBe("generated_image")
     expect(cards[0]?.image?.original).toBe("users/abc/generated/img-1/image.jpg")
     expect(cards[1]?.image?.original).toBe("users/abc/generated/img-2/image.jpg")
+  })
+
+  it("extracts generated image metadata from indexed summary arrays", () => {
+    const cards = extractCardAttachmentsFromRawChunk({
+      result: {
+        response: {
+          modelResponse: {
+            generatedImageUrls: [
+              "https://s3.bitiful.net/grok/assets/image/2026/03/a.jpg?X-Amz-Date=20260302T060000Z&X-Amz-Expires=7200",
+              "https://s3.bitiful.net/grok/assets/image/2026/03/b.jpg?X-Amz-Date=20260302T060100Z&X-Amz-Expires=7200",
+            ],
+            generatedImageRawUrls: [
+              "https://assets.grok.com/users/u-1/generated/image_a/image.jpg",
+              "https://assets.grok.com/users/u-1/generated/image_b/image.jpg",
+            ],
+            generatedImageAssetIds: [
+              "image_a",
+              "image_b",
+            ],
+            generatedImageURLExpiresAt: [
+              1772436000,
+              "2026-03-02T08:01:00Z",
+            ],
+          },
+        },
+      },
+    })
+
+    expect(cards).toHaveLength(2)
+    expect(cards[0]?.image?.original).toContain("/a.jpg")
+    expect(cards[0]?.asset_id).toBe("image_a")
+    expect(cards[0]?.rawUrl).toBe("https://assets.grok.com/users/u-1/generated/image_a/image.jpg")
+    expect(cards[0]?.urlExpiresAt).toBe(new Date(1772436000 * 1000).toISOString())
+    expect(cards[1]?.asset_id).toBe("image_b")
+    expect(cards[1]?.urlExpiresAt).toBe(new Date("2026-03-02T08:01:00Z").toISOString())
   })
 
   it("extracts image card from cardAttachment.jsonData payload", () => {

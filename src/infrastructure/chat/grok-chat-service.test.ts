@@ -126,6 +126,7 @@ describe("shouldRenewCardAssetUrl", () => {
     const shouldRenew = shouldRenewCardAssetUrl(
       {
         assetId: "asset_1",
+        asset_id: "image_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         rawUrl: "https://assets.grok.com/users/u-1/generated/asset_1/image.jpg",
         url: "https://bucket.s3.amazonaws.com/a.jpg?X-Amz-Signature=abc",
         urlExpiresAt: "2026-03-02T00:00:00Z",
@@ -140,9 +141,36 @@ describe("shouldRenewCardAssetUrl", () => {
     const shouldRenew = shouldRenewCardAssetUrl(
       {
         assetId: "asset_1",
+        asset_id: "image_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         rawUrl: "https://assets.grok.com/users/u-1/generated/asset_1/image.jpg",
         url: "https://bucket.s3.amazonaws.com/a.jpg?X-Amz-Signature=abc",
         urlExpiresAt: "2026-03-02T02:30:00Z",
+      },
+      Date.parse("2026-03-02T01:00:00Z")
+    )
+
+    expect(shouldRenew).toBe(false)
+  })
+
+  it("skips refresh for public url without expires_at", () => {
+    const shouldRenew = shouldRenewCardAssetUrl(
+      {
+        assetId: "image_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        rawUrl: "https://assets.grok.com/users/u-1/generated/a/image.jpg",
+        url: "https://cdn.example.com/generated/a.jpg",
+      },
+      Date.parse("2026-03-02T01:00:00Z")
+    )
+
+    expect(shouldRenew).toBe(false)
+  })
+
+  it("skips refresh for local image proxy url without expires_at", () => {
+    const shouldRenew = shouldRenewCardAssetUrl(
+      {
+        assetId: "image_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        rawUrl: "https://assets.grok.com/users/u-1/generated/a/image.jpg",
+        url: "http://127.0.0.1:8787/images/image_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       },
       Date.parse("2026-03-02T01:00:00Z")
     )
@@ -157,6 +185,13 @@ describe("inferGeneratedImageAssetId", () => {
       "https://assets.grok.com/users/u-1/generated/25da98c5-a40f-426f-86f2-5713538aa1b1/image.jpg"
     )
     expect(assetId).toBe("25da98c5-a40f-426f-86f2-5713538aa1b1")
+  })
+
+  it("extracts local image asset id from signed s3 url", () => {
+    const assetId = inferGeneratedImageAssetId(
+      "https://s3.bitiful.net/grok/assets/image/2026/03/738e5a35d38a72d86a6135d38849ec9099cb48f032894bc1aece65f0c3455c23.jpg?X-Amz-Date=20260302T060955Z&X-Amz-Expires=7200"
+    )
+    expect(assetId).toBe("image_738e5a35d38a72d86a6135d38849ec9099cb48f032894bc1aece65f0c3455c23")
   })
 })
 
@@ -179,6 +214,7 @@ describe("listMessages asset url refresh", () => {
       url: expiredUrl,
       assetId: "asset_1",
       rawUrl: "https://assets.grok.com/users/u-1/generated/asset_1/image.jpg",
+      urlExpiresAt: "2026-03-02T00:00:00Z",
       image: {
         original: expiredUrl,
       },
@@ -335,6 +371,77 @@ describe("listMessages asset url refresh", () => {
     expect(next).toContain(`![Generated Image](<${proxy2}>)`)
     expect(next).toContain(signed1)
     expect(next).toContain(signed2)
+  })
+
+  it("renews with local image_<sha256> asset id when card stores upstream uuid", async () => {
+    const repository = new MemoryAppRepository()
+    const service = new GrokChatService(repository, {
+      apiBaseUrl: "http://127.0.0.1:8787",
+      apiKey: "test-key",
+      defaultModel: "grok-4.1-fast",
+      voiceEnabled: false,
+    })
+
+    const upstreamUuid = "98aabd8f-a6a9-42a0-b154-5b637ce79e12"
+    const renewAssetId = "image_738e5a35d38a72d86a6135d38849ec9099cb48f032894bc1aece65f0c3455c23"
+    const rawUrl = `https://assets.grok.com/users/u-1/generated/${upstreamUuid}/image.jpg`
+    const expiredUrl = `https://s3.bitiful.net/grok/assets/image/2026/03/738e5a35d38a72d86a6135d38849ec9099cb48f032894bc1aece65f0c3455c23.jpg?X-Amz-Date=20260302T060955Z&X-Amz-Expires=7200&X-Amz-Signature=old`
+    const renewedUrl = `https://s3.bitiful.net/grok/assets/image/2026/03/738e5a35d38a72d86a6135d38849ec9099cb48f032894bc1aece65f0c3455c23.jpg?X-Amz-Date=20260302T080955Z&X-Amz-Expires=7200&X-Amz-Signature=new`
+
+    const card = {
+      id: "card_uuid",
+      cardType: "image_card",
+      type: "generated_image",
+      url: expiredUrl,
+      assetId: upstreamUuid,
+      rawUrl,
+      urlExpiresAt: "2020-03-02T08:00:00Z",
+      image: {
+        original: expiredUrl,
+      },
+    }
+
+    await repository.appendMessage("conv_uuid", {
+      id: "asst_uuid",
+      role: "assistant",
+      content: `![Generated Image](<${expiredUrl}>)\n<tool-meta>${JSON.stringify({ webSearch: [], cards: [card] })}</tool-meta>`,
+      reasoningEvents: [{ kind: "card_attachment", card }],
+      createdAt: 1,
+      status: "completed",
+    })
+
+    const calledUrls: string[] = []
+    const mockedFetch = (async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url
+      calledUrls.push(url)
+      return new Response(
+        JSON.stringify({
+          asset_id: renewAssetId,
+          raw_url: rawUrl,
+          url: renewedUrl,
+          url_expires_at: "2026-03-02T10:00:00Z",
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }
+      )
+    }) as unknown as typeof fetch
+    ;(mockedFetch as unknown as { preconnect: (url: string) => void }).preconnect = () => {}
+    ;(service as unknown as { runtimeFetch: typeof fetch }).runtimeFetch = mockedFetch
+
+    const messages = await service.listMessages("conv_uuid")
+    expect(messages).toHaveLength(1)
+    expect(calledUrls.some((url) => url.includes(`/assets/${renewAssetId}/url?ttl=7200`))).toBe(true)
+    expect(calledUrls.some((url) => url.includes(`/assets/${upstreamUuid}/url?ttl=7200`))).toBe(false)
+    const cardEvent = messages[0]?.reasoningEvents?.find((event) => event.kind === "card_attachment")
+    if (!cardEvent || cardEvent.kind !== "card_attachment") {
+      throw new Error("expected normalized card attachment event")
+    }
+    expect(cardEvent.card.assetId).toBe(upstreamUuid)
+    expect(cardEvent.card.asset_id).toBe(renewAssetId)
   })
 
 })

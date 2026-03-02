@@ -620,13 +620,28 @@ function readOptionalExpiresAt(value: unknown): string | undefined {
   return new Date(millis).toISOString()
 }
 
-function readGeneratedImageAssetId(value: Record<string, unknown>): string | undefined {
-  return (
-    readOptionalString(value.assetId) ||
-    readOptionalString(value.asset_id) ||
-    readOptionalString(value.imageId) ||
-    readOptionalString(value.image_id)
-  )
+function isLocalGeneratedImageAssetId(value: string): boolean {
+  return /^image_[0-9a-f]{64}$/i.test(value.trim())
+}
+
+function readGeneratedImageUpstreamAssetId(value: Record<string, unknown>): string | undefined {
+  return readOptionalString(value.assetId) || readOptionalString(value.imageId) || readOptionalString(value.image_id)
+}
+
+function readGeneratedImageLocalAssetId(value: Record<string, unknown>): string | undefined {
+  const candidates = [
+    readOptionalString(value.asset_id),
+    readOptionalString(value.assetId),
+    readOptionalString(value.imageId),
+    readOptionalString(value.image_id),
+  ]
+  for (const candidate of candidates) {
+    const normalized = (candidate || "").trim()
+    if (isLocalGeneratedImageAssetId(normalized)) {
+      return normalized
+    }
+  }
+  return undefined
 }
 
 function readGeneratedImageModeratedFlag(value: unknown): boolean {
@@ -639,6 +654,7 @@ function readGeneratedImageModeratedFlag(value: unknown): boolean {
 type GeneratedImageAttachment = {
   url: string
   assetId?: string
+  asset_id?: string
   rawUrl?: string
   urlExpiresAt?: string
 }
@@ -675,7 +691,8 @@ function readGeneratedImageAttachment(value: unknown): GeneratedImageAttachment 
   if (!url) {
     return null
   }
-  const assetId = readGeneratedImageAssetId(value)
+  const assetId = readGeneratedImageUpstreamAssetId(value)
+  const asset_id = readGeneratedImageLocalAssetId(value)
   const moderated = value.moderated === true
   const rrated = value.rRated === true || value.r_rated === true
   if (moderated || rrated) {
@@ -696,20 +713,96 @@ function readGeneratedImageAttachment(value: unknown): GeneratedImageAttachment 
   if (isIntermediateGeneratedImageUrl(url)) {
     return null
   }
-  if (isStreamingImageGeneration && typeof progress === "number" && progress < 100 && !assetId) {
+  if (isStreamingImageGeneration && typeof progress === "number" && progress < 100) {
     return null
   }
 
   return {
     url,
     assetId,
+    asset_id,
     rawUrl: readOptionalString(value.rawUrl) || readOptionalString(value.raw_url),
     urlExpiresAt: readOptionalExpiresAt(value.urlExpiresAt) || readOptionalExpiresAt(value.url_expires_at),
   }
 }
 
+function readStringList(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+  const rows: string[] = []
+  for (const item of value) {
+    const normalized = readOptionalString(item)
+    if (normalized) {
+      rows.push(normalized)
+    } else {
+      rows.push("")
+    }
+  }
+  return rows
+}
+
+function readExpiresList(value: unknown): Array<string | undefined> {
+  if (!Array.isArray(value)) {
+    return []
+  }
+  const rows: Array<string | undefined> = []
+  for (const item of value) {
+    rows.push(readOptionalExpiresAt(item))
+  }
+  return rows
+}
+
+function collectGeneratedImageAttachmentsFromIndexedArrays(value: Record<string, unknown>): GeneratedImageAttachment[] {
+  const urls = readStringList(value.generatedImageUrls)
+  if (urls.length === 0) {
+    return []
+  }
+  const rawUrlsPrimary = readStringList(value.generatedImageRawUrls)
+  const rawUrlsFallback = readStringList(value.generatedImageRawURLs)
+  const rawUrls = rawUrlsPrimary.length > 0 ? rawUrlsPrimary : rawUrlsFallback
+  const assetIdsPrimary = readStringList(value.generatedImageAssetIds)
+  const assetIdsFallback = readStringList(value.generatedImageAssetIDs)
+  const assetIds = assetIdsPrimary.length > 0 ? assetIdsPrimary : assetIdsFallback
+  const expiresAtPrimary = readExpiresList(value.generatedImageURLExpiresAt)
+  const expiresAtFallback = readExpiresList(value.generatedImageUrlExpiresAt)
+  const expiresAt = expiresAtPrimary.length > 0 ? expiresAtPrimary : expiresAtFallback
+
+  const items: GeneratedImageAttachment[] = []
+  for (let index = 0; index < urls.length; index += 1) {
+    const url = urls[index]?.trim() || ""
+    if (!url || isIntermediateGeneratedImageUrl(url)) {
+      continue
+    }
+    items.push({
+      url,
+      rawUrl: rawUrls[index]?.trim() || undefined,
+      asset_id: assetIds[index]?.trim() || undefined,
+      urlExpiresAt: expiresAt[index],
+    })
+  }
+  return items
+}
+
+function generatedImageAttachmentScore(item: GeneratedImageAttachment): number {
+  let score = 0
+  if (item.asset_id) {
+    score += 2
+  }
+  if (item.assetId) {
+    score += 1
+  }
+  if (item.rawUrl) {
+    score += 1
+  }
+  if (item.urlExpiresAt) {
+    score += 1
+  }
+  return score
+}
+
 function buildGeneratedImageCard(payload: GeneratedImageAttachment): ChatCardAttachmentPayload {
-  const { url, assetId, rawUrl, urlExpiresAt } = payload
+  const { url, assetId, asset_id, rawUrl, urlExpiresAt } = payload
   const stableId = `generated_image_${encodeURIComponent(url)}`
   return {
     id: stableId,
@@ -717,6 +810,7 @@ function buildGeneratedImageCard(payload: GeneratedImageAttachment): ChatCardAtt
     type: "generated_image",
     url,
     assetId,
+    asset_id,
     rawUrl,
     urlExpiresAt,
     image: {
@@ -726,18 +820,23 @@ function buildGeneratedImageCard(payload: GeneratedImageAttachment): ChatCardAtt
 }
 
 function collectGeneratedImageAttachmentsFromEnvelope(value: Record<string, unknown>): GeneratedImageAttachment[] {
-  const attachments: GeneratedImageAttachment[] = []
-  const seen = new Set<string>()
+  const byUrl = new Map<string, GeneratedImageAttachment>()
   const append = (item: GeneratedImageAttachment | null) => {
     if (!item) {
       return
     }
-    const key = `${item.url}\u0000${item.assetId || ""}`
-    if (seen.has(key)) {
+    const key = item.url.trim()
+    if (!key) {
       return
     }
-    seen.add(key)
-    attachments.push(item)
+    const existing = byUrl.get(key)
+    if (!existing) {
+      byUrl.set(key, item)
+      return
+    }
+    if (generatedImageAttachmentScore(item) > generatedImageAttachmentScore(existing)) {
+      byUrl.set(key, item)
+    }
   }
 
   const streamingImageGeneration = isRecord(value.streamingImageGenerationResponse)
@@ -752,6 +851,9 @@ function collectGeneratedImageAttachmentsFromEnvelope(value: Record<string, unkn
       append(readGeneratedImageAttachment(item))
     }
   }
+  for (const item of collectGeneratedImageAttachmentsFromIndexedArrays(value)) {
+    append(item)
+  }
 
   const modelResponse = isRecord(value.modelResponse) ? value.modelResponse : null
   if (modelResponse && Array.isArray(modelResponse.generatedImageUrls)) {
@@ -759,8 +861,13 @@ function collectGeneratedImageAttachmentsFromEnvelope(value: Record<string, unkn
       append(readGeneratedImageAttachment(item))
     }
   }
+  if (modelResponse) {
+    for (const item of collectGeneratedImageAttachmentsFromIndexedArrays(modelResponse)) {
+      append(item)
+    }
+  }
 
-  return attachments
+  return Array.from(byUrl.values())
 }
 
 export function extractGeneratedImageModeratedFromRawChunk(rawChunk: unknown): boolean {
@@ -835,7 +942,8 @@ function readCardAttachmentPayload(value: unknown): ChatCardAttachmentPayload | 
     cardType: typeof parsed.cardType === "string" ? parsed.cardType : undefined,
     type: typeof parsed.type === "string" ? parsed.type : undefined,
     url: directUrl || undefined,
-    assetId: readGeneratedImageAssetId(parsed),
+    assetId: readGeneratedImageUpstreamAssetId(parsed),
+    asset_id: readGeneratedImageLocalAssetId(parsed),
     rawUrl: readOptionalString(parsed.rawUrl) || readOptionalString(parsed.raw_url),
     urlExpiresAt: readOptionalExpiresAt(parsed.urlExpiresAt) || readOptionalExpiresAt(parsed.url_expires_at),
     image: image
