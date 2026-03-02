@@ -78,6 +78,9 @@ export interface ChatCardAttachmentPayload {
   cardType?: string
   type?: string
   url?: string
+  assetId?: string
+  rawUrl?: string
+  urlExpiresAt?: string
   image?: ChatCardImagePayload
 }
 

@@ -271,6 +271,28 @@ describe("extractCardAttachmentsFromRawChunk", () => {
     expect(cards[0]?.image?.original).toBe("users/abc/generated/img-1/image.jpg")
   })
 
+  it("extracts generated image asset metadata from streamingImageGenerationResponse payload", () => {
+    const cards = extractCardAttachmentsFromRawChunk({
+      result: {
+        response: {
+          streamingImageGenerationResponse: {
+            imageUrl: "users/abc/generated/25da98c5-a40f-426f-86f2-5713538aa1b1/image.jpg",
+            assetId: "25da98c5-a40f-426f-86f2-5713538aa1b1",
+            raw_url: "https://assets.grok.com/users/abc/generated/25da98c5-a40f-426f-86f2-5713538aa1b1/image.jpg",
+            url_expires_at: "2026-03-02T10:00:00Z",
+          },
+        },
+      },
+    })
+
+    expect(cards).toHaveLength(1)
+    expect(cards[0]?.assetId).toBe("25da98c5-a40f-426f-86f2-5713538aa1b1")
+    expect(cards[0]?.rawUrl).toBe(
+      "https://assets.grok.com/users/abc/generated/25da98c5-a40f-426f-86f2-5713538aa1b1/image.jpg"
+    )
+    expect(cards[0]?.urlExpiresAt).toBe("2026-03-02T10:00:00Z")
+  })
+
   it("extracts generated images from modelResponse.generatedImageUrls payload", () => {
     const cards = extractCardAttachmentsFromRawChunk({
       result: {

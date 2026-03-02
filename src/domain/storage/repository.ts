@@ -29,6 +29,8 @@ export interface AppRepository {
 
   appendMessage(conversationId: string, message: ChatMessage): Promise<void>
 
+  updateMessage(conversationId: string, message: ChatMessage): Promise<void>
+
   listMessages(conversationId: string): Promise<ChatMessage[]>
 
   upsertVoiceSession(record: VoiceSessionRecord): Promise<void>

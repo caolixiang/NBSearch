@@ -45,6 +45,17 @@ export class MemoryAppRepository implements AppRepository {
     this.messages.set(conversationId, [...prev, message])
   }
 
+  async updateMessage(conversationId: string, message: ChatMessage): Promise<void> {
+    const list = this.messages.get(conversationId) || []
+    const index = list.findIndex((item) => item.id === message.id)
+    if (index < 0) {
+      return
+    }
+    const next = [...list]
+    next[index] = message
+    this.messages.set(conversationId, next)
+  }
+
   async listMessages(conversationId: string): Promise<ChatMessage[]> {
     return [...(this.messages.get(conversationId) || [])]
   }

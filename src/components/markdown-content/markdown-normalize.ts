@@ -26,12 +26,33 @@ export function toImageCardMeta(card: ChatCardAttachmentPayload): ImageCardMeta 
   const topLevelTitle = typeof raw.title === "string" ? raw.title : undefined
   const topLevelLink = typeof raw.link === "string" ? raw.link : undefined
   const topLevelSource = typeof raw.source === "string" ? raw.source : undefined
+  const topLevelAssetId =
+    typeof raw.assetId === "string"
+      ? raw.assetId
+      : typeof raw.asset_id === "string"
+        ? raw.asset_id
+        : undefined
+  const topLevelRawUrl =
+    typeof raw.rawUrl === "string"
+      ? raw.rawUrl
+      : typeof raw.raw_url === "string"
+        ? raw.raw_url
+        : undefined
+  const topLevelUrlExpiresAt =
+    typeof raw.urlExpiresAt === "string"
+      ? raw.urlExpiresAt
+      : typeof raw.url_expires_at === "string"
+        ? raw.url_expires_at
+        : undefined
 
   return {
     id,
     cardType: card.cardType,
     type: card.type,
     url: card.url,
+    assetId: card.assetId || topLevelAssetId,
+    rawUrl: card.rawUrl || topLevelRawUrl,
+    urlExpiresAt: card.urlExpiresAt || topLevelUrlExpiresAt,
     image: card.image
       ? {
           thumbnail: card.image.thumbnail,
@@ -805,6 +826,7 @@ export function extractAssistantToolMeta(raw: string): { content: string; meta: 
             continue
           }
           const row = item as ImageCardMeta
+          const rowRecord = item as Record<string, unknown>
           const id = typeof row.id === "string" ? row.id.trim() : ""
           if (!id) {
             continue
@@ -814,6 +836,24 @@ export function extractAssistantToolMeta(raw: string): { content: string; meta: 
             cardType: typeof row.cardType === "string" ? row.cardType : undefined,
             type: typeof row.type === "string" ? row.type : undefined,
             url: typeof row.url === "string" ? row.url : undefined,
+            assetId:
+              typeof row.assetId === "string"
+                ? row.assetId
+                : typeof rowRecord.asset_id === "string"
+                  ? rowRecord.asset_id
+                  : undefined,
+            rawUrl:
+              typeof row.rawUrl === "string"
+                ? row.rawUrl
+                : typeof rowRecord.raw_url === "string"
+                  ? rowRecord.raw_url
+                  : undefined,
+            urlExpiresAt:
+              typeof row.urlExpiresAt === "string"
+                ? row.urlExpiresAt
+                : typeof rowRecord.url_expires_at === "string"
+                  ? rowRecord.url_expires_at
+                  : undefined,
             image:
               row.image && typeof row.image === "object"
                 ? {

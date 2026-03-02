@@ -161,6 +161,30 @@ export class SqliteAppRepository implements AppRepository {
     )
   }
 
+  async updateMessage(conversationId: string, message: ChatMessage): Promise<void> {
+    const db = await getDatabase()
+    await db.execute(
+      `UPDATE messages
+       SET role = $1,
+           content_json = $2,
+           response_id = $3,
+           previous_response_id = $4,
+           status = $5,
+           created_at = $6
+       WHERE conversation_id = $7 AND id = $8`,
+      [
+        message.role,
+        normalizeMessageContent(message),
+        message.responseId || "",
+        message.previousResponseId || "",
+        message.status || "completed",
+        message.createdAt,
+        conversationId,
+        message.id,
+      ]
+    )
+  }
+
   async listMessages(conversationId: string): Promise<ChatMessage[]> {
     const db = await getDatabase()
     const rows = await db.select<

@@ -583,50 +583,106 @@ function readToolResultEvent(rawChunk: unknown): ChatReasoningEventDetail | null
 // Card attachments
 // ---------------------------------------------------------------------------
 
-function buildGeneratedImageCard(url: string): ChatCardAttachmentPayload {
+function readOptionalString(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined
+  }
+  const normalized = value.trim()
+  return normalized ? normalized : undefined
+}
+
+function readGeneratedImageAssetId(value: Record<string, unknown>): string | undefined {
+  return (
+    readOptionalString(value.assetId) ||
+    readOptionalString(value.asset_id) ||
+    readOptionalString(value.imageId) ||
+    readOptionalString(value.image_id)
+  )
+}
+
+type GeneratedImageAttachment = {
+  url: string
+  assetId?: string
+  rawUrl?: string
+  urlExpiresAt?: string
+}
+
+function readGeneratedImageAttachment(value: unknown): GeneratedImageAttachment | null {
+  if (typeof value === "string") {
+    const url = value.trim()
+    if (!url) {
+      return null
+    }
+    return { url }
+  }
+  if (!isRecord(value)) {
+    return null
+  }
+  const url = readOptionalString(value.url) || readOptionalString(value.imageUrl) || readOptionalString(value.image_url)
+  if (!url) {
+    return null
+  }
+  return {
+    url,
+    assetId: readGeneratedImageAssetId(value),
+    rawUrl: readOptionalString(value.rawUrl) || readOptionalString(value.raw_url),
+    urlExpiresAt: readOptionalString(value.urlExpiresAt) || readOptionalString(value.url_expires_at),
+  }
+}
+
+function buildGeneratedImageCard(payload: GeneratedImageAttachment): ChatCardAttachmentPayload {
+  const { url, assetId, rawUrl, urlExpiresAt } = payload
   const stableId = `generated_image_${encodeURIComponent(url)}`
   return {
     id: stableId,
     cardType: "image_card",
     type: "generated_image",
     url,
+    assetId,
+    rawUrl,
+    urlExpiresAt,
     image: {
       original: url,
     },
   }
 }
 
-function collectGeneratedImageUrlsFromEnvelope(value: Record<string, unknown>): string[] {
-  const urls: string[] = []
+function collectGeneratedImageAttachmentsFromEnvelope(value: Record<string, unknown>): GeneratedImageAttachment[] {
+  const attachments: GeneratedImageAttachment[] = []
   const seen = new Set<string>()
-  const append = (url: string) => {
-    const next = url.trim()
-    if (!next || seen.has(next)) {
+  const append = (item: GeneratedImageAttachment | null) => {
+    if (!item) {
       return
     }
-    seen.add(next)
-    urls.push(next)
+    const key = `${item.url}\u0000${item.assetId || ""}`
+    if (seen.has(key)) {
+      return
+    }
+    seen.add(key)
+    attachments.push(item)
   }
 
   const streamingImageGeneration = isRecord(value.streamingImageGenerationResponse)
     ? value.streamingImageGenerationResponse
     : null
-  if (streamingImageGeneration && typeof streamingImageGeneration.imageUrl === "string") {
-    append(streamingImageGeneration.imageUrl)
+  if (streamingImageGeneration) {
+    append(readGeneratedImageAttachment(streamingImageGeneration))
   }
 
-  for (const url of readStringArray(value.generatedImageUrls)) {
-    append(url)
-  }
-
-  const modelResponse = isRecord(value.modelResponse) ? value.modelResponse : null
-  if (modelResponse) {
-    for (const url of readStringArray(modelResponse.generatedImageUrls)) {
-      append(url)
+  if (Array.isArray(value.generatedImageUrls)) {
+    for (const item of value.generatedImageUrls) {
+      append(readGeneratedImageAttachment(item))
     }
   }
 
-  return urls
+  const modelResponse = isRecord(value.modelResponse) ? value.modelResponse : null
+  if (modelResponse && Array.isArray(modelResponse.generatedImageUrls)) {
+    for (const item of modelResponse.generatedImageUrls) {
+      append(readGeneratedImageAttachment(item))
+    }
+  }
+
+  return attachments
 }
 
 function parseCardAttachmentRecord(value: unknown): Record<string, unknown> | null {
@@ -658,6 +714,9 @@ function readCardAttachmentPayload(value: unknown): ChatCardAttachmentPayload | 
     cardType: typeof parsed.cardType === "string" ? parsed.cardType : undefined,
     type: typeof parsed.type === "string" ? parsed.type : undefined,
     url: directUrl || undefined,
+    assetId: readGeneratedImageAssetId(parsed),
+    rawUrl: readOptionalString(parsed.rawUrl) || readOptionalString(parsed.raw_url),
+    urlExpiresAt: readOptionalString(parsed.urlExpiresAt) || readOptionalString(parsed.url_expires_at),
     image: image
       ? {
           thumbnail: typeof image.thumbnail === "string" ? image.thumbnail : undefined,
@@ -695,30 +754,22 @@ function collectCardAttachmentsFromEnvelope(value: unknown): ChatCardAttachmentP
   const imageGeneration = isRecord(value.image_generation) ? value.image_generation : null
   const imageGenerationData = imageGeneration && Array.isArray(imageGeneration.data) ? imageGeneration.data : []
   for (const item of imageGenerationData) {
-    if (!isRecord(item) || typeof item.url !== "string") {
-      continue
+    const generated = readGeneratedImageAttachment(item)
+    if (generated) {
+      cards.push(buildGeneratedImageCard(generated))
     }
-    const url = item.url.trim()
-    if (!url) {
-      continue
-    }
-    cards.push(buildGeneratedImageCard(url))
   }
 
   const responseData = Array.isArray(value.data) ? value.data : []
   for (const item of responseData) {
-    if (!isRecord(item) || typeof item.url !== "string") {
-      continue
+    const generated = readGeneratedImageAttachment(item)
+    if (generated) {
+      cards.push(buildGeneratedImageCard(generated))
     }
-    const url = item.url.trim()
-    if (!url) {
-      continue
-    }
-    cards.push(buildGeneratedImageCard(url))
   }
 
-  for (const url of collectGeneratedImageUrlsFromEnvelope(value)) {
-    cards.push(buildGeneratedImageCard(url))
+  for (const generated of collectGeneratedImageAttachmentsFromEnvelope(value)) {
+    cards.push(buildGeneratedImageCard(generated))
   }
 
   const inlineCard = readCardAttachmentPayload(value.cardAttachment)

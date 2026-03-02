@@ -21,6 +21,7 @@ import {
   extractGatewayFinalMessageFromRawChunk,
   extractGatewayResponseIdFromRawChunk,
   extractGatewayTextDeltaFromRawChunk,
+  isRecord,
   extractReasoningEventsFromRawChunk,
   extractResponseNewTitleFromRawChunk,
   extractWebSearchToolMetaFromRawChunk,
@@ -83,6 +84,15 @@ function hasAnyThinkTag(value: string): boolean {
 }
 
 const MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024
+const ASSET_URL_RENEW_TTL_SECONDS = 7200
+const ASSET_URL_RENEW_THRESHOLD_MS = 60 * 1000
+
+type RenewedAssetUrlPayload = {
+  assetId: string
+  rawUrl: string
+  url: string
+  urlExpiresAt: string
+}
 
 type ResponsesInputContentBlock =
   | {
@@ -317,6 +327,145 @@ function normalizeCardAttachmentUrls(card: ChatCardAttachmentPayload, apiUrl: st
   }
 }
 
+function readTrimmedString(value: unknown): string {
+  return typeof value === "string" ? value.trim() : ""
+}
+
+function readCardAssetId(value: Record<string, unknown>): string {
+  return readTrimmedString(value.assetId) || readTrimmedString(value.asset_id)
+}
+
+function readCardRawUrl(value: Record<string, unknown>): string {
+  return readTrimmedString(value.rawUrl) || readTrimmedString(value.raw_url)
+}
+
+function readCardUrlExpiresAt(value: Record<string, unknown>): string {
+  return readTrimmedString(value.urlExpiresAt) || readTrimmedString(value.url_expires_at)
+}
+
+function toMillisFromIso(value: string): number | null {
+  if (!value) {
+    return null
+  }
+  const millis = Date.parse(value)
+  if (!Number.isFinite(millis)) {
+    return null
+  }
+  return millis
+}
+
+export function parseRenewedAssetUrlResponse(raw: unknown): RenewedAssetUrlPayload | null {
+  const queue: unknown[] = [raw]
+  const seen = new Set<unknown>()
+
+  while (queue.length > 0) {
+    const candidate = queue.shift()
+    if (!candidate || seen.has(candidate)) {
+      continue
+    }
+    seen.add(candidate)
+
+    if (typeof candidate === "string") {
+      const text = candidate.trim()
+      if (!text) {
+        continue
+      }
+      try {
+        queue.push(JSON.parse(text) as unknown)
+      } catch {
+        for (const segment of parseJsonObjectStrings(text)) {
+          try {
+            queue.push(JSON.parse(segment) as unknown)
+          } catch {
+            continue
+          }
+        }
+      }
+      continue
+    }
+
+    if (!isRecord(candidate)) {
+      continue
+    }
+
+    const assetId = readTrimmedString(candidate.asset_id) || readTrimmedString(candidate.assetId)
+    const rawUrl = readTrimmedString(candidate.raw_url) || readTrimmedString(candidate.rawUrl)
+    const url = readTrimmedString(candidate.url)
+    const urlExpiresAt = readTrimmedString(candidate.url_expires_at) || readTrimmedString(candidate.urlExpiresAt)
+    if (assetId && url && urlExpiresAt) {
+      return {
+        assetId,
+        rawUrl,
+        url,
+        urlExpiresAt,
+      }
+    }
+
+    queue.push(candidate.result)
+    queue.push(candidate.response)
+    queue.push(candidate.data)
+
+    if (isRecord(candidate.result)) {
+      queue.push(candidate.result.response)
+      queue.push(candidate.result.data)
+    }
+    if (isRecord(candidate.response)) {
+      queue.push(candidate.response.data)
+    }
+    if (Array.isArray(candidate.data)) {
+      for (const item of candidate.data) {
+        queue.push(item)
+      }
+    }
+  }
+
+  return null
+}
+
+export function shouldRenewCardAssetUrl(card: Pick<ChatCardAttachmentPayload, "assetId" | "url" | "rawUrl" | "urlExpiresAt">, now = Date.now()): boolean {
+  const assetId = (card.assetId || "").trim()
+  if (!assetId) {
+    return false
+  }
+  const url = (card.url || "").trim()
+  if (!url || !/^https?:\/\//i.test(url)) {
+    return true
+  }
+  if (!(card.rawUrl || "").trim()) {
+    return true
+  }
+  const expiresAt = toMillisFromIso((card.urlExpiresAt || "").trim())
+  if (!expiresAt) {
+    return true
+  }
+  return expiresAt - now <= ASSET_URL_RENEW_THRESHOLD_MS
+}
+
+function withCardAssetMetadata(
+  card: ChatCardAttachmentPayload,
+  payload: RenewedAssetUrlPayload
+): ChatCardAttachmentPayload {
+  const nextUrl = payload.url.trim()
+  const nextRawUrl = payload.rawUrl.trim() || card.rawUrl
+  const image = card.image
+    ? {
+        ...card.image,
+        original: nextUrl || card.image.original,
+      }
+    : nextUrl
+      ? { original: nextUrl }
+      : undefined
+
+  return {
+    ...card,
+    assetId: payload.assetId,
+    rawUrl: nextRawUrl,
+    urlExpiresAt: payload.urlExpiresAt,
+    url: nextUrl || card.url,
+    image,
+  }
+}
+
 function isGeneratedImageNarration(text: string): boolean {
   const value = text.trim()
   if (!value) {
@@ -406,6 +555,18 @@ function canonicalizeGeneratedImagePath(raw: string): { key: string; isPart: boo
   return { key, isPart }
 }
 
+export function inferGeneratedImageAssetId(raw: string): string {
+  const sourcePath = resolveGeneratedImageSourcePath(raw)
+  if (!sourcePath) {
+    return ""
+  }
+  const match = sourcePath.match(/\/generated\/([^\/]+?)(?:-part-\d+)?\/image(?:\.[^\/?#]+)?$/i)
+  if (!match || !match[1]) {
+    return ""
+  }
+  return match[1].trim()
+}
+
 function extractGeneratedImageMarkdown(cards: ChatCardAttachmentPayload[]): string {
   if (cards.length === 0) {
     return ""
@@ -450,6 +611,36 @@ function extractGeneratedImageMarkdown(cards: ChatCardAttachmentPayload[]): stri
   return urls.map((url) => `![Generated Image](<${url}>)`).join("\n")
 }
 
+function coerceToolMetaCard(value: unknown): ChatCardAttachmentPayload | null {
+  if (!isRecord(value)) {
+    return null
+  }
+  const id = readTrimmedString(value.id)
+  if (!id) {
+    return null
+  }
+  const image = isRecord(value.image)
+    ? {
+        thumbnail: readTrimmedString(value.image.thumbnail) || undefined,
+        original: readTrimmedString(value.image.original) || undefined,
+        title: readTrimmedString(value.image.title) || undefined,
+        link: readTrimmedString(value.image.link) || undefined,
+        source: readTrimmedString(value.image.source) || undefined,
+      }
+    : undefined
+
+  return {
+    id,
+    cardType: readTrimmedString(value.cardType) || undefined,
+    type: readTrimmedString(value.type) || undefined,
+    url: readTrimmedString(value.url) || undefined,
+    assetId: readCardAssetId(value) || undefined,
+    rawUrl: readCardRawUrl(value) || undefined,
+    urlExpiresAt: readCardUrlExpiresAt(value) || undefined,
+    image,
+  }
+}
+
 export class GrokChatService implements ChatService {
   private readonly apiUrl: string
   private readonly apiKey: string
@@ -465,7 +656,179 @@ export class GrokChatService implements ChatService {
   }
 
   async listMessages(conversationId: string): Promise<ChatMessage[]> {
-    return this.repository.listMessages(conversationId)
+    const list = await this.repository.listMessages(conversationId)
+    const refreshed = await this.refreshExpiredAssetUrlsInMessages(list)
+    if (refreshed.updated.length > 0) {
+      await Promise.all(
+        refreshed.updated.map(async (message) => {
+          try {
+            await this.repository.updateMessage(conversationId, message)
+          } catch {
+            // Read path should not fail just because persistence of renewed URLs fails.
+          }
+        })
+      )
+    }
+    return refreshed.messages
+  }
+
+  private async renewAssetUrl(assetId: string): Promise<RenewedAssetUrlPayload | null> {
+    const normalizedAssetId = assetId.trim()
+    if (!normalizedAssetId) {
+      return null
+    }
+    const gatewayBaseUrl = normalizeGatewayBaseUrl(this.apiUrl)
+    const renewUrl = `${gatewayBaseUrl}/assets/${encodeURIComponent(normalizedAssetId)}/url?ttl=${ASSET_URL_RENEW_TTL_SECONDS}`
+
+    try {
+      const response = await this.runtimeFetch(renewUrl, {
+        method: "GET",
+        headers: {
+          ...(this.apiKey ? { Authorization: `Bearer ${this.apiKey}` } : {}),
+        },
+      })
+      if (!response.ok) {
+        return null
+      }
+      const rawText = await response.text().catch(() => "")
+      if (!rawText.trim()) {
+        return null
+      }
+      return parseRenewedAssetUrlResponse(rawText)
+    } catch {
+      return null
+    }
+  }
+
+  private async hydrateGeneratedImageCards(
+    cards: ChatCardAttachmentPayload[],
+    sharedRenewCache?: Map<string, Promise<RenewedAssetUrlPayload | null>>
+  ): Promise<void> {
+    if (cards.length === 0) {
+      return
+    }
+
+    const renewCache = sharedRenewCache || new Map<string, Promise<RenewedAssetUrlPayload | null>>()
+    const renewOnce = (assetId: string): Promise<RenewedAssetUrlPayload | null> => {
+      const normalizedAssetId = assetId.trim()
+      if (!normalizedAssetId) {
+        return Promise.resolve(null)
+      }
+      const existing = renewCache.get(normalizedAssetId)
+      if (existing) {
+        return existing
+      }
+      const next = this.renewAssetUrl(normalizedAssetId)
+      renewCache.set(normalizedAssetId, next)
+      return next
+    }
+
+    await Promise.all(
+      cards.map(async (item, index) => {
+        if ((item.type || "").toLowerCase() !== "generated_image") {
+          return
+        }
+        const current = cards[index]
+        const inferredAssetId =
+          (current.assetId || "").trim() ||
+          inferGeneratedImageAssetId((current.image?.original || current.url || "").trim())
+        if (!inferredAssetId) {
+          return
+        }
+        if (current.assetId !== inferredAssetId) {
+          cards[index] = {
+            ...current,
+            assetId: inferredAssetId,
+          }
+        }
+        if (!shouldRenewCardAssetUrl(cards[index])) {
+          return
+        }
+
+        const renewed = await renewOnce(inferredAssetId)
+        if (!renewed) {
+          return
+        }
+        cards[index] = withCardAssetMetadata(cards[index], renewed)
+      })
+    )
+  }
+
+  private async refreshExpiredAssetUrlsInMessages(messages: ChatMessage[]): Promise<{
+    messages: ChatMessage[]
+    updated: ChatMessage[]
+  }> {
+    const refreshed: ChatMessage[] = []
+    const updated: ChatMessage[] = []
+    const renewCache = new Map<string, Promise<RenewedAssetUrlPayload | null>>()
+
+    for (const message of messages) {
+      if (message.role !== "assistant" || !message.content.includes("<tool-meta>")) {
+        refreshed.push(message)
+        continue
+      }
+
+      const regex = /<tool-meta>([\s\S]*?)<\/tool-meta>/gi
+      const matches = Array.from(message.content.matchAll(regex))
+      if (matches.length === 0) {
+        refreshed.push(message)
+        continue
+      }
+
+      let nextContent = message.content
+      let offset = 0
+      let changed = false
+
+      for (const match of matches) {
+        const fullBlock = match[0]
+        const payloadText = match[1]?.trim() || ""
+        if (!payloadText || typeof match.index !== "number") {
+          continue
+        }
+        let payload: unknown
+        try {
+          payload = JSON.parse(payloadText) as unknown
+        } catch {
+          continue
+        }
+        if (!isRecord(payload) || !Array.isArray(payload.cards)) {
+          continue
+        }
+
+        const cards = payload.cards.map((item) => coerceToolMetaCard(item)).filter((item): item is ChatCardAttachmentPayload => Boolean(item))
+        if (cards.length === 0) {
+          continue
+        }
+
+        const before = JSON.stringify(cards)
+        await this.hydrateGeneratedImageCards(cards, renewCache)
+        const after = JSON.stringify(cards)
+        if (before === after) {
+          continue
+        }
+
+        payload.cards = cards
+        const nextBlock = `<tool-meta>${JSON.stringify(payload)}</tool-meta>`
+        const start = match.index + offset
+        const end = start + fullBlock.length
+        nextContent = `${nextContent.slice(0, start)}${nextBlock}${nextContent.slice(end)}`
+        offset += nextBlock.length - fullBlock.length
+        changed = true
+      }
+
+      if (changed) {
+        const nextMessage = { ...message, content: nextContent }
+        refreshed.push(nextMessage)
+        updated.push(nextMessage)
+      } else {
+        refreshed.push(message)
+      }
+    }
+
+    return {
+      messages: refreshed,
+      updated,
+    }
   }
 
   async upsertAnchors(anchors: ChatAnchors): Promise<void> {
@@ -572,6 +935,13 @@ export class GrokChatService implements ChatService {
         for (const item of items) {
           const isGeneratedImage = (item.type || "").toLowerCase() === "generated_image"
           const sourceBeforeNormalize = (item.image?.original || item.url || "").trim()
+          const normalizedItem =
+            isGeneratedImage && !(item.assetId || "").trim()
+              ? {
+                  ...item,
+                  assetId: inferGeneratedImageAssetId(sourceBeforeNormalize) || undefined,
+                }
+              : item
           let canonicalGeneratedKey = ""
           let nextIsPart = false
           if (isGeneratedImage) {
@@ -581,7 +951,7 @@ export class GrokChatService implements ChatService {
             nextIsPart = canonical.isPart
           }
 
-          const normalized = normalizeCardAttachmentUrls(item, this.apiUrl)
+          const normalized = normalizeCardAttachmentUrls(normalizedItem, this.apiUrl)
           if (isGeneratedImage && canonicalGeneratedKey) {
             const existingIndex = generatedImageIndexByCanonical.get(canonicalGeneratedKey)
             if (typeof existingIndex === "number" && existingIndex >= 0 && existingIndex < collectedCards.length) {
@@ -727,6 +1097,8 @@ export class GrokChatService implements ChatService {
       } finally {
         reader.releaseLock()
       }
+
+      await this.hydrateGeneratedImageCards(collectedCards)
 
       if (hasStructuredGeneratedImages) {
         assistantText = extractGeneratedImageMarkdown(collectedCards)
