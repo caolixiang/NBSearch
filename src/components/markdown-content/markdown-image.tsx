@@ -536,12 +536,12 @@ export const MarkdownImage = memo(function({
       <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
         <DialogContent
           showCloseButton={false}
-          className="max-h-[calc(100vh-2rem)] w-auto max-w-[calc(100vw-2rem)] border-none bg-transparent p-0 shadow-none"
+          className="inset-0 left-0 top-0 flex h-dvh w-screen max-h-none max-w-none translate-x-0 translate-y-0 items-center justify-center gap-0 rounded-none border-none bg-transparent p-4 shadow-none"
         >
           <img
             src={currentSrc}
             alt={alt || ""}
-            className="block max-h-[calc(100vh-2rem)] max-w-[calc(100vw-2rem)] rounded-[20px] object-contain"
+            className="mx-auto my-auto block max-h-[calc(100dvh-2rem)] max-w-[calc(100vw-2rem)] rounded-[20px] object-contain"
             onClick={(event) => {
               event.stopPropagation()
             }}
