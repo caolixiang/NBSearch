@@ -151,128 +151,136 @@ export function ChatSidebar({
     )
   }
 
-  const renderConvoItem = (convo: Conversation) => (
-    <div
-      key={convo.id}
-      className="group relative"
-      onMouseEnter={() => setHoveredId(convo.id)}
-      onMouseLeave={() => setHoveredId(null)}
-    >
-      {editingId === convo.id ? (
-        <div className="grid h-10 w-full grid-cols-[minmax(0,1fr)_auto] items-center rounded-xl bg-sidebar-accent px-2 text-sidebar-accent-foreground">
-          <input
-            value={editingTitle}
-            onChange={(event) => setEditingTitle(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                event.preventDefault()
-                confirmRename(convo.id)
-              }
-              if (event.key === "Escape") {
-                event.preventDefault()
-                resetModes()
-              }
-            }}
-            autoFocus
-            className="min-w-0 w-full bg-transparent px-1 text-sm leading-none outline-none"
-          />
-          <div className="ml-1 flex shrink-0 items-center gap-1">
-            <button
-              onClick={() => resetModes()}
-              className="shrink-0 flex size-7 items-center justify-center rounded-lg text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent/80 hover:text-sidebar-foreground"
-              aria-label="取消重命名"
-            >
-              <X className="size-4" />
-            </button>
-            <button
-              onClick={() => confirmRename(convo.id)}
-              className="shrink-0 flex size-7 items-center justify-center rounded-lg text-sidebar-foreground transition-colors hover:bg-sidebar-accent/80"
-              aria-label="确认重命名"
-            >
-              <Check className="size-4" />
-            </button>
+  const renderConvoItem = (convo: Conversation) => {
+    const canShowActionButtons = Boolean(onDelete || (onRename && !isEmptyConversation(convo)))
+    const shouldShowActions = canShowActionButtons && hoveredId === convo.id
+
+    return (
+      <div
+        key={convo.id}
+        className="group relative"
+        onMouseEnter={() => setHoveredId(convo.id)}
+        onMouseLeave={() => setHoveredId(null)}
+      >
+        {editingId === convo.id ? (
+          <div className="grid h-10 w-full grid-cols-[minmax(0,1fr)_auto] items-center rounded-xl bg-sidebar-accent px-2 text-sidebar-accent-foreground">
+            <input
+              value={editingTitle}
+              onChange={(event) => setEditingTitle(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault()
+                  confirmRename(convo.id)
+                }
+                if (event.key === "Escape") {
+                  event.preventDefault()
+                  resetModes()
+                }
+              }}
+              autoFocus
+              className="min-w-0 w-full bg-transparent px-1 text-sm leading-none outline-none"
+            />
+            <div className="ml-1 flex shrink-0 items-center gap-1">
+              <button
+                onClick={() => resetModes()}
+                className="shrink-0 flex size-7 items-center justify-center rounded-lg text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent/80 hover:text-sidebar-foreground"
+                aria-label="取消重命名"
+              >
+                <X className="size-4" />
+              </button>
+              <button
+                onClick={() => confirmRename(convo.id)}
+                className="shrink-0 flex size-7 items-center justify-center rounded-lg text-sidebar-foreground transition-colors hover:bg-sidebar-accent/80"
+                aria-label="确认重命名"
+              >
+                <Check className="size-4" />
+              </button>
+            </div>
           </div>
-        </div>
-      ) : confirmingDeleteId === convo.id ? (
-        <div className="grid h-10 w-full grid-cols-[minmax(0,1fr)_auto] items-center rounded-xl bg-sidebar-accent px-2 text-sidebar-accent-foreground">
-          <span className="block min-w-0 truncate px-1 text-sm">删除“{convo.title}”?</span>
-          <div className="ml-1 flex shrink-0 items-center gap-1">
-            <button
-              onClick={() => resetModes()}
-              className="shrink-0 flex size-7 items-center justify-center rounded-lg text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent/80 hover:text-sidebar-foreground"
-              aria-label="取消删除"
-            >
-              <X className="size-4" />
-            </button>
+        ) : confirmingDeleteId === convo.id ? (
+          <div className="grid h-10 w-full grid-cols-[minmax(0,1fr)_auto] items-center rounded-xl bg-sidebar-accent px-2 text-sidebar-accent-foreground">
+            <span className="block min-w-0 truncate px-1 text-sm">删除“{convo.title}”?</span>
+            <div className="ml-1 flex shrink-0 items-center gap-1">
+              <button
+                onClick={() => resetModes()}
+                className="shrink-0 flex size-7 items-center justify-center rounded-lg text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent/80 hover:text-sidebar-foreground"
+                aria-label="取消删除"
+              >
+                <X className="size-4" />
+              </button>
+              <button
+                onClick={() => {
+                  onDelete?.(convo.id)
+                  resetModes()
+                }}
+                className="shrink-0 flex size-7 items-center justify-center rounded-lg text-destructive transition-colors hover:bg-destructive/10"
+                aria-label="确认删除"
+              >
+                <Check className="size-4" />
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div
+            className={cn(
+              "relative h-10 w-full rounded-xl px-1 transition-colors",
+              activeId === convo.id
+                ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                : "text-sidebar-foreground hover:bg-sidebar-accent/50"
+            )}
+          >
             <button
               onClick={() => {
-                onDelete?.(convo.id)
                 resetModes()
+                onSelect(convo.id)
               }}
-              className="shrink-0 flex size-7 items-center justify-center rounded-lg text-destructive transition-colors hover:bg-destructive/10"
-              aria-label="确认删除"
-            >
-              <Check className="size-4" />
-            </button>
-          </div>
-        </div>
-      ) : (
-        <div
-          className={cn(
-            "grid h-10 w-full grid-cols-[minmax(0,1fr)_auto] items-center rounded-xl px-1 transition-colors",
-            activeId === convo.id
-              ? "bg-sidebar-accent text-sidebar-accent-foreground"
-              : "text-sidebar-foreground hover:bg-sidebar-accent/50"
-          )}
-        >
-          <button
-            onClick={() => {
-              resetModes()
-              onSelect(convo.id)
-            }}
-            className="w-full min-w-0 px-2 text-left text-sm"
-          >
-            <span className="block truncate">{resolveConversationLabel(convo)}</span>
-          </button>
-          {onDelete || (onRename && !isEmptyConversation(convo)) ? (
-            <div
               className={cn(
-                "ml-1 flex shrink-0 items-center justify-end gap-1 pr-1 transition-opacity",
-                hoveredId === convo.id || activeId === convo.id ? "opacity-100" : "pointer-events-none opacity-0"
+                "h-full w-full min-w-0 text-left text-sm transition-[padding-right] duration-150",
+                shouldShowActions ? "px-2 pr-[4.6rem]" : "px-2 pr-2"
               )}
             >
-              {onRename && !isEmptyConversation(convo) ? (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    beginRename(convo)
-                  }}
-                  disabled={disableConversationActions}
-                  className="flex size-7 items-center justify-center rounded-lg text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground disabled:cursor-not-allowed disabled:opacity-40"
-                  aria-label="重命名对话"
-                >
-                  <PenLine className="size-3.5" />
-                </button>
-              ) : null}
-              {onDelete ? (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    beginDeleteConfirm(convo)
-                  }}
-                  disabled={disableConversationActions}
-                  className="flex size-7 items-center justify-center rounded-lg text-sidebar-foreground/80 transition-colors hover:bg-destructive/10 hover:text-destructive disabled:cursor-not-allowed disabled:opacity-40"
-                  aria-label="删除对话"
-                >
-                  <Trash2 className="size-3.5" />
-                </button>
-              ) : null}
-            </div>
-          ) : null}
-        </div>
-      )}
-    </div>
-  )
+              <span className="block truncate">{resolveConversationLabel(convo)}</span>
+            </button>
+            {canShowActionButtons ? (
+              <div
+                className={cn(
+                  "absolute inset-y-0 right-1 flex items-center justify-end gap-1 transition-opacity duration-150",
+                  shouldShowActions ? "opacity-100" : "pointer-events-none opacity-0"
+                )}
+              >
+                {onRename && !isEmptyConversation(convo) ? (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      beginRename(convo)
+                    }}
+                    disabled={disableConversationActions}
+                    className="flex size-7 items-center justify-center rounded-lg text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                    aria-label="重命名对话"
+                  >
+                    <PenLine className="size-3.5" />
+                  </button>
+                ) : null}
+                {onDelete ? (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      beginDeleteConfirm(convo)
+                    }}
+                    disabled={disableConversationActions}
+                    className="flex size-7 items-center justify-center rounded-lg text-sidebar-foreground/80 transition-colors hover:bg-destructive/10 hover:text-destructive disabled:cursor-not-allowed disabled:opacity-40"
+                    aria-label="删除对话"
+                  >
+                    <Trash2 className="size-3.5" />
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+        )}
+      </div>
+    )
+  }
 
   return (
     <div className="flex h-full w-64 flex-col border-r border-border bg-sidebar">
