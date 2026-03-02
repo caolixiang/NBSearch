@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
   useMemo,
+  type MouseEvent,
   type SyntheticEvent,
 } from "react"
 import { Download, Video } from "lucide-react"
@@ -13,6 +14,7 @@ import { hasTauriRuntime } from "@/app/runtime-info"
 import { buildGrokChromeImageHeaders } from "@/infrastructure/http/chrome-image-headers"
 import { runtimeFetch } from "@/infrastructure/http/runtime-fetch"
 import { tauriTlsImageFetch } from "@/infrastructure/http/tauri-tls-image-fetch"
+import { Dialog, DialogContent } from "@/components/ui/dialog"
 
 // Default off: keep TLS JA3/JA4 path as opt-in experiment.
 const ENABLE_TLS_IMAGE_FETCH_EXPERIMENT = false
@@ -237,6 +239,7 @@ export const MarkdownImage = memo(function({
   const [failed, setFailed] = useState(false)
   const [runtimeLoading, setRuntimeLoading] = useState(false)
   const [reloadNonce, setReloadNonce] = useState(0)
+  const [previewOpen, setPreviewOpen] = useState(false)
   const fallbackAttemptedRef = useRef(false)
   const swappedProtocolRef = useRef(false)
   const objectUrlRef = useRef<string>("")
@@ -484,6 +487,12 @@ export const MarkdownImage = memo(function({
     setCurrentSrc("")
   }
 
+  const handleImageClick = (event: MouseEvent<HTMLImageElement>) => {
+    event.preventDefault()
+    event.stopPropagation()
+    setPreviewOpen(true)
+  }
+
   if (failed || !currentSrc.trim()) {
     const fallbackLink = (primarySrc || fallbackSrc || "").trim()
     return (
@@ -513,13 +522,32 @@ export const MarkdownImage = memo(function({
   }
 
   return (
-    <img
-      src={currentSrc}
-      alt={alt || ""}
-      loading="lazy"
-      onError={handleError}
-      className="grok-md-image block h-auto max-h-[72vh] w-full rounded-[24px] bg-secondary/20 object-contain"
-      data-grok-md-image="true"
-    />
+    <>
+      <img
+        src={currentSrc}
+        alt={alt || ""}
+        loading="lazy"
+        onError={handleError}
+        onClick={handleImageClick}
+        className="grok-md-image block h-auto max-h-[72vh] w-full cursor-zoom-in rounded-[24px] bg-secondary/20 object-contain"
+        data-grok-md-image="true"
+      />
+
+      <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
+        <DialogContent
+          showCloseButton={false}
+          className="max-h-[calc(100vh-2rem)] w-auto max-w-[calc(100vw-2rem)] border-none bg-transparent p-0 shadow-none"
+        >
+          <img
+            src={currentSrc}
+            alt={alt || ""}
+            className="block max-h-[calc(100vh-2rem)] max-w-[calc(100vw-2rem)] rounded-[20px] object-contain"
+            onClick={(event) => {
+              event.stopPropagation()
+            }}
+          />
+        </DialogContent>
+      </Dialog>
+    </>
   )
 })
