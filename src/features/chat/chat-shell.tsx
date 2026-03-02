@@ -31,6 +31,15 @@ function newConversationId(): string {
 const DRAFT_CONVERSATION_ID = "draft_new_conversation"
 const CHAT_INPUT_REVEAL_DELAY_MS = 500
 
+type ConversationStreamingState = {
+  assistantText: string
+  reasoningEvents: ChatReasoningEventDetail[]
+  reasoningActive: boolean
+  reasoningDurationSeconds: number
+  startedAt: number
+  leadAnchorMessageId: string | null
+}
+
 function toRenderMessage(message: DomainChatMessage): RenderChatMessage | null {
   if (message.role !== "user" && message.role !== "assistant") {
     return null
@@ -195,19 +204,17 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
   const [hasDraftConversation, setHasDraftConversation] = useState(false)
   const [draftConversationUpdatedAt, setDraftConversationUpdatedAt] = useState(0)
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null)
-  const [messages, setMessages] = useState<DomainChatMessage[]>([])
-  const [isStreaming, setIsStreaming] = useState(false)
-  const [streamingAssistantText, setStreamingAssistantText] = useState("")
-  const [streamingReasoningEvents, setStreamingReasoningEvents] = useState<ChatReasoningEventDetail[]>([])
-  const [streamingReasoningActive, setStreamingReasoningActive] = useState(false)
-  const [persistedReasoningByMessageId, setPersistedReasoningByMessageId] = useState<
-    Record<string, ChatReasoningEventDetail[]>
+  const [messagesByConversationId, setMessagesByConversationId] = useState<Record<string, DomainChatMessage[]>>({})
+  const [streamingStateByConversationId, setStreamingStateByConversationId] = useState<
+    Record<string, ConversationStreamingState>
   >({})
-  const [persistedReasoningDurationByMessageId, setPersistedReasoningDurationByMessageId] = useState<
-    Record<string, number>
+  const [persistedReasoningByConversationId, setPersistedReasoningByConversationId] = useState<
+    Record<string, Record<string, ChatReasoningEventDetail[]>>
   >({})
-  const [streamingReasoningDurationSeconds, setStreamingReasoningDurationSeconds] = useState(0)
-  const [lastError, setLastError] = useState("")
+  const [persistedReasoningDurationByConversationId, setPersistedReasoningDurationByConversationId] = useState<
+    Record<string, Record<string, number>>
+  >({})
+  const [lastErrorByConversationId, setLastErrorByConversationId] = useState<Record<string, string>>({})
   const [modelError, setModelError] = useState("")
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true)
   const [chatInputCollapsedByScroll, setChatInputCollapsedByScroll] = useState(false)
@@ -221,24 +228,55 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
   })
   const [isRefreshingModels, setIsRefreshingModels] = useState(false)
 
-  const abortRef = useRef<AbortController | null>(null)
+  const abortControllerByConversationIdRef = useRef<Record<string, AbortController>>({})
   const activeConversationIdRef = useRef<string | null>(null)
   const messagesScrollRef = useRef<HTMLDivElement | null>(null)
   const shouldAutoScrollRef = useRef(true)
   const lastScrollTopRef = useRef(0)
   const programmaticScrollRef = useRef(false)
-  const leadAnchorMessageIdRef = useRef<string | null>(null)
-  const streamingAssistantTextRef = useRef("")
-  const reasoningEverStartedRef = useRef(false)
-  const assistantOutputStartedRef = useRef(false)
-  const streamingTurnStartedAtRef = useRef<number | null>(null)
-  const streamingReasoningEventsRef = useRef<ChatReasoningEventDetail[]>([])
-  const reasoningStopTimerRef = useRef<number | null>(null)
   const chatInputRevealTimerRef = useRef<number | null>(null)
 
   useEffect(() => {
     activeConversationIdRef.current = activeConversationId
   }, [activeConversationId])
+
+  const activeMessages = useMemo(() => {
+    if (!activeConversationId) {
+      return []
+    }
+    return messagesByConversationId[activeConversationId] || []
+  }, [activeConversationId, messagesByConversationId])
+
+  const activePersistedReasoningByMessageId = useMemo(() => {
+    if (!activeConversationId) {
+      return {}
+    }
+    return persistedReasoningByConversationId[activeConversationId] || {}
+  }, [activeConversationId, persistedReasoningByConversationId])
+
+  const activePersistedReasoningDurationByMessageId = useMemo(() => {
+    if (!activeConversationId) {
+      return {}
+    }
+    return persistedReasoningDurationByConversationId[activeConversationId] || {}
+  }, [activeConversationId, persistedReasoningDurationByConversationId])
+
+  const activeLastError = useMemo(() => {
+    if (!activeConversationId) {
+      return ""
+    }
+    return lastErrorByConversationId[activeConversationId] || ""
+  }, [activeConversationId, lastErrorByConversationId])
+
+  const activeStreamingState = useMemo(() => {
+    if (!activeConversationId) {
+      return undefined
+    }
+    return streamingStateByConversationId[activeConversationId]
+  }, [activeConversationId, streamingStateByConversationId])
+
+  const isActiveConversationStreaming = Boolean(activeStreamingState)
+  const activeLeadAnchorMessageId = activeStreamingState?.leadAnchorMessageId || null
 
   const clearChatInputRevealTimer = useCallback(() => {
     if (chatInputRevealTimerRef.current) {
@@ -255,14 +293,6 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     }, CHAT_INPUT_REVEAL_DELAY_MS)
   }, [clearChatInputRevealTimer])
 
-  const resolveStreamingReasoningDurationSeconds = useCallback((): number => {
-    const startedAt = streamingTurnStartedAtRef.current
-    if (!startedAt) {
-      return 0
-    }
-    return Math.max(1, Math.round((Date.now() - startedAt) / 1000))
-  }, [])
-
   const setProgrammaticScrollTop = useCallback((node: HTMLDivElement, nextTop: number) => {
     programmaticScrollRef.current = true
     node.scrollTop = nextTop
@@ -272,18 +302,6 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       lastScrollTopRef.current = node.scrollTop
     })
   }, [])
-
-  useEffect(() => {
-    if (!isStreaming || !streamingTurnStartedAtRef.current) {
-      return
-    }
-    const syncElapsed = () => {
-      setStreamingReasoningDurationSeconds(resolveStreamingReasoningDurationSeconds())
-    }
-    syncElapsed()
-    const timer = window.setInterval(syncElapsed, 1000)
-    return () => window.clearInterval(timer)
-  }, [isStreaming, resolveStreamingReasoningDurationSeconds])
 
   const sidebarConversations = useMemo(
     () => {
@@ -305,7 +323,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
   )
 
   const visibleMessages = useMemo(() => {
-    const rendered = messages
+    const rendered = activeMessages
       .map((message) => {
         const row = toRenderMessage(message)
         if (!row || row.role !== "assistant") {
@@ -315,16 +333,16 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
           Array.isArray(message.reasoningEvents) && message.reasoningEvents.length > 0
             ? message.reasoningEvents
             : undefined
-        const byMessageId = persistedReasoningByMessageId[message.id]
-        const byResponseId = message.responseId ? persistedReasoningByMessageId[message.responseId] : undefined
+        const byMessageId = activePersistedReasoningByMessageId[message.id]
+        const byResponseId = message.responseId ? activePersistedReasoningByMessageId[message.responseId] : undefined
         const reasoningEvents = embeddedReasoningEvents || byMessageId || byResponseId
         const embeddedReasoningDuration =
           typeof message.reasoningDurationSeconds === "number" && message.reasoningDurationSeconds > 0
             ? Math.max(1, Math.round(message.reasoningDurationSeconds))
             : 0
-        const durationByMessageId = persistedReasoningDurationByMessageId[message.id]
+        const durationByMessageId = activePersistedReasoningDurationByMessageId[message.id]
         const durationByResponseId = message.responseId
-          ? persistedReasoningDurationByMessageId[message.responseId]
+          ? activePersistedReasoningDurationByMessageId[message.responseId]
           : undefined
         const reasoningDurationSeconds =
           embeddedReasoningDuration || durationByMessageId || durationByResponseId || 0
@@ -340,42 +358,52 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       })
       .filter((item): item is RenderChatMessage => item !== null)
 
-    const shouldUseThinkMarkupFallback = streamingReasoningEvents.length === 0
-    const hasThinkMarkup = shouldUseThinkMarkupFallback && hasAnyThinkTag(streamingAssistantText)
-    const effectiveStreamingReasoningActive =
-      hasThinkMarkup ? hasOpenThinkTag(streamingAssistantText) : streamingReasoningActive
-    const hasRenderableStreamingAssistant =
-      streamingAssistantText.trim().length > 0 || effectiveStreamingReasoningActive
+    const activeStreamingAssistantText = activeStreamingState?.assistantText || ""
+    const activeStreamingReasoningEvents = activeStreamingState?.reasoningEvents || []
+    const activeStreamingReasoningActive = activeStreamingState?.reasoningActive || false
+    const activeStreamingReasoningDurationSeconds = activeStreamingState?.reasoningDurationSeconds || 0
 
-    if (isStreaming && hasRenderableStreamingAssistant) {
+    const shouldUseThinkMarkupFallback = activeStreamingReasoningEvents.length === 0
+    const hasThinkMarkup = shouldUseThinkMarkupFallback && hasAnyThinkTag(activeStreamingAssistantText)
+    const effectiveStreamingReasoningActive =
+      hasThinkMarkup ? hasOpenThinkTag(activeStreamingAssistantText) : activeStreamingReasoningActive
+    const hasRenderableStreamingAssistant =
+      activeStreamingAssistantText.trim().length > 0 || effectiveStreamingReasoningActive
+
+    if (activeStreamingState && hasRenderableStreamingAssistant) {
       rendered.push({
         id: "streaming_assistant",
         role: "assistant",
-        content: streamingAssistantText,
-        reasoningEvents: streamingReasoningEvents,
+        content: activeStreamingAssistantText,
+        reasoningEvents: activeStreamingReasoningEvents,
         reasoningActive: effectiveStreamingReasoningActive,
-        reasoningDurationSeconds: streamingReasoningDurationSeconds,
+        reasoningDurationSeconds: activeStreamingReasoningDurationSeconds,
       })
     }
 
     return rendered
   }, [
-    isStreaming,
-    messages,
-    persistedReasoningByMessageId,
-    persistedReasoningDurationByMessageId,
-    streamingReasoningDurationSeconds,
-    streamingAssistantText,
-    streamingReasoningActive,
-    streamingReasoningEvents,
+    activeConversationId,
+    activeMessages,
+    activePersistedReasoningByMessageId,
+    activePersistedReasoningDurationByMessageId,
+    activeStreamingState,
   ])
 
-  const shouldUseThinkMarkupFallback = streamingReasoningEvents.length === 0
-  const hasThinkMarkup = shouldUseThinkMarkupFallback && hasAnyThinkTag(streamingAssistantText)
+  const activeStreamingAssistantText = activeStreamingState?.assistantText || ""
+  const activeStreamingReasoningEvents = activeStreamingState?.reasoningEvents || []
+  const activeStreamingReasoningActive = activeStreamingState?.reasoningActive || false
+  const activeStreamingReasoningDurationSeconds = activeStreamingState?.reasoningDurationSeconds || 0
+
+  const shouldUseThinkMarkupFallback = activeStreamingReasoningEvents.length === 0
+  const hasThinkMarkup = shouldUseThinkMarkupFallback && hasAnyThinkTag(activeStreamingAssistantText)
   const effectiveStreamingReasoningActive =
-    hasThinkMarkup ? hasOpenThinkTag(streamingAssistantText) : streamingReasoningActive
-  const isThinkingStreaming = isStreaming && effectiveStreamingReasoningActive
-  const shouldShowThinkingWarmup = isStreaming && streamingAssistantText.trim().length === 0 && !isThinkingStreaming
+    hasThinkMarkup ? hasOpenThinkTag(activeStreamingAssistantText) : activeStreamingReasoningActive
+  const isThinkingStreaming = isActiveConversationStreaming && effectiveStreamingReasoningActive
+  const shouldShowThinkingWarmup =
+    isActiveConversationStreaming &&
+    activeStreamingAssistantText.trim().length === 0 &&
+    !isThinkingStreaming
   const messageBottomSpacerPx = useMemo(() => {
     const base = isThinkingStreaming ? 40 : 16
     // Keep enough trailing scroll range even when composer is auto-collapsed,
@@ -430,7 +458,10 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
   const loadMessages = useCallback(
     async (conversationId: string): Promise<void> => {
       const list = await chatService.listMessages(conversationId)
-      setMessages(list)
+      setMessagesByConversationId((prev) => ({
+        ...prev,
+        [conversationId]: list,
+      }))
 
       const nextReasoningByMessageId: Record<string, ChatReasoningEventDetail[]> = {}
       const nextReasoningDurationByMessageId: Record<string, number> = {}
@@ -462,8 +493,14 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
         }
       }
 
-      setPersistedReasoningByMessageId(nextReasoningByMessageId)
-      setPersistedReasoningDurationByMessageId(nextReasoningDurationByMessageId)
+      setPersistedReasoningByConversationId((prev) => ({
+        ...prev,
+        [conversationId]: nextReasoningByMessageId,
+      }))
+      setPersistedReasoningDurationByConversationId((prev) => ({
+        ...prev,
+        [conversationId]: nextReasoningDurationByMessageId,
+      }))
     },
     [chatService]
   )
@@ -485,7 +522,10 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       setDraftConversationUpdatedAt(0)
       setActiveConversationId(id)
       await refreshConversations()
-      setMessages([])
+      setMessagesByConversationId((prev) => ({
+        ...prev,
+        [id]: [],
+      }))
       return id
     },
     [repository, refreshConversations]
@@ -522,12 +562,11 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
 
     return () => {
       mounted = false
-      if (reasoningStopTimerRef.current) {
-        window.clearTimeout(reasoningStopTimerRef.current)
-        reasoningStopTimerRef.current = null
-      }
       clearChatInputRevealTimer()
-      abortRef.current?.abort()
+      for (const controller of Object.values(abortControllerByConversationIdRef.current)) {
+        controller.abort()
+      }
+      abortControllerByConversationIdRef.current = {}
     }
   }, [clearChatInputRevealTimer, loadMessages, refreshConversations])
 
@@ -536,9 +575,9 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     if (!node) {
       return
     }
-    if (isThinkingStreaming && leadAnchorMessageIdRef.current && shouldAutoScrollRef.current) {
+    if (isThinkingStreaming && activeLeadAnchorMessageId && shouldAutoScrollRef.current) {
       const raf = window.requestAnimationFrame(() => {
-        const anchorId = leadAnchorMessageIdRef.current
+        const anchorId = activeLeadAnchorMessageId
         if (!anchorId) {
           return
         }
@@ -555,11 +594,11 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       return
     }
     setProgrammaticScrollTop(node, node.scrollHeight)
-  }, [isThinkingStreaming, setProgrammaticScrollTop, streamingAssistantText, visibleMessages])
+  }, [activeLeadAnchorMessageId, isThinkingStreaming, setProgrammaticScrollTop, activeStreamingAssistantText, visibleMessages])
 
   // ResizeObserver: auto-scroll on content height changes (image loads, layout shifts)
   useEffect(() => {
-    if (!isStreaming) {
+    if (!isActiveConversationStreaming) {
       return
     }
     const node = messagesScrollRef.current
@@ -570,7 +609,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       if (!shouldAutoScrollRef.current) {
         return
       }
-      if (isThinkingStreaming && leadAnchorMessageIdRef.current) {
+      if (isThinkingStreaming && activeLeadAnchorMessageId) {
         return
       }
       setProgrammaticScrollTop(node, node.scrollHeight)
@@ -581,7 +620,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       observer.observe(inner)
     }
     return () => observer.disconnect()
-  }, [isStreaming, isThinkingStreaming, setProgrammaticScrollTop])
+  }, [activeLeadAnchorMessageId, isActiveConversationStreaming, isThinkingStreaming, setProgrammaticScrollTop])
 
   const handleMessagesScroll = useCallback(() => {
     const node = messagesScrollRef.current
@@ -630,29 +669,18 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       const selectedAttachments = Array.isArray(attachments)
         ? attachments.filter((file) => Boolean(file))
         : []
-      if ((!content && selectedAttachments.length === 0) || isStreaming) {
+      if (!content && selectedAttachments.length === 0) {
+        return
+      }
+      const conversationId = await ensureConversation()
+      if (streamingStateByConversationId[conversationId]) {
         return
       }
       const optimisticContent = buildUserMessageContent(content, selectedAttachments)
-
-      setLastError("")
-      setStreamingAssistantText("")
-      streamingAssistantTextRef.current = ""
-      reasoningEverStartedRef.current = false
-      assistantOutputStartedRef.current = false
-      streamingTurnStartedAtRef.current = Date.now()
-      setStreamingReasoningDurationSeconds(0)
-      setStreamingReasoningEvents([])
-      setStreamingReasoningActive(false)
-      if (reasoningStopTimerRef.current) {
-        window.clearTimeout(reasoningStopTimerRef.current)
-        reasoningStopTimerRef.current = null
-      }
-      streamingReasoningEventsRef.current = []
-      setIsStreaming(true)
-      shouldAutoScrollRef.current = true
-
-      const conversationId = await ensureConversation()
+      setLastErrorByConversationId((prev) => ({
+        ...prev,
+        [conversationId]: "",
+      }))
       const current = conversations.find((item) => item.id === conversationId)
       const anchors =
         current?.anchors && Object.keys(current.anchors).length > 0
@@ -666,11 +694,93 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
         createdAt: Date.now(),
         status: "completed",
       }
-      leadAnchorMessageIdRef.current = optimisticMessage.id
-      setMessages((prev) => [...prev, optimisticMessage])
+      shouldAutoScrollRef.current = activeConversationIdRef.current === conversationId
+      setMessagesByConversationId((prev) => ({
+        ...prev,
+        [conversationId]: [...(prev[conversationId] || []), optimisticMessage],
+      }))
+
+      const startedAt = Date.now()
+      let assistantText = ""
+      let reasoningEvents: ChatReasoningEventDetail[] = []
+      let reasoningActive = false
+      let assistantOutputStarted = false
+      let reasoningEverStarted = false
+      let reasoningStopTimer: number | null = null
+
+      setStreamingStateByConversationId((prev) => ({
+        ...prev,
+        [conversationId]: {
+          assistantText: "",
+          reasoningEvents: [],
+          reasoningActive: false,
+          reasoningDurationSeconds: 0,
+          startedAt,
+          leadAnchorMessageId: optimisticMessage.id,
+        },
+      }))
+
+      const syncStreamingState = () => {
+        setStreamingStateByConversationId((prev) => {
+          const currentState = prev[conversationId]
+          if (!currentState) {
+            return prev
+          }
+          return {
+            ...prev,
+            [conversationId]: {
+              ...currentState,
+              assistantText,
+              reasoningEvents,
+              reasoningActive,
+            },
+          }
+        })
+      }
+
+      const clearReasoningStopTimer = () => {
+        if (reasoningStopTimer !== null) {
+          window.clearTimeout(reasoningStopTimer)
+          reasoningStopTimer = null
+        }
+      }
+
+      const durationTimer = window.setInterval(() => {
+        setStreamingStateByConversationId((prev) => {
+          const currentState = prev[conversationId]
+          if (!currentState) {
+            return prev
+          }
+          const nextDuration = Math.max(1, Math.round((Date.now() - startedAt) / 1000))
+          if (currentState.reasoningDurationSeconds === nextDuration) {
+            return prev
+          }
+          return {
+            ...prev,
+            [conversationId]: {
+              ...currentState,
+              reasoningDurationSeconds: nextDuration,
+            },
+          }
+        })
+      }, 1000)
+
+      const clearStreamingState = () => {
+        clearReasoningStopTimer()
+        window.clearInterval(durationTimer)
+        delete abortControllerByConversationIdRef.current[conversationId]
+        setStreamingStateByConversationId((prev) => {
+          if (!(conversationId in prev)) {
+            return prev
+          }
+          const next = { ...prev }
+          delete next[conversationId]
+          return next
+        })
+      }
 
       const controller = new AbortController()
-      abortRef.current = controller
+      abortControllerByConversationIdRef.current[conversationId] = controller
 
       try {
         await chatService.streamTurn(
@@ -682,125 +792,106 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
           },
           (event) => {
             if (event.type === "delta") {
-              const nextText = `${streamingAssistantTextRef.current}${event.textDelta}`
-              streamingAssistantTextRef.current = nextText
-              setStreamingAssistantText(nextText)
+              const nextText = `${assistantText}${event.textDelta}`
+              assistantText = nextText
               const hasVisibleDelta = event.textDelta.trim().length > 0
               if (hasVisibleDelta) {
-                assistantOutputStartedRef.current = true
+                assistantOutputStarted = true
               }
 
               // Once regular answer text starts, collapse reasoning panel immediately.
               if (
-                assistantOutputStartedRef.current &&
-                (reasoningEverStartedRef.current ||
-                  streamingReasoningEventsRef.current.length > 0 ||
-                  streamingReasoningActive) &&
+                assistantOutputStarted &&
+                (reasoningEverStarted || reasoningEvents.length > 0 || reasoningActive) &&
                 (!hasAnyThinkTag(nextText) || !hasOpenThinkTag(nextText))
               ) {
-                if (reasoningStopTimerRef.current) {
-                  window.clearTimeout(reasoningStopTimerRef.current)
-                  reasoningStopTimerRef.current = null
-                }
-                setStreamingReasoningActive(false)
+                clearReasoningStopTimer()
+                reasoningActive = false
               }
+              syncStreamingState()
               return
             }
 
             if (event.type === "reasoning") {
-              const nextReasoningEvents = appendReasoningEvent(streamingReasoningEventsRef.current, event.detail)
-              streamingReasoningEventsRef.current = nextReasoningEvents
-              setStreamingReasoningEvents(nextReasoningEvents)
-              const nextReasoningActive = inferReasoningActive(nextReasoningEvents)
-              if (nextReasoningActive && !assistantOutputStartedRef.current) {
-                reasoningEverStartedRef.current = true
-                if (reasoningStopTimerRef.current) {
-                  window.clearTimeout(reasoningStopTimerRef.current)
-                  reasoningStopTimerRef.current = null
-                }
-                setStreamingReasoningActive(true)
-              } else if (assistantOutputStartedRef.current) {
-                if (reasoningStopTimerRef.current) {
-                  window.clearTimeout(reasoningStopTimerRef.current)
-                  reasoningStopTimerRef.current = null
-                }
+              reasoningEvents = appendReasoningEvent(reasoningEvents, event.detail)
+              const nextReasoningActive = inferReasoningActive(reasoningEvents)
+              if (nextReasoningActive && !assistantOutputStarted) {
+                reasoningEverStarted = true
+                clearReasoningStopTimer()
+                reasoningActive = true
+              } else if (assistantOutputStarted) {
+                clearReasoningStopTimer()
                 // Keep timeline collapsed after answer text starts.
-                setStreamingReasoningActive(false)
-              } else if (reasoningEverStartedRef.current && !streamingAssistantTextRef.current.trim()) {
-                if (reasoningStopTimerRef.current) {
-                  window.clearTimeout(reasoningStopTimerRef.current)
-                  reasoningStopTimerRef.current = null
-                }
+                reasoningActive = false
+              } else if (reasoningEverStarted && !assistantText.trim()) {
+                clearReasoningStopTimer()
                 // Sticky thinking UX: avoid pre-answer flicker when reasoning has transient gaps.
-                setStreamingReasoningActive(true)
-              } else if (!reasoningStopTimerRef.current) {
-                reasoningStopTimerRef.current = window.setTimeout(() => {
-                  setStreamingReasoningActive(false)
-                  reasoningStopTimerRef.current = null
+                reasoningActive = true
+              } else if (reasoningStopTimer === null) {
+                reasoningStopTimer = window.setTimeout(() => {
+                  reasoningActive = false
+                  reasoningStopTimer = null
+                  syncStreamingState()
                 }, 700)
               }
+              syncStreamingState()
               return
             }
 
             if (event.type === "completed") {
-              if (reasoningStopTimerRef.current) {
-                window.clearTimeout(reasoningStopTimerRef.current)
-                reasoningStopTimerRef.current = null
-              }
+              clearReasoningStopTimer()
               const completedAssistantMessage = event.result.assistantMessage
-              const reasoningSnapshot =
-                completedAssistantMessage.reasoningEvents || streamingReasoningEventsRef.current
+              const reasoningSnapshot = completedAssistantMessage.reasoningEvents || reasoningEvents
               const finalDurationSeconds =
                 completedAssistantMessage.reasoningDurationSeconds ||
-                resolveStreamingReasoningDurationSeconds()
+                Math.max(1, Math.round((Date.now() - startedAt) / 1000))
               const shouldPersistReasoningDuration =
                 (typeof completedAssistantMessage.reasoningDurationSeconds === "number" &&
                   completedAssistantMessage.reasoningDurationSeconds > 0) ||
-                reasoningEverStartedRef.current ||
+                reasoningEverStarted ||
                 reasoningSnapshot.length > 0
               if (reasoningSnapshot.length > 0) {
                 const messageId = event.result.assistantMessage.id.trim()
                 const responseId = event.result.assistantMessage.responseId?.trim() || ""
-                setPersistedReasoningByMessageId((prev) => ({
+                setPersistedReasoningByConversationId((prev) => ({
                   ...prev,
-                  [messageId]: reasoningSnapshot,
-                  ...(responseId ? { [responseId]: reasoningSnapshot } : {}),
+                  [conversationId]: {
+                    ...(prev[conversationId] || {}),
+                    [messageId]: reasoningSnapshot,
+                    ...(responseId ? { [responseId]: reasoningSnapshot } : {}),
+                  },
                 }))
                 if (shouldPersistReasoningDuration) {
-                  setPersistedReasoningDurationByMessageId((prev) => ({
+                  setPersistedReasoningDurationByConversationId((prev) => ({
                     ...prev,
-                    [messageId]: finalDurationSeconds,
-                    ...(responseId ? { [responseId]: finalDurationSeconds } : {}),
+                    [conversationId]: {
+                      ...(prev[conversationId] || {}),
+                      [messageId]: finalDurationSeconds,
+                      ...(responseId ? { [responseId]: finalDurationSeconds } : {}),
+                    },
                   }))
                 }
               } else if (shouldPersistReasoningDuration) {
                 const messageId = event.result.assistantMessage.id.trim()
                 const responseId = event.result.assistantMessage.responseId?.trim() || ""
-                setPersistedReasoningDurationByMessageId((prev) => ({
+                setPersistedReasoningDurationByConversationId((prev) => ({
                   ...prev,
-                  [messageId]: finalDurationSeconds,
-                  ...(responseId ? { [responseId]: finalDurationSeconds } : {}),
+                  [conversationId]: {
+                    ...(prev[conversationId] || {}),
+                    [messageId]: finalDurationSeconds,
+                    ...(responseId ? { [responseId]: finalDurationSeconds } : {}),
+                  },
                 }))
               }
-              setStreamingAssistantText("")
-              streamingAssistantTextRef.current = ""
-              reasoningEverStartedRef.current = false
-              assistantOutputStartedRef.current = false
-              streamingTurnStartedAtRef.current = null
-              setStreamingReasoningDurationSeconds(0)
-              setStreamingReasoningEvents([])
-              setStreamingReasoningActive(false)
-              streamingReasoningEventsRef.current = []
               shouldAutoScrollRef.current = true
-              setIsStreaming(false)
-              leadAnchorMessageIdRef.current = null
+              clearStreamingState()
               const scrollNode = messagesScrollRef.current
               if (scrollNode) {
                 setProgrammaticScrollTop(scrollNode, scrollNode.scrollHeight)
               }
               void refreshConversations().then(async () => {
+                await loadMessages(conversationId)
                 if (activeConversationIdRef.current === conversationId) {
-                  await loadMessages(conversationId)
                   const node = messagesScrollRef.current
                   if (node) {
                     setProgrammaticScrollTop(node, node.scrollHeight)
@@ -811,122 +902,79 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
             }
 
             if (event.type === "failed") {
-              if (reasoningStopTimerRef.current) {
-                window.clearTimeout(reasoningStopTimerRef.current)
-                reasoningStopTimerRef.current = null
-              }
-              setStreamingAssistantText("")
-              streamingAssistantTextRef.current = ""
-              reasoningEverStartedRef.current = false
-              assistantOutputStartedRef.current = false
-              streamingTurnStartedAtRef.current = null
-              setStreamingReasoningDurationSeconds(0)
-              setStreamingReasoningEvents([])
-              setStreamingReasoningActive(false)
-              streamingReasoningEventsRef.current = []
-              setIsStreaming(false)
-              leadAnchorMessageIdRef.current = null
-              setLastError(event.message)
+              clearStreamingState()
+              setLastErrorByConversationId((prev) => ({
+                ...prev,
+                [conversationId]: event.message,
+              }))
             }
           },
           controller.signal
         )
       } catch (error) {
-        if (reasoningStopTimerRef.current) {
-          window.clearTimeout(reasoningStopTimerRef.current)
-          reasoningStopTimerRef.current = null
+        const wasAborted = controller.signal.aborted
+        clearStreamingState()
+        if (wasAborted) {
+          return
         }
-        setStreamingAssistantText("")
-        streamingAssistantTextRef.current = ""
-        reasoningEverStartedRef.current = false
-        assistantOutputStartedRef.current = false
-        streamingTurnStartedAtRef.current = null
-        setStreamingReasoningDurationSeconds(0)
-        setStreamingReasoningEvents([])
-        setStreamingReasoningActive(false)
-        streamingReasoningEventsRef.current = []
-        setIsStreaming(false)
-        leadAnchorMessageIdRef.current = null
-        setLastError(error instanceof Error ? error.message : "chat_stream_error")
-      } finally {
-        abortRef.current = null
+        setLastErrorByConversationId((prev) => ({
+          ...prev,
+          [conversationId]: error instanceof Error ? error.message : "chat_stream_error",
+        }))
       }
     },
     [
       chatService,
       conversations,
       ensureConversation,
-      isStreaming,
       loadMessages,
-      refreshConversations,
-      resolveStreamingReasoningDurationSeconds,
-      selectedModel,
       setProgrammaticScrollTop,
-      streamingReasoningActive,
+      refreshConversations,
+      selectedModel,
+      streamingStateByConversationId,
     ]
   )
 
   const handleSelectConversation = useCallback(
     async (conversationId: string): Promise<void> => {
-      if (isStreaming || conversationId === activeConversationIdRef.current) {
+      if (conversationId === activeConversationIdRef.current) {
         return
       }
-      if (reasoningStopTimerRef.current) {
-        window.clearTimeout(reasoningStopTimerRef.current)
-        reasoningStopTimerRef.current = null
-      }
-      setLastError("")
-      setStreamingAssistantText("")
-      streamingAssistantTextRef.current = ""
-      reasoningEverStartedRef.current = false
-      assistantOutputStartedRef.current = false
-      streamingTurnStartedAtRef.current = null
-      setStreamingReasoningDurationSeconds(0)
-      setStreamingReasoningEvents([])
-      setStreamingReasoningActive(false)
-      streamingReasoningEventsRef.current = []
-      leadAnchorMessageIdRef.current = null
       if (conversationId === DRAFT_CONVERSATION_ID) {
         setHasDraftConversation(true)
         setDraftConversationUpdatedAt((prev) => prev || Date.now())
         setActiveConversationId(DRAFT_CONVERSATION_ID)
-        setMessages([])
+        setMessagesByConversationId((prev) => ({
+          ...prev,
+          [DRAFT_CONVERSATION_ID]: prev[DRAFT_CONVERSATION_ID] || [],
+        }))
         return
       }
       setActiveConversationId(conversationId)
-      await loadMessages(conversationId)
+      const isSelectedConversationStreaming = Boolean(streamingStateByConversationId[conversationId])
+      if (!isSelectedConversationStreaming) {
+        await loadMessages(conversationId)
+      }
     },
-    [isStreaming, loadMessages]
+    [loadMessages, streamingStateByConversationId]
   )
 
   const handleNewConversation = useCallback(() => {
-    if (isStreaming) {
-      return
-    }
-    if (reasoningStopTimerRef.current) {
-      window.clearTimeout(reasoningStopTimerRef.current)
-      reasoningStopTimerRef.current = null
-    }
-    setLastError("")
-    setStreamingAssistantText("")
-    streamingAssistantTextRef.current = ""
-    reasoningEverStartedRef.current = false
-    assistantOutputStartedRef.current = false
-    streamingTurnStartedAtRef.current = null
-    setStreamingReasoningDurationSeconds(0)
-    setStreamingReasoningEvents([])
-    setStreamingReasoningActive(false)
-    streamingReasoningEventsRef.current = []
-    leadAnchorMessageIdRef.current = null
     if (activeConversationIdRef.current === DRAFT_CONVERSATION_ID) {
-      setMessages([])
+      setMessagesByConversationId((prev) => ({
+        ...prev,
+        [DRAFT_CONVERSATION_ID]: [],
+      }))
       return
     }
     setHasDraftConversation(true)
     setDraftConversationUpdatedAt(Date.now())
     setActiveConversationId(DRAFT_CONVERSATION_ID)
-    setMessages([])
-  }, [isStreaming])
+    setMessagesByConversationId((prev) => ({
+      ...prev,
+      [DRAFT_CONVERSATION_ID]: [],
+    }))
+  }, [])
 
   const handleRenameConversation = useCallback(
     async (conversationId: string, title: string): Promise<void> => {
@@ -946,69 +994,77 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
 
   const handleDeleteConversation = useCallback(
     async (conversationId: string): Promise<void> => {
-      if (isStreaming) {
+      if (streamingStateByConversationId[conversationId]) {
         return
       }
       if (conversationId === DRAFT_CONVERSATION_ID) {
-        setLastError("")
-        setStreamingAssistantText("")
-        streamingAssistantTextRef.current = ""
-        reasoningEverStartedRef.current = false
-        assistantOutputStartedRef.current = false
-        streamingTurnStartedAtRef.current = null
-        setStreamingReasoningDurationSeconds(0)
-        setStreamingReasoningEvents([])
-        setStreamingReasoningActive(false)
-        streamingReasoningEventsRef.current = []
-        leadAnchorMessageIdRef.current = null
         setHasDraftConversation(false)
         setDraftConversationUpdatedAt(0)
+        setMessagesByConversationId((prev) => {
+          const next = { ...prev }
+          delete next[DRAFT_CONVERSATION_ID]
+          return next
+        })
         if (activeConversationIdRef.current === DRAFT_CONVERSATION_ID) {
           if (conversations.length === 0) {
             setActiveConversationId(null)
-            setMessages([])
             return
           }
           const nextConversationId = conversations[0]?.id || null
           if (!nextConversationId) {
             setActiveConversationId(null)
-            setMessages([])
             return
           }
           setActiveConversationId(nextConversationId)
-          await loadMessages(nextConversationId)
+          if (!streamingStateByConversationId[nextConversationId]) {
+            await loadMessages(nextConversationId)
+          }
         }
         return
       }
       await repository.deleteConversation(conversationId)
       const list = await refreshConversations()
-      setLastError("")
-      setStreamingAssistantText("")
-      streamingAssistantTextRef.current = ""
-      reasoningEverStartedRef.current = false
-      assistantOutputStartedRef.current = false
-      streamingTurnStartedAtRef.current = null
-      setStreamingReasoningDurationSeconds(0)
-      setStreamingReasoningEvents([])
-      setStreamingReasoningActive(false)
-      streamingReasoningEventsRef.current = []
-      leadAnchorMessageIdRef.current = null
+      setMessagesByConversationId((prev) => {
+        const next = { ...prev }
+        delete next[conversationId]
+        return next
+      })
+      setPersistedReasoningByConversationId((prev) => {
+        const next = { ...prev }
+        delete next[conversationId]
+        return next
+      })
+      setPersistedReasoningDurationByConversationId((prev) => {
+        const next = { ...prev }
+        delete next[conversationId]
+        return next
+      })
+      setLastErrorByConversationId((prev) => {
+        const next = { ...prev }
+        delete next[conversationId]
+        return next
+      })
 
       if (activeConversationIdRef.current !== conversationId) {
         return
       }
 
       if (list.length === 0) {
-        setActiveConversationId(hasDraftConversation ? DRAFT_CONVERSATION_ID : null)
-        setMessages([])
+        if (hasDraftConversation) {
+          setActiveConversationId(DRAFT_CONVERSATION_ID)
+        } else {
+          setActiveConversationId(null)
+        }
         return
       }
 
       const nextConversationId = list[0].id
       setActiveConversationId(nextConversationId)
-      await loadMessages(nextConversationId)
+      if (!streamingStateByConversationId[nextConversationId]) {
+        await loadMessages(nextConversationId)
+      }
     },
-    [conversations, hasDraftConversation, isStreaming, loadMessages, refreshConversations, repository]
+    [conversations, hasDraftConversation, loadMessages, refreshConversations, repository, streamingStateByConversationId]
   )
 
   return (
@@ -1022,7 +1078,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
           onRename={(id, title) => void handleRenameConversation(id, title)}
           onDelete={(id) => void handleDeleteConversation(id)}
           onOpenSettings={() => setSettingsOpen(true)}
-          disableConversationActions={isStreaming}
+          disableConversationActions={false}
           isCollapsed={sidebarCollapsed}
           onToggleCollapse={() => setSidebarCollapsed((prev) => !prev)}
         />
@@ -1042,8 +1098,8 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
             }}
             isRefreshing={isRefreshingModels}
           />
-          {lastError || modelError ? (
-            <span className="text-xs text-destructive">{lastError || modelError}</span>
+          {activeLastError || modelError ? (
+            <span className="text-xs text-destructive">{activeLastError || modelError}</span>
           ) : (
             <div />
           )}
@@ -1062,7 +1118,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
                 </div>
               ))}
               {shouldShowThinkingWarmup ? (
-                <TypingIndicator elapsedSeconds={streamingReasoningDurationSeconds} />
+                <TypingIndicator elapsedSeconds={activeStreamingReasoningDurationSeconds} />
               ) : null}
               <div style={{ height: `${messageBottomSpacerPx}px` }} />
             </div>
@@ -1083,23 +1139,16 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
                 void handleSendMessage(text, attachments)
               }}
               onVoiceStart={() => setVoiceOpen(true)}
-              isLoading={isStreaming}
+              isLoading={isActiveConversationStreaming}
               onHeightChange={(height) => {
                 setChatInputHeight((prev) => (Math.abs(prev - height) < 1 ? prev : height))
               }}
               onStop={() => {
-                abortRef.current?.abort()
-                setIsStreaming(false)
-                setStreamingAssistantText("")
-                streamingAssistantTextRef.current = ""
-                reasoningEverStartedRef.current = false
-                assistantOutputStartedRef.current = false
-                streamingTurnStartedAtRef.current = null
-                setStreamingReasoningDurationSeconds(0)
-                setStreamingReasoningEvents([])
-                setStreamingReasoningActive(false)
-                streamingReasoningEventsRef.current = []
-                leadAnchorMessageIdRef.current = null
+                const currentConversationId = activeConversationIdRef.current
+                if (!currentConversationId) {
+                  return
+                }
+                abortControllerByConversationIdRef.current[currentConversationId]?.abort()
               }}
             />
           </div>
