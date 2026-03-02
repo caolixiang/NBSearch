@@ -217,7 +217,7 @@ function AudioBars({
       {Array.from({ length: 24 }).map((_, i) => (
         <div
           key={i}
-          className="w-1 rounded-full bg-[var(--color-claude-sienna)] transition-[height] duration-100"
+          className="w-1 rounded-full bg-claude-sienna transition-[height] duration-100"
           style={{ height: "8%" }}
         />
       ))}

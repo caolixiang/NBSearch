@@ -85,7 +85,7 @@ export function ModelSelector({
                   className={cn(
                     "flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors",
                     model.id === selectedModel
-                      ? "bg-[var(--color-claude-sienna)]/10"
+                      ? "bg-claude-sienna/10"
                       : "hover:bg-secondary"
                   )}
                 >
@@ -93,7 +93,7 @@ export function ModelSelector({
                     className={cn(
                       "flex size-8 shrink-0 items-center justify-center rounded-lg",
                       model.id === selectedModel
-                        ? "bg-[var(--color-claude-sienna)]/15 text-[var(--color-claude-sienna)]"
+                        ? "bg-claude-sienna/15 text-claude-sienna"
                         : "bg-secondary text-muted-foreground"
                     )}
                   >
@@ -108,7 +108,7 @@ export function ModelSelector({
                     </p>
                   </div>
                   {model.id === selectedModel && (
-                    <Check className="size-4 shrink-0 text-[var(--color-claude-sienna)]" />
+                    <Check className="size-4 shrink-0 text-claude-sienna" />
                   )}
                 </button>
               ))}

@@ -219,7 +219,7 @@ export function ChatInput({
   }
 
   return (
-    <div ref={containerRef} className="mx-auto w-full max-w-[48rem] px-4 pb-4">
+    <div ref={containerRef} className="mx-auto w-full max-w-3xl px-4 pb-4">
       <div className="relative rounded-2xl border border-border bg-card shadow-sm transition-shadow focus-within:shadow-md focus-within:border-ring/40">
         {/* Attachments preview */}
         {attachments.length > 0 && (
@@ -362,7 +362,7 @@ export function ChatInput({
             {isLoading ? (
               <Button
                 size="sm"
-                className="size-9 rounded-full bg-[var(--color-claude-sienna)] p-0 text-white hover:bg-[var(--color-claude-sienna)]/90"
+                className="size-9 rounded-full bg-claude-sienna p-0 text-white hover:bg-claude-sienna/90"
                 onClick={onStop}
               >
                 <Square className="size-3 fill-current" />
