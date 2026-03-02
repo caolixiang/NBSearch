@@ -718,6 +718,8 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       let assistantOutputStarted = false
       let reasoningEverStarted = false
       let reasoningStopTimer: number | null = null
+      let pendingCardAttachmentDetails: ChatReasoningEventDetail[] = []
+      let cardAttachmentFlushTimer: number | null = null
 
       setStreamingStateForConversation(conversationId, {
         assistantText: "",
@@ -743,6 +745,37 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
         }
       }
 
+      const clearCardAttachmentFlushTimer = () => {
+        if (cardAttachmentFlushTimer !== null) {
+          window.clearTimeout(cardAttachmentFlushTimer)
+          cardAttachmentFlushTimer = null
+        }
+      }
+
+      const flushPendingCardAttachments = (syncAfterFlush: boolean) => {
+        clearCardAttachmentFlushTimer()
+        if (pendingCardAttachmentDetails.length === 0) {
+          return
+        }
+        for (const detail of pendingCardAttachmentDetails) {
+          reasoningEvents = appendReasoningEvent(reasoningEvents, detail)
+        }
+        pendingCardAttachmentDetails = []
+        if (syncAfterFlush) {
+          syncStreamingState()
+        }
+      }
+
+      const scheduleCardAttachmentFlush = () => {
+        if (cardAttachmentFlushTimer !== null) {
+          return
+        }
+        cardAttachmentFlushTimer = window.setTimeout(() => {
+          cardAttachmentFlushTimer = null
+          flushPendingCardAttachments(true)
+        }, 180)
+      }
+
       const durationTimer = window.setInterval(() => {
         const nextDuration = Math.max(1, Math.round((Date.now() - startedAt) / 1000))
         patchStreamingStateForConversation(conversationId, {
@@ -752,6 +785,8 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
 
       const clearStreamingState = () => {
         clearReasoningStopTimer()
+        clearCardAttachmentFlushTimer()
+        pendingCardAttachmentDetails = []
         window.clearInterval(durationTimer)
         delete abortControllerByConversationIdRef.current[conversationId]
         removeStreamingStateForConversation(conversationId)
@@ -791,6 +826,13 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
             }
 
             if (event.type === "reasoning") {
+              if (event.detail.kind === "card_attachment") {
+                pendingCardAttachmentDetails.push(event.detail)
+                scheduleCardAttachmentFlush()
+                return
+              }
+
+              flushPendingCardAttachments(false)
               reasoningEvents = appendReasoningEvent(reasoningEvents, event.detail)
               const nextReasoningActive = inferReasoningActive(reasoningEvents)
               if (nextReasoningActive && !assistantOutputStarted) {
@@ -817,6 +859,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
             }
 
             if (event.type === "completed") {
+              flushPendingCardAttachments(false)
               clearReasoningStopTimer()
               const completedAssistantMessage = event.result.assistantMessage
               const reasoningSnapshot = completedAssistantMessage.reasoningEvents || reasoningEvents
@@ -869,6 +912,8 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
             }
 
             if (event.type === "failed") {
+              clearCardAttachmentFlushTimer()
+              pendingCardAttachmentDetails = []
               clearStreamingState()
               setLastErrorForConversation(conversationId, event.message)
             }
