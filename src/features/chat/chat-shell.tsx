@@ -15,6 +15,14 @@ import { VoiceMode } from "@/components/voice-mode"
 import { WelcomeScreen } from "@/components/welcome-screen"
 import { cn } from "@/lib/utils"
 import {
+  getConversationStreamingState,
+  isConversationStreaming,
+  patchConversationStreamingState,
+  removeConversationStreamingState,
+  upsertConversationStreamingState,
+  type ConversationStreamingState,
+} from "./conversation-streaming-state"
+import {
   DEFAULT_MODEL_OPTIONS,
   fetchRemoteModelOptions,
   persistModelOptions,
@@ -30,15 +38,6 @@ function newConversationId(): string {
 
 const DRAFT_CONVERSATION_ID = "draft_new_conversation"
 const CHAT_INPUT_REVEAL_DELAY_MS = 500
-
-type ConversationStreamingState = {
-  assistantText: string
-  reasoningEvents: ChatReasoningEventDetail[]
-  reasoningActive: boolean
-  reasoningDurationSeconds: number
-  startedAt: number
-  leadAnchorMessageId: string | null
-}
 
 function toRenderMessage(message: DomainChatMessage): RenderChatMessage | null {
   if (message.role !== "user" && message.role !== "assistant") {
@@ -269,10 +268,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
   }, [activeConversationId, lastErrorByConversationId])
 
   const activeStreamingState = useMemo(() => {
-    if (!activeConversationId) {
-      return undefined
-    }
-    return streamingStateByConversationId[activeConversationId]
+    return getConversationStreamingState(streamingStateByConversationId, activeConversationId)
   }, [activeConversationId, streamingStateByConversationId])
 
   const isActiveConversationStreaming = Boolean(activeStreamingState)
@@ -673,7 +669,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
         return
       }
       const conversationId = await ensureConversation()
-      if (streamingStateByConversationId[conversationId]) {
+      if (isConversationStreaming(streamingStateByConversationId, conversationId)) {
         return
       }
       const optimisticContent = buildUserMessageContent(content, selectedAttachments)
@@ -709,32 +705,27 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       let reasoningStopTimer: number | null = null
 
       setStreamingStateByConversationId((prev) => ({
-        ...prev,
-        [conversationId]: {
+        ...upsertConversationStreamingState(prev, conversationId, {
           assistantText: "",
           reasoningEvents: [],
           reasoningActive: false,
           reasoningDurationSeconds: 0,
           startedAt,
           leadAnchorMessageId: optimisticMessage.id,
-        },
+        }),
       }))
 
       const syncStreamingState = () => {
         setStreamingStateByConversationId((prev) => {
-          const currentState = prev[conversationId]
+          const currentState = getConversationStreamingState(prev, conversationId)
           if (!currentState) {
             return prev
           }
-          return {
-            ...prev,
-            [conversationId]: {
-              ...currentState,
-              assistantText,
-              reasoningEvents,
-              reasoningActive,
-            },
-          }
+          return patchConversationStreamingState(prev, conversationId, {
+            assistantText,
+            reasoningEvents,
+            reasoningActive,
+          })
         })
       }
 
@@ -747,7 +738,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
 
       const durationTimer = window.setInterval(() => {
         setStreamingStateByConversationId((prev) => {
-          const currentState = prev[conversationId]
+          const currentState = getConversationStreamingState(prev, conversationId)
           if (!currentState) {
             return prev
           }
@@ -755,13 +746,9 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
           if (currentState.reasoningDurationSeconds === nextDuration) {
             return prev
           }
-          return {
-            ...prev,
-            [conversationId]: {
-              ...currentState,
-              reasoningDurationSeconds: nextDuration,
-            },
-          }
+          return patchConversationStreamingState(prev, conversationId, {
+            reasoningDurationSeconds: nextDuration,
+          })
         })
       }, 1000)
 
@@ -770,12 +757,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
         window.clearInterval(durationTimer)
         delete abortControllerByConversationIdRef.current[conversationId]
         setStreamingStateByConversationId((prev) => {
-          if (!(conversationId in prev)) {
-            return prev
-          }
-          const next = { ...prev }
-          delete next[conversationId]
-          return next
+          return removeConversationStreamingState(prev, conversationId)
         })
       }
 
@@ -951,7 +933,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
         return
       }
       setActiveConversationId(conversationId)
-      const isSelectedConversationStreaming = Boolean(streamingStateByConversationId[conversationId])
+      const isSelectedConversationStreaming = isConversationStreaming(streamingStateByConversationId, conversationId)
       if (!isSelectedConversationStreaming) {
         await loadMessages(conversationId)
       }
@@ -994,7 +976,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
 
   const handleDeleteConversation = useCallback(
     async (conversationId: string): Promise<void> => {
-      if (streamingStateByConversationId[conversationId]) {
+      if (isConversationStreaming(streamingStateByConversationId, conversationId)) {
         return
       }
       if (conversationId === DRAFT_CONVERSATION_ID) {
@@ -1016,7 +998,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
             return
           }
           setActiveConversationId(nextConversationId)
-          if (!streamingStateByConversationId[nextConversationId]) {
+          if (!isConversationStreaming(streamingStateByConversationId, nextConversationId)) {
             await loadMessages(nextConversationId)
           }
         }
@@ -1060,7 +1042,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
 
       const nextConversationId = list[0].id
       setActiveConversationId(nextConversationId)
-      if (!streamingStateByConversationId[nextConversationId]) {
+      if (!isConversationStreaming(streamingStateByConversationId, nextConversationId)) {
         await loadMessages(nextConversationId)
       }
     },
