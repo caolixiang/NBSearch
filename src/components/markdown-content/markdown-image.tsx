@@ -2,6 +2,7 @@
 
 import {
   memo,
+  useCallback,
   useEffect,
   useRef,
   useState,
@@ -14,7 +15,6 @@ import { hasTauriRuntime } from "@/app/runtime-info"
 import { buildGrokChromeImageHeaders } from "@/infrastructure/http/chrome-image-headers"
 import { runtimeFetch } from "@/infrastructure/http/runtime-fetch"
 import { tauriTlsImageFetch } from "@/infrastructure/http/tauri-tls-image-fetch"
-import { Dialog, DialogContent } from "@/components/ui/dialog"
 
 // Default off: keep TLS JA3/JA4 path as opt-in experiment.
 const ENABLE_TLS_IMAGE_FETCH_EXPERIMENT = false
@@ -240,6 +240,10 @@ export const MarkdownImage = memo(function({
   const [runtimeLoading, setRuntimeLoading] = useState(false)
   const [reloadNonce, setReloadNonce] = useState(0)
   const [previewOpen, setPreviewOpen] = useState(false)
+  const [previewPaneBounds, setPreviewPaneBounds] = useState<{ left: number; width: number }>({
+    left: 0,
+    width: 0,
+  })
   const fallbackAttemptedRef = useRef(false)
   const swappedProtocolRef = useRef(false)
   const objectUrlRef = useRef<string>("")
@@ -299,6 +303,47 @@ export const MarkdownImage = memo(function({
       }
     }
   }, [])
+
+  const syncPreviewPaneBounds = useCallback(() => {
+    const node = document.querySelector<HTMLElement>("[data-chat-main-pane]")
+    if (!node) {
+      setPreviewPaneBounds({ left: 0, width: window.innerWidth || 0 })
+      return
+    }
+    const rect = node.getBoundingClientRect()
+    const nextLeft = Math.max(0, Math.round(rect.left))
+    const nextWidth = Math.max(320, Math.round(rect.width))
+    setPreviewPaneBounds({ left: nextLeft, width: nextWidth })
+  }, [])
+
+  useEffect(() => {
+    if (!previewOpen) {
+      return
+    }
+
+    syncPreviewPaneBounds()
+    const node = document.querySelector<HTMLElement>("[data-chat-main-pane]")
+    const observer = node ? new ResizeObserver(() => syncPreviewPaneBounds()) : null
+    if (node && observer) {
+      observer.observe(node)
+    }
+
+    const onResize = () => syncPreviewPaneBounds()
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setPreviewOpen(false)
+      }
+    }
+
+    window.addEventListener("resize", onResize)
+    window.addEventListener("keydown", onKeyDown)
+
+    return () => {
+      window.removeEventListener("resize", onResize)
+      window.removeEventListener("keydown", onKeyDown)
+      observer?.disconnect()
+    }
+  }, [previewOpen, syncPreviewPaneBounds])
 
   const loadViaTlsProfile = async (url: string): Promise<string> => {
     const target = (url || "").trim()
@@ -493,6 +538,13 @@ export const MarkdownImage = memo(function({
     setPreviewOpen(true)
   }
 
+  const previewPaneWidth =
+    previewPaneBounds.width > 0 ? previewPaneBounds.width : Math.max(320, window.innerWidth || 0)
+  const previewMaxWidth = Math.max(
+    320,
+    Math.min(960, Math.round(previewPaneWidth * 0.82), previewPaneWidth - 96)
+  )
+
   if (failed || !currentSrc.trim()) {
     const fallbackLink = (primarySrc || fallbackSrc || "").trim()
     return (
@@ -533,21 +585,37 @@ export const MarkdownImage = memo(function({
         data-grok-md-image="true"
       />
 
-      <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
-        <DialogContent
-          showCloseButton={false}
-          className="inset-0 left-0 top-0 flex h-dvh w-screen max-h-none max-w-none translate-x-0 translate-y-0 items-center justify-center gap-0 rounded-none border-none bg-transparent p-4 shadow-none"
+      {previewOpen ? (
+        <div
+          className="fixed inset-0 z-[60]"
+          onClick={() => {
+            setPreviewOpen(false)
+          }}
+          aria-modal="true"
+          role="dialog"
         >
-          <img
-            src={currentSrc}
-            alt={alt || ""}
-            className="mx-auto my-auto block max-h-[calc(100dvh-2rem)] max-w-[calc(100vw-2rem)] rounded-[20px] object-contain"
-            onClick={(event) => {
-              event.stopPropagation()
+          <div className="absolute inset-0 bg-black/55" />
+          <div
+            className="absolute inset-y-0 flex items-center justify-center p-8"
+            style={{
+              left: `${previewPaneBounds.left}px`,
+              width: `${previewPaneWidth}px`,
             }}
-          />
-        </DialogContent>
-      </Dialog>
+          >
+            <img
+              src={currentSrc}
+              alt={alt || ""}
+              className="mx-auto my-auto block max-h-[calc(100dvh-7rem)] rounded-[20px] object-contain"
+              style={{
+                maxWidth: `${previewMaxWidth}px`,
+              }}
+              onClick={(event) => {
+                event.stopPropagation()
+              }}
+            />
+          </div>
+        </div>
+      ) : null}
     </>
   )
 })
