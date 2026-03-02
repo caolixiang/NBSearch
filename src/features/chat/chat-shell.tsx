@@ -727,6 +727,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
         reasoningActive: false,
         reasoningDurationSeconds: 0,
         startedAt,
+        lastHeartbeatAt: startedAt,
         leadAnchorMessageId: optimisticMessage.id,
       })
 
@@ -804,6 +805,13 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
             anchors,
           },
           (event) => {
+            if (event.type === "heartbeat") {
+              patchStreamingStateForConversation(conversationId, {
+                lastHeartbeatAt: event.meta.ts,
+              })
+              return
+            }
+
             if (event.type === "delta") {
               const nextText = `${assistantText}${event.textDelta}`
               assistantText = nextText

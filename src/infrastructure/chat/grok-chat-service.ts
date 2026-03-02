@@ -5,6 +5,7 @@ import type {
   ChatCardAttachmentPayload,
   ChatMessage,
   ChatReasoningEventDetail,
+  ChatTurnResult,
   ChatStreamEvent,
   ChatStreamEventMeta,
   SendChatTurnInput,
@@ -103,6 +104,15 @@ function readReasoningEventResponseId(detail: ChatReasoningEventDetail): string 
 const MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024
 const ASSET_URL_RENEW_TTL_SECONDS = 7200
 const ASSET_URL_RENEW_THRESHOLD_MS = 60 * 1000
+const STREAM_HEARTBEAT_INTERVAL_MS = 2000
+const STREAM_IDLE_TIMEOUT_MS = 20_000
+
+class StreamIdleTimeoutError extends Error {
+  constructor(timeoutMs: number) {
+    super(`stream_idle_timeout_${timeoutMs}ms`)
+    this.name = "StreamIdleTimeoutError"
+  }
+}
 
 type RenewedAssetUrlPayload = {
   assetId: string
@@ -1489,11 +1499,14 @@ export class GrokChatService implements ChatService {
         meta: nextStreamMeta(responseId),
       })
     }
-    const emitCompleted = (result: ChatStreamEvent extends infer E
-      ? E extends { type: "completed"; result: infer R }
-        ? R
-        : never
-      : never, responseId?: string) => {
+    const emitHeartbeat = (idleMs: number, responseId?: string) => {
+      onEvent({
+        type: "heartbeat",
+        idleMs,
+        meta: nextStreamMeta(responseId),
+      })
+    }
+    const emitCompleted = (result: ChatTurnResult, responseId?: string) => {
       onEvent({
         type: "completed",
         result,
@@ -1506,7 +1519,7 @@ export class GrokChatService implements ChatService {
         code,
         message,
         meta: nextStreamMeta(responseId),
-      } as ChatStreamEvent)
+      })
     }
     emitStarted(requestId)
 
@@ -1665,13 +1678,41 @@ export class GrokChatService implements ChatService {
       const reader = response.body.getReader()
       const decoder = new TextDecoder()
       let buffer = ""
+      let lastChunkAt = Date.now()
+      let lastHeartbeatSentAt = 0
+      const readChunkWithTimeout = async (): Promise<ReadableStreamReadResult<Uint8Array>> => {
+        let timeoutHandle: ReturnType<typeof setTimeout> | null = null
+        const timeoutPromise = new Promise<ReadableStreamReadResult<Uint8Array>>((_resolve, reject) => {
+          timeoutHandle = setTimeout(() => {
+            reject(new StreamIdleTimeoutError(STREAM_IDLE_TIMEOUT_MS))
+          }, STREAM_IDLE_TIMEOUT_MS)
+        })
+        try {
+          return await Promise.race([reader.read(), timeoutPromise])
+        } finally {
+          if (timeoutHandle) {
+            clearTimeout(timeoutHandle)
+          }
+        }
+      }
 
       try {
         while (true) {
-          const { done, value } = await reader.read()
+          const { done, value } = await readChunkWithTimeout()
           if (done) {
             break
           }
+
+          const chunkArrivedAt = Date.now()
+          const idleMs = Math.max(0, chunkArrivedAt - lastChunkAt)
+          if (
+            lastHeartbeatSentAt === 0 ||
+            chunkArrivedAt - lastHeartbeatSentAt >= STREAM_HEARTBEAT_INTERVAL_MS
+          ) {
+            emitHeartbeat(idleMs, gatewayResponseId)
+            lastHeartbeatSentAt = chunkArrivedAt
+          }
+          lastChunkAt = chunkArrivedAt
 
           buffer += decoder.decode(value, { stream: true })
 
@@ -1848,6 +1889,10 @@ export class GrokChatService implements ChatService {
           anchors,
         }, assistantMessage.responseId)
     } catch (error) {
+      if (error instanceof StreamIdleTimeoutError) {
+        emitFailed("stream_idle_timeout", error.message, gatewayResponseId)
+        return
+      }
       const message = error instanceof Error ? error.message : "unknown_error"
       emitFailed("chat_stream_error", message)
     }

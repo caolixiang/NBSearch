@@ -125,6 +125,11 @@ export type ChatStreamEvent =
       meta: ChatStreamEventMeta
     }
   | {
+      type: "heartbeat"
+      idleMs: number
+      meta: ChatStreamEventMeta
+    }
+  | {
       type: "delta"
       textDelta: string
       meta: ChatStreamEventMeta

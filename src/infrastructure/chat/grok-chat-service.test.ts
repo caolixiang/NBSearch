@@ -23,6 +23,42 @@ function extractImageToken(url: string): string {
   return url.slice(idx + marker.length)
 }
 
+function createStreamingResponse(chunks: string[]): Response {
+  const encoder = new TextEncoder()
+  return new Response(
+    new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const chunk of chunks) {
+          controller.enqueue(encoder.encode(chunk))
+        }
+        controller.close()
+      },
+    }),
+    {
+      status: 200,
+      headers: {
+        "Content-Type": "application/x-ndjson",
+      },
+    }
+  )
+}
+
+function createPendingStreamingResponse(): Response {
+  return new Response(
+    new ReadableStream<Uint8Array>({
+      start() {
+        // Keep stream open to trigger idle timeout path in stream reader.
+      },
+    }),
+    {
+      status: 200,
+      headers: {
+        "Content-Type": "application/x-ndjson",
+      },
+    }
+  )
+}
+
 describe("resolveGatewayMediaUrl", () => {
   const gatewayApiUrl = "http://127.0.0.1:8787/v1/responses"
 
@@ -444,4 +480,131 @@ describe("listMessages asset url refresh", () => {
     expect(cardEvent.card.asset_id).toBe(renewAssetId)
   })
 
+})
+
+describe("streamTurn heartbeats and timeout", () => {
+  it("emits heartbeat and monotonic meta sequence on a normal stream", async () => {
+    const repository = new MemoryAppRepository()
+    const service = new GrokChatService(repository, {
+      apiBaseUrl: "http://127.0.0.1:8787",
+      apiKey: "test-key",
+      defaultModel: "grok-4.1-fast",
+      voiceEnabled: false,
+    })
+
+    const streamChunk = [
+      JSON.stringify({
+        type: "response.created",
+        response: {
+          id: "resp_meta_1",
+        },
+      }),
+      JSON.stringify({
+        type: "response.output_text.delta",
+        delta: "Hello",
+      }),
+      JSON.stringify({
+        type: "response.completed",
+        response: {
+          id: "resp_meta_1",
+          output: [
+            {
+              type: "message",
+              content: [
+                {
+                  type: "output_text",
+                  text: "Hello",
+                },
+              ],
+            },
+          ],
+        },
+      }),
+    ].join("")
+
+    const mockedFetch = (async () => createStreamingResponse([streamChunk])) as unknown as typeof fetch
+    ;(mockedFetch as unknown as { preconnect: (url: string) => void }).preconnect = () => {}
+    ;(service as unknown as { runtimeFetch: typeof fetch }).runtimeFetch = mockedFetch
+
+    const events: Array<{
+      type: string
+      meta: { seq: number; conversationId: string; responseId?: string }
+      code?: string
+      result?: { assistantMessage?: { content: string } }
+    }> = []
+    await service.streamTurn(
+      {
+        model: "grok-4.1-fast",
+        text: "hello",
+        anchors: {
+          conversationId: "conv_meta_1",
+          sessionId: "sess_meta_1",
+          lastResponseId: "",
+        },
+      },
+      (event) => {
+        events.push(event)
+      }
+    )
+
+    expect(events.length).toBeGreaterThan(0)
+    expect(events.some((event) => event.type === "heartbeat")).toBe(true)
+    expect(events.some((event) => event.type === "completed")).toBe(true)
+
+    for (let index = 0; index < events.length; index += 1) {
+      expect(events[index]?.meta.seq).toBe(index + 1)
+      expect(events[index]?.meta.conversationId).toBe("conv_meta_1")
+    }
+
+    const completedEvent = events.find((event) => event.type === "completed")
+    expect(completedEvent?.meta.responseId).toBe("resp_meta_1")
+    expect(completedEvent?.result?.assistantMessage?.content).toContain("Hello")
+  })
+
+  it("emits stream_idle_timeout failure when stream reader stalls", async () => {
+    const repository = new MemoryAppRepository()
+    const service = new GrokChatService(repository, {
+      apiBaseUrl: "http://127.0.0.1:8787",
+      apiKey: "test-key",
+      defaultModel: "grok-4.1-fast",
+      voiceEnabled: false,
+    })
+
+    const mockedFetch = (async () => createPendingStreamingResponse()) as unknown as typeof fetch
+    ;(mockedFetch as unknown as { preconnect: (url: string) => void }).preconnect = () => {}
+    ;(service as unknown as { runtimeFetch: typeof fetch }).runtimeFetch = mockedFetch
+
+    const originalSetTimeout = globalThis.setTimeout
+    globalThis.setTimeout = ((handler: TimerHandler) => {
+      return originalSetTimeout(() => {
+        if (typeof handler === "function") {
+          handler()
+        }
+      }, 0)
+    }) as unknown as typeof setTimeout
+
+    const events: Array<{ type: string; code?: string }> = []
+    try {
+      await service.streamTurn(
+        {
+          model: "grok-4.1-fast",
+          text: "hello",
+          anchors: {
+            conversationId: "conv_timeout_1",
+            sessionId: "sess_timeout_1",
+            lastResponseId: "",
+          },
+        },
+        (event) => {
+          events.push(event)
+        }
+      )
+    } finally {
+      globalThis.setTimeout = originalSetTimeout
+    }
+
+    const failed = events.find((event) => event.type === "failed")
+    expect(failed?.code).toBe("stream_idle_timeout")
+    expect(events.some((event) => event.type === "completed")).toBe(false)
+  })
 })

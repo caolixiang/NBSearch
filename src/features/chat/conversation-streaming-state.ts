@@ -6,6 +6,7 @@ export type ConversationStreamingState = {
   reasoningActive: boolean
   reasoningDurationSeconds: number
   startedAt: number
+  lastHeartbeatAt?: number
   leadAnchorMessageId: string | null
 }
 
