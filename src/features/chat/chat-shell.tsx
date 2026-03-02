@@ -653,15 +653,13 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       bottomLockRef.current = true
     }
 
-    if (!hasVerticalOverflow) {
+    if (!hasVerticalOverflow || bottomLockRef.current || !isScrollingUp) {
+      // Keep composer expanded when content is not scrollable, near bottom,
+      // or user is scrolling down.
       clearChatInputRevealTimer()
       setChatInputCollapsedByScroll(false)
-    } else if (bottomLockRef.current) {
-      // Keep composer stable in bottom lock zone.
-      clearChatInputRevealTimer()
-      setChatInputCollapsedByScroll(false)
-    } else if (hasScrolled) {
-      // Keep the original scroll-collapse interaction outside bottom lock zone.
+    } else if (hasScrolled && isScrollingUp) {
+      // Collapse only on upward scroll.
       setChatInputCollapsedByScroll(true)
       scheduleChatInputReveal()
     }
