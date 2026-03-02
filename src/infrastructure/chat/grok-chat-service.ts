@@ -82,23 +82,217 @@ function hasAnyThinkTag(value: string): boolean {
   return lower.includes("<think") || lower.includes("</think>")
 }
 
-function resolveGatewayMediaUrl(rawUrl: string, apiUrl: string): string {
+const MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024
+
+type ResponsesInputContentBlock =
+  | {
+      type: "text"
+      text: string
+    }
+  | {
+      type: "image_url"
+      image_url: {
+        url: string
+      }
+    }
+  | {
+      type: "file"
+      file: {
+        file_data: string
+      }
+    }
+
+function normalizeAttachmentFiles(attachments?: File[]): File[] {
+  if (!Array.isArray(attachments) || attachments.length === 0) {
+    return []
+  }
+  return attachments.filter((file) => Boolean(file))
+}
+
+function buildUserMessageText(text: string, attachments?: File[]): string {
+  const content = text.trim()
+  const files = normalizeAttachmentFiles(attachments)
+  if (files.length === 0) {
+    return content
+  }
+  const attachmentLines = files.map((file) => `[附件] ${file.name}`)
+  if (!content) {
+    return attachmentLines.join("\n")
+  }
+  return `${content}\n\n${attachmentLines.join("\n")}`
+}
+
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer)
+  let binary = ""
+  const chunkSize = 0x8000
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    const chunk = bytes.subarray(index, index + chunkSize)
+    binary += String.fromCharCode(...chunk)
+  }
+  return globalThis.btoa(binary)
+}
+
+async function fileToDataUri(file: File): Promise<string> {
+  const mimeType = file.type?.trim() || "application/octet-stream"
+  const buffer = await file.arrayBuffer()
+  const base64 = arrayBufferToBase64(buffer)
+  return `data:${mimeType};base64,${base64}`
+}
+
+function isImageAttachment(file: File): boolean {
+  const mimeType = file.type?.trim().toLowerCase() || ""
+  if (mimeType.startsWith("image/")) {
+    return true
+  }
+  return /\.(?:png|jpe?g|webp|gif|bmp|svg|avif|heic|heif)$/i.test(file.name)
+}
+
+async function buildResponsesInputContent(
+  text: string,
+  attachments?: File[]
+): Promise<ResponsesInputContentBlock[]> {
+  const blocks: ResponsesInputContentBlock[] = []
+  const content = text.trim()
+  const files = normalizeAttachmentFiles(attachments)
+
+  if (content) {
+    blocks.push({
+      type: "text",
+      text: content,
+    })
+  }
+
+  for (const file of files) {
+    if (file.size > MAX_ATTACHMENT_BYTES) {
+      throw new Error(`附件过大：${file.name}，当前上限约 50MB`)
+    }
+    const dataUri = await fileToDataUri(file)
+    if (isImageAttachment(file)) {
+      blocks.push({
+        type: "image_url",
+        image_url: {
+          url: dataUri,
+        },
+      })
+      continue
+    }
+    blocks.push({
+      type: "file",
+      file: {
+        file_data: dataUri,
+      },
+    })
+  }
+
+  if (!content && files.length > 0) {
+    blocks.unshift({
+      type: "text",
+      text: "请分析这个附件。",
+    })
+  }
+
+  return blocks
+}
+
+function toBase64Url(input: string): string {
+  const bytes = new TextEncoder().encode(input)
+  let binary = ""
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte)
+  }
+  return globalThis.btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "")
+}
+
+function isGrokAssetHost(hostname: string): boolean {
+  const host = hostname.trim().toLowerCase()
+  if (!host) {
+    return false
+  }
+  return host === "assets.grok.com" || host === "grok.com" || host.endsWith(".grok.com") || host.endsWith(".x.ai")
+}
+
+function toEncodedImagePathToken(raw: string): string {
+  const value = raw.trim()
+  if (!value) {
+    return ""
+  }
+  if (/^(?:u_|p_)[A-Za-z0-9\-_]+(?:\.[A-Za-z0-9]+)?$/.test(value)) {
+    return value
+  }
+  if (/^(?:image|video)_[0-9a-f]{64}$/i.test(value)) {
+    return value
+  }
+
+  if (/^https?:\/\//i.test(value)) {
+    try {
+      const parsed = new URL(value)
+      if (!isGrokAssetHost(parsed.hostname)) {
+        return ""
+      }
+      return `u_${toBase64Url(parsed.toString())}`
+    } catch {
+      return ""
+    }
+  }
+
+  let normalizedPath = value
+  if (!normalizedPath.startsWith("/")) {
+    normalizedPath = `/${normalizedPath}`
+  }
+  return `p_${toBase64Url(normalizedPath)}`
+}
+
+export function resolveGatewayMediaUrl(rawUrl: string, apiUrl: string): string {
   const url = rawUrl.trim()
   if (!url) {
     return ""
   }
-  if (/^(?:https?:|data:|blob:)/i.test(url)) {
+  if (/^(?:data:|blob:)/i.test(url)) {
     return url
   }
   try {
     const gateway = new URL(apiUrl)
     if (url.startsWith("//")) {
-      return `${gateway.protocol}${url}`
+      const absolute = `${gateway.protocol}${url}`
+      const encoded = toEncodedImagePathToken(absolute)
+      if (encoded) {
+        return new URL(`/images/${encoded}`, gateway.origin).toString()
+      }
+      return absolute
     }
-    if (url.startsWith("/")) {
+    if (/^https?:\/\//i.test(url)) {
+      const parsed = new URL(url)
+      if (parsed.origin === gateway.origin && parsed.pathname.startsWith("/images/")) {
+        return parsed.toString()
+      }
+      if (parsed.origin === gateway.origin && parsed.pathname.startsWith("/users/")) {
+        const encoded = toEncodedImagePathToken(parsed.pathname)
+        if (encoded) {
+          return new URL(`/images/${encoded}`, gateway.origin).toString()
+        }
+      }
+      const encoded = toEncodedImagePathToken(parsed.toString())
+      if (encoded) {
+        return new URL(`/images/${encoded}`, gateway.origin).toString()
+      }
+      return parsed.toString()
+    }
+    if (url.startsWith("/images/")) {
       return new URL(url, gateway.origin).toString()
     }
-    return new URL(url, `${gateway.origin}/`).toString()
+
+    const shouldProxyAsAsset =
+      /^(?:u_|p_)[A-Za-z0-9\-_]+(?:\.[A-Za-z0-9]+)?$/.test(url) ||
+      /^(?:image|video)_[0-9a-f]{64}$/i.test(url) ||
+      /^\/?users\//i.test(url)
+    if (shouldProxyAsAsset) {
+      const encoded = toEncodedImagePathToken(url)
+      if (encoded) {
+        return new URL(`/images/${encoded}`, gateway.origin).toString()
+      }
+    }
+    return new URL(`/${url.replace(/^\/+/, "")}`, gateway.origin).toString()
   } catch {
     return url
   }
@@ -140,6 +334,122 @@ function isGeneratedImageNarration(text: string): boolean {
   return false
 }
 
+function decodeBase64Url(input: string): string {
+  const normalized = input.trim().replace(/-/g, "+").replace(/_/g, "/")
+  if (!normalized) {
+    return ""
+  }
+  const paddingLength = (4 - (normalized.length % 4)) % 4
+  const padded = `${normalized}${"=".repeat(paddingLength)}`
+  let binary = ""
+  try {
+    binary = globalThis.atob(padded)
+  } catch {
+    return ""
+  }
+  const bytes = new Uint8Array(binary.length)
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index)
+  }
+  try {
+    return new TextDecoder().decode(bytes).trim()
+  } catch {
+    return ""
+  }
+}
+
+function resolveGeneratedImageSourcePath(raw: string): string {
+  const value = raw.trim()
+  if (!value) {
+    return ""
+  }
+  const lower = value.toLowerCase()
+  const marker = "/images/"
+  const markerIndex = lower.indexOf(marker)
+  if (markerIndex >= 0) {
+    const encoded = decodeURIComponent(value.slice(markerIndex + marker.length).replace(/^\/+/, ""))
+    if (encoded.startsWith("p_")) {
+      const decoded = decodeBase64Url(encoded.slice(2))
+      if (decoded) {
+        return decoded
+      }
+    }
+    if (encoded.startsWith("u_")) {
+      const decoded = decodeBase64Url(encoded.slice(2))
+      if (decoded) {
+        try {
+          return new URL(decoded).pathname || decoded
+        } catch {
+          return decoded
+        }
+      }
+    }
+  }
+  if (/^https?:\/\//i.test(value)) {
+    try {
+      const parsed = new URL(value)
+      return parsed.pathname || value
+    } catch {
+      return value
+    }
+  }
+  return value
+}
+
+function canonicalizeGeneratedImagePath(raw: string): { key: string; isPart: boolean } {
+  const sourcePath = resolveGeneratedImageSourcePath(raw)
+  if (!sourcePath) {
+    return { key: "", isPart: false }
+  }
+  const isPart = /-part-\d+(?=\/|$)/i.test(sourcePath)
+  const key = sourcePath.replace(/-part-\d+(?=\/|$)/gi, "")
+  return { key, isPart }
+}
+
+function extractGeneratedImageMarkdown(cards: ChatCardAttachmentPayload[]): string {
+  if (cards.length === 0) {
+    return ""
+  }
+
+  const preferredByCanonical = new Map<string, string>()
+  const order: string[] = []
+
+  for (const card of cards) {
+    if ((card.type || "").toLowerCase() !== "generated_image") {
+      continue
+    }
+    const raw = (card.image?.original || card.url || "").trim()
+    if (!raw || !/^https?:\/\//i.test(raw)) {
+      continue
+    }
+    const { key: canonical, isPart } = canonicalizeGeneratedImagePath(raw)
+    if (!canonical) {
+      continue
+    }
+    const existing = preferredByCanonical.get(canonical)
+    if (!existing) {
+      preferredByCanonical.set(canonical, raw)
+      order.push(canonical)
+      continue
+    }
+    const existingIsPart = canonicalizeGeneratedImagePath(existing).isPart
+    // Prefer finalized asset URL over intermediate part-* URL.
+    if (existingIsPart && !isPart) {
+      preferredByCanonical.set(canonical, raw)
+    }
+  }
+
+  const urls = order
+    .map((key) => preferredByCanonical.get(key) || "")
+    .filter((value) => value.length > 0)
+
+  if (urls.length === 0) {
+    return ""
+  }
+
+  return urls.map((url) => `![Generated Image](<${url}>)`).join("\n")
+}
+
 export class GrokChatService implements ChatService {
   private readonly apiUrl: string
   private readonly apiKey: string
@@ -179,7 +489,7 @@ export class GrokChatService implements ChatService {
   ): Promise<void> {
     const conversationId = buildConversationId(input.anchors)
     const sessionId = input.anchors.sessionId?.trim() || `sess_${crypto.randomUUID()}`
-    const userMessage = buildUserMessage(input.text)
+    const userMessage = buildUserMessage(buildUserMessageText(input.text, input.attachments))
 
     await this.repository.appendMessage(conversationId, userMessage)
 
@@ -188,9 +498,15 @@ export class GrokChatService implements ChatService {
     onEvent({ type: "started", requestId })
 
     try {
+      const contentBlocks = await buildResponsesInputContent(input.text, input.attachments)
       const requestBody = JSON.stringify({
         model: input.model,
-        input: input.text,
+        input: [
+          {
+            role: "user",
+            content: contentBlocks,
+          },
+        ],
         session_id: sessionId,
         stream: true,
       })
@@ -232,6 +548,7 @@ export class GrokChatService implements ChatService {
       const collectedWebSearchSeen = new Set<string>()
       const collectedCards: ChatCardAttachmentPayload[] = []
       const collectedCardIds = new Set<string>()
+      const generatedImageIndexByCanonical = new Map<string, number>()
       const collectedReasoningEvents: ChatReasoningEventDetail[] = []
       let hasStructuredGeneratedImages = false
 
@@ -253,15 +570,44 @@ export class GrokChatService implements ChatService {
 
       const appendCards = (items: ChatCardAttachmentPayload[]) => {
         for (const item of items) {
-          const normalized = normalizeCardAttachmentUrls(item, this.apiUrl)
-          if ((normalized.type || "").toLowerCase() === "generated_image") {
+          const isGeneratedImage = (item.type || "").toLowerCase() === "generated_image"
+          const sourceBeforeNormalize = (item.image?.original || item.url || "").trim()
+          let canonicalGeneratedKey = ""
+          let nextIsPart = false
+          if (isGeneratedImage) {
             hasStructuredGeneratedImages = true
+            const canonical = canonicalizeGeneratedImagePath(sourceBeforeNormalize)
+            canonicalGeneratedKey = canonical.key
+            nextIsPart = canonical.isPart
+          }
+
+          const normalized = normalizeCardAttachmentUrls(item, this.apiUrl)
+          if (isGeneratedImage && canonicalGeneratedKey) {
+            const existingIndex = generatedImageIndexByCanonical.get(canonicalGeneratedKey)
+            if (typeof existingIndex === "number" && existingIndex >= 0 && existingIndex < collectedCards.length) {
+              const existing = collectedCards[existingIndex]
+              const existingSource = (existing.image?.original || existing.url || "").trim()
+              const existingIsPart = canonicalizeGeneratedImagePath(existingSource).isPart
+              // Same generated image: always prefer final image over -part-* intermediates.
+              if (existingIsPart && !nextIsPart) {
+                if (existing.id !== normalized.id && collectedCardIds.has(normalized.id)) {
+                  continue
+                }
+                collectedCardIds.delete(existing.id)
+                collectedCardIds.add(normalized.id)
+                collectedCards[existingIndex] = normalized
+              }
+              continue
+            }
           }
           if (collectedCardIds.has(normalized.id)) {
             continue
           }
           collectedCardIds.add(normalized.id)
           collectedCards.push(normalized)
+          if (isGeneratedImage && canonicalGeneratedKey) {
+            generatedImageIndexByCanonical.set(canonicalGeneratedKey, collectedCards.length - 1)
+          }
         }
       }
 
@@ -383,7 +729,7 @@ export class GrokChatService implements ChatService {
       }
 
       if (hasStructuredGeneratedImages) {
-        assistantText = ""
+        assistantText = extractGeneratedImageMarkdown(collectedCards)
         gatewayFinalMessage = ""
       }
 

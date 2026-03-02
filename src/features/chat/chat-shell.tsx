@@ -50,6 +50,19 @@ function hasAnyThinkTag(value: string): boolean {
   return lower.includes("<think") || lower.includes("</think>")
 }
 
+function buildUserMessageContent(text: string, attachments?: File[]): string {
+  const content = text.trim()
+  const files = Array.isArray(attachments) ? attachments.filter((file) => Boolean(file)) : []
+  if (files.length === 0) {
+    return content
+  }
+  const attachmentLines = files.map((file) => `[附件] ${file.name}`)
+  if (!content) {
+    return attachmentLines.join("\n")
+  }
+  return `${content}\n\n${attachmentLines.join("\n")}`
+}
+
 function getInitialModelOptions(): ModelOption[] {
   const stored = readStoredModelOptions()
   if (stored.length > 0) {
@@ -213,6 +226,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
   const messagesScrollRef = useRef<HTMLDivElement | null>(null)
   const shouldAutoScrollRef = useRef(true)
   const lastScrollTopRef = useRef(0)
+  const programmaticScrollRef = useRef(false)
   const leadAnchorMessageIdRef = useRef<string | null>(null)
   const streamingAssistantTextRef = useRef("")
   const reasoningEverStartedRef = useRef(false)
@@ -247,6 +261,16 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       return 0
     }
     return Math.max(1, Math.round((Date.now() - startedAt) / 1000))
+  }, [])
+
+  const setProgrammaticScrollTop = useCallback((node: HTMLDivElement, nextTop: number) => {
+    programmaticScrollRef.current = true
+    node.scrollTop = nextTop
+    lastScrollTopRef.current = node.scrollTop
+    window.requestAnimationFrame(() => {
+      programmaticScrollRef.current = false
+      lastScrollTopRef.current = node.scrollTop
+    })
   }, [])
 
   useEffect(() => {
@@ -523,17 +547,15 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
           return
         }
         // Keep the latest user question pinned near top while thinking is streaming.
-        node.scrollTop = Math.max(0, anchor.offsetTop - 24)
-        lastScrollTopRef.current = node.scrollTop
+        setProgrammaticScrollTop(node, Math.max(0, anchor.offsetTop - 24))
       })
       return () => window.cancelAnimationFrame(raf)
     }
     if (!shouldAutoScrollRef.current) {
       return
     }
-    node.scrollTop = node.scrollHeight
-    lastScrollTopRef.current = node.scrollTop
-  }, [isThinkingStreaming, streamingAssistantText, visibleMessages])
+    setProgrammaticScrollTop(node, node.scrollHeight)
+  }, [isThinkingStreaming, setProgrammaticScrollTop, streamingAssistantText, visibleMessages])
 
   // ResizeObserver: auto-scroll on content height changes (image loads, layout shifts)
   useEffect(() => {
@@ -551,8 +573,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       if (isThinkingStreaming && leadAnchorMessageIdRef.current) {
         return
       }
-      node.scrollTop = node.scrollHeight
-      lastScrollTopRef.current = node.scrollTop
+      setProgrammaticScrollTop(node, node.scrollHeight)
     })
     // Observe the inner content container for size changes
     const inner = node.firstElementChild
@@ -560,7 +581,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       observer.observe(inner)
     }
     return () => observer.disconnect()
-  }, [isStreaming, isThinkingStreaming])
+  }, [isStreaming, isThinkingStreaming, setProgrammaticScrollTop])
 
   const handleMessagesScroll = useCallback(() => {
     const node = messagesScrollRef.current
@@ -569,6 +590,12 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     }
     const currentTop = node.scrollTop
     const previousTop = lastScrollTopRef.current
+
+    if (programmaticScrollRef.current) {
+      lastScrollTopRef.current = currentTop
+      return
+    }
+
     const hasVerticalOverflow = node.scrollHeight > node.clientHeight + 8
     const hasScrolled = Math.abs(currentTop - previousTop) >= 1
 
@@ -598,11 +625,15 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
   }, [activeConversationId, clearChatInputRevealTimer])
 
   const handleSendMessage = useCallback(
-    async (text: string): Promise<void> => {
+    async (text: string, attachments?: File[]): Promise<void> => {
       const content = text.trim()
-      if (!content || isStreaming) {
+      const selectedAttachments = Array.isArray(attachments)
+        ? attachments.filter((file) => Boolean(file))
+        : []
+      if ((!content && selectedAttachments.length === 0) || isStreaming) {
         return
       }
+      const optimisticContent = buildUserMessageContent(content, selectedAttachments)
 
       setLastError("")
       setStreamingAssistantText("")
@@ -631,7 +662,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       const optimisticMessage: DomainChatMessage = {
         id: `tmp_usr_${crypto.randomUUID()}`,
         role: "user",
-        content,
+        content: optimisticContent,
         createdAt: Date.now(),
         status: "completed",
       }
@@ -646,6 +677,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
           {
             model: selectedModel,
             text: content,
+            attachments: selectedAttachments,
             anchors,
           },
           (event) => {
@@ -759,11 +791,20 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
               setStreamingReasoningEvents([])
               setStreamingReasoningActive(false)
               streamingReasoningEventsRef.current = []
+              shouldAutoScrollRef.current = true
               setIsStreaming(false)
               leadAnchorMessageIdRef.current = null
-              void refreshConversations().then(() => {
+              const scrollNode = messagesScrollRef.current
+              if (scrollNode) {
+                setProgrammaticScrollTop(scrollNode, scrollNode.scrollHeight)
+              }
+              void refreshConversations().then(async () => {
                 if (activeConversationIdRef.current === conversationId) {
-                  return loadMessages(conversationId)
+                  await loadMessages(conversationId)
+                  const node = messagesScrollRef.current
+                  if (node) {
+                    setProgrammaticScrollTop(node, node.scrollHeight)
+                  }
                 }
               })
               return
@@ -820,6 +861,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       refreshConversations,
       resolveStreamingReasoningDurationSeconds,
       selectedModel,
+      setProgrammaticScrollTop,
       streamingReasoningActive,
     ]
   )
@@ -1035,8 +1077,8 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
         >
           <div className="min-h-0">
             <ChatInput
-              onSendMessage={(text) => {
-                void handleSendMessage(text)
+              onSendMessage={(text, attachments) => {
+                void handleSendMessage(text, attachments)
               }}
               onVoiceStart={() => setVoiceOpen(true)}
               isLoading={isStreaming}

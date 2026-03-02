@@ -21,6 +21,7 @@ export interface ChatAnchors {
 export interface SendChatTurnInput {
   model: string
   text: string
+  attachments?: File[]
   anchors: Partial<ChatAnchors>
 }
 

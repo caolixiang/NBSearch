@@ -1,0 +1,352 @@
+{
+    "result": {
+        "conversation": {
+            "conversationId": "ae0268ba-9e51-4c70-a572-5e2e6c462b36",
+            "title": "New conversation",
+            "starred": false,
+            "createTime": "2026-03-01T23:55:43.708497Z",
+            "modifyTime": "2026-03-01T23:55:43.708972Z",
+            "systemPromptName": "",
+            "temporary": false,
+            "mediaTypes": [],
+            "workspaces": [],
+            "taskResult": null
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "userResponse": {
+                "responseId": "133e4d9e-63a5-4efc-960c-b8afb1391391",
+                "message": "画一只大花猫",
+                "sender": "human",
+                "createTime": "2026-03-01T23:55:43.750Z",
+                "manual": false,
+                "partial": false,
+                "shared": false,
+                "query": "",
+                "queryType": "",
+                "webSearchResults": [],
+                "xpostIds": [],
+                "xposts": [],
+                "generatedImageUrls": [],
+                "imageAttachments": [],
+                "fileAttachments": [],
+                "cardAttachmentsJson": [],
+                "fileUris": [],
+                "fileAttachmentsMetadata": [],
+                "isControl": false,
+                "steps": [],
+                "imageEditUris": [],
+                "mediaTypes": [],
+                "webpageUrls": [],
+                "metadata": {},
+                "citedWebSearchResults": [],
+                "toolResponses": [],
+                "model": "grok-3",
+                "ragResults": [],
+                "citedRagResults": [],
+                "searchProductResults": [],
+                "connectorSearchResults": [],
+                "collectionSearchResults": [],
+                "highlightsStories": [],
+                "streamErrors": []
+            },
+            "isThinking": false,
+            "isSoftStop": false,
+            "responseId": "133e4d9e-63a5-4efc-960c-b8afb1391391"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "queryAction": {
+                "query": "",
+                "type": "imagine"
+            },
+            "isThinking": false,
+            "isSoftStop": false,
+            "responseId": "e244993d-43a5-427e-9c21-5d4189a3e166"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "imageAttachmentInfo": {
+                "imageAttachmentCount": 2
+            },
+            "isThinking": false,
+            "isSoftStop": false,
+            "responseId": "e244993d-43a5-427e-9c21-5d4189a3e166"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "imageDimensions": {
+                "width": 784,
+                "height": 1168
+            },
+            "isThinking": false,
+            "isSoftStop": false,
+            "responseId": "e244993d-43a5-427e-9c21-5d4189a3e166"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "queryAction": {
+                "query": "big tabby cat",
+                "type": "imagine"
+            },
+            "isThinking": false,
+            "isSoftStop": false,
+            "responseId": "e244993d-43a5-427e-9c21-5d4189a3e166"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "streamingImageGenerationResponse": {
+                "imageId": "25da98c5-a40f-426f-86f2-5713538aa1b1",
+                "imageUrl": "users/5c6875df-a57a-4199-ab0e-9135329aad00/generated/25da98c5-a40f-426f-86f2-5713538aa1b1-part-0/image.jpg",
+                "seq": 0,
+                "progress": 50,
+                "moderated": false,
+                "imageIndex": 0,
+                "imageModel": "overriden"
+            },
+            "isThinking": false,
+            "isSoftStop": false,
+            "responseId": "e244993d-43a5-427e-9c21-5d4189a3e166"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "streamingImageGenerationResponse": {
+                "imageId": "25da98c5-a40f-426f-86f2-5713538aa1b1",
+                "imageUrl": "users/5c6875df-a57a-4199-ab0e-9135329aad00/generated/25da98c5-a40f-426f-86f2-5713538aa1b1/image.jpg",
+                "progress": 100,
+                "moderated": false,
+                "imageIndex": 0,
+                "assetId": "25da98c5-a40f-426f-86f2-5713538aa1b1",
+                "imageModel": "overriden",
+                "rRated": false
+            },
+            "isThinking": false,
+            "isSoftStop": false,
+            "responseId": "e244993d-43a5-427e-9c21-5d4189a3e166"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "streamingImageGenerationResponse": {
+                "imageId": "988a4cdd-434b-4dc6-9232-3c6e3fd93d53",
+                "imageUrl": "users/5c6875df-a57a-4199-ab0e-9135329aad00/generated/988a4cdd-434b-4dc6-9232-3c6e3fd93d53-part-0/image.jpg",
+                "seq": 0,
+                "progress": 50,
+                "moderated": false,
+                "imageIndex": 1,
+                "imageModel": "overriden"
+            },
+            "isThinking": false,
+            "isSoftStop": false,
+            "responseId": "e244993d-43a5-427e-9c21-5d4189a3e166"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "streamingImageGenerationResponse": {
+                "imageId": "988a4cdd-434b-4dc6-9232-3c6e3fd93d53",
+                "imageUrl": "users/5c6875df-a57a-4199-ab0e-9135329aad00/generated/988a4cdd-434b-4dc6-9232-3c6e3fd93d53/image.jpg",
+                "progress": 100,
+                "moderated": false,
+                "imageIndex": 1,
+                "assetId": "988a4cdd-434b-4dc6-9232-3c6e3fd93d53",
+                "imageModel": "overriden",
+                "rRated": false
+            },
+            "isThinking": false,
+            "isSoftStop": false,
+            "responseId": "e244993d-43a5-427e-9c21-5d4189a3e166"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "I generated images with the prompt: 'big tabby cat'",
+            "isThinking": false,
+            "isSoftStop": false,
+            "responseId": "e244993d-43a5-427e-9c21-5d4189a3e166"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "token": "",
+            "isThinking": false,
+            "isSoftStop": true,
+            "responseId": "e244993d-43a5-427e-9c21-5d4189a3e166"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "finalMetadata": {
+                "followUpSuggestions": [
+                    {
+                        "properties": {
+                            "messageType": "IMAGE_GEN",
+                            "followUpType": "STYLE"
+                        },
+                        "label": "水墨风格",
+                        "toolOverrides": {
+                            "imageGen": true,
+                            "webSearch": false,
+                            "xSearch": false,
+                            "xMediaSearch": false,
+                            "trendsSearch": false,
+                            "xPostAnalyze": false,
+                            "videoGen": false,
+                            "gmailSearch": false,
+                            "googleCalendarSearch": false,
+                            "outlookSearch": false
+                        }
+                    },
+                    {
+                        "properties": {
+                            "messageType": "IMAGE_GEN",
+                            "followUpType": "ADD"
+                        },
+                        "label": "追逐蝴蝶",
+                        "toolOverrides": {
+                            "imageGen": true,
+                            "webSearch": false,
+                            "xSearch": false,
+                            "xMediaSearch": false,
+                            "trendsSearch": false,
+                            "xPostAnalyze": false,
+                            "videoGen": false,
+                            "gmailSearch": false,
+                            "googleCalendarSearch": false,
+                            "outlookSearch": false
+                        }
+                    },
+                    {
+                        "properties": {
+                            "messageType": "IMAGE_GEN",
+                            "followUpType": "MODIFY"
+                        },
+                        "label": "戴着草帽",
+                        "toolOverrides": {
+                            "imageGen": true,
+                            "webSearch": false,
+                            "xSearch": false,
+                            "xMediaSearch": false,
+                            "trendsSearch": false,
+                            "xPostAnalyze": false,
+                            "videoGen": false,
+                            "gmailSearch": false,
+                            "googleCalendarSearch": false,
+                            "outlookSearch": false
+                        }
+                    }
+                ],
+                "feedbackLabels": [],
+                "toolsUsed": {
+                    "imageGen": true,
+                    "webSearch": false,
+                    "xSearch": false,
+                    "xMediaSearch": false,
+                    "trendsSearch": false,
+                    "xPostAnalyze": false,
+                    "videoGen": false,
+                    "gmailSearch": false,
+                    "googleCalendarSearch": false,
+                    "outlookSearch": false
+                },
+                "disclaimer": ""
+            },
+            "isThinking": false,
+            "isSoftStop": false,
+            "responseId": "e244993d-43a5-427e-9c21-5d4189a3e166"
+        }
+    }
+}{
+    "result": {
+        "response": {
+            "modelResponse": {
+                "responseId": "e244993d-43a5-427e-9c21-5d4189a3e166",
+                "message": "I generated images with the prompt: 'big tabby cat'",
+                "sender": "ASSISTANT",
+                "createTime": "2026-03-01T23:55:47.915Z",
+                "parentResponseId": "133e4d9e-63a5-4efc-960c-b8afb1391391",
+                "manual": false,
+                "partial": false,
+                "shared": false,
+                "query": "big tabby cat",
+                "queryType": "imagine",
+                "webSearchResults": [],
+                "xpostIds": [],
+                "xposts": [],
+                "generatedImageUrls": [
+                    "users/5c6875df-a57a-4199-ab0e-9135329aad00/generated/25da98c5-a40f-426f-86f2-5713538aa1b1/image.jpg",
+                    "users/5c6875df-a57a-4199-ab0e-9135329aad00/generated/988a4cdd-434b-4dc6-9232-3c6e3fd93d53/image.jpg"
+                ],
+                "imageAttachments": [],
+                "fileAttachments": [
+                    "25da98c5-a40f-426f-86f2-5713538aa1b1",
+                    "988a4cdd-434b-4dc6-9232-3c6e3fd93d53"
+                ],
+                "cardAttachmentsJson": [],
+                "fileUris": [],
+                "fileAttachmentsMetadata": [],
+                "isControl": false,
+                "steps": [],
+                "imageEditUris": [],
+                "mediaTypes": [],
+                "webpageUrls": [],
+                "metadata": {
+                    "deepsearchPreset": "",
+                    "generated_image_height": 1168,
+                    "generated_image_width": 784,
+                    "request_metadata": {
+                        "effort": "low",
+                        "mode": "fast",
+                        "model": "grok-3"
+                    },
+                    "request_trace_id": "a9df54f0081b86f3b4fd6452476783f4"
+                },
+                "generatedImageHeight": 1168,
+                "generatedImageWidth": 784,
+                "citedWebSearchResults": [],
+                "toolResponses": [],
+                "model": "grok-3",
+                "requestMetadata": {
+                    "model": "grok-3",
+                    "mode": "MODEL_MODE_FAST",
+                    "effort": "LOW"
+                },
+                "ragResults": [],
+                "citedRagResults": [],
+                "searchProductResults": [],
+                "connectorSearchResults": [],
+                "collectionSearchResults": [],
+                "highlightsStories": [],
+                "streamErrors": []
+            },
+            "isThinking": false,
+            "isSoftStop": false,
+            "responseId": "e244993d-43a5-427e-9c21-5d4189a3e166"
+        }
+    }
+}{
+    "result": {
+        "title": {
+            "newTitle": "大花猫图像生成"
+        }
+    }
+}

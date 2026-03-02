@@ -1,8 +1,8 @@
 "use client"
 
-import { useState, useRef, useCallback, useEffect } from "react"
+import { useState, useRef, useCallback, useEffect, useMemo } from "react"
 import { Button } from "@/components/ui/button"
-import { ArrowUp, Square, Paperclip, Mic, MicOff, X } from "lucide-react"
+import { ArrowUp, Square, Paperclip, Mic, MicOff, X, File as FileIcon } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 // DeepSearch icon (spiral/swirl like Grok's)
@@ -49,10 +49,36 @@ export function ChatInput({
   const [deepSearch, setDeepSearch] = useState(false)
   const [isRecording, setIsRecording] = useState(false)
   const [attachments, setAttachments] = useState<File[]>([])
+  const [imagePreviewUrlByIndex, setImagePreviewUrlByIndex] = useState<Record<number, string>>({})
+  const [loadedPreviewByIndex, setLoadedPreviewByIndex] = useState<Record<number, true>>({})
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const isComposingRef = useRef(false)
+
+  const isImageAttachment = (file: File): boolean => {
+    const mimeType = (file.type || "").toLowerCase()
+    if (mimeType.startsWith("image/")) {
+      return true
+    }
+    return /\.(?:png|jpe?g|webp|gif|bmp|svg|avif|heic|heif)$/i.test(file.name)
+  }
+
+  const imageAttachments = useMemo(
+    () =>
+      attachments
+        .map((file, index) => ({ file, index }))
+        .filter(({ file }) => isImageAttachment(file)),
+    [attachments]
+  )
+
+  const fileAttachments = useMemo(
+    () =>
+      attachments
+        .map((file, index) => ({ file, index }))
+        .filter(({ file }) => !isImageAttachment(file)),
+    [attachments]
+  )
 
   useEffect(() => {
     if (!onHeightChange || !containerRef.current) {
@@ -71,6 +97,20 @@ export function ChatInput({
       observer.disconnect()
     }
   }, [onHeightChange])
+
+  useEffect(() => {
+    const next: Record<number, string> = {}
+    for (const { file, index } of imageAttachments) {
+      next[index] = URL.createObjectURL(file)
+    }
+    setImagePreviewUrlByIndex(next)
+    setLoadedPreviewByIndex({})
+    return () => {
+      for (const value of Object.values(next)) {
+        URL.revokeObjectURL(value)
+      }
+    }
+  }, [imageAttachments])
 
   const handleSubmit = useCallback(() => {
     if ((!input.trim() && attachments.length === 0) || isLoading) return
@@ -107,8 +147,65 @@ export function ChatInput({
     e.target.value = ""
   }
 
+  const buildPastedFileName = (file: File, index: number): string => {
+    const existing = (file.name || "").trim()
+    if (existing) {
+      return existing
+    }
+    const mime = (file.type || "").toLowerCase()
+    if (mime.includes("png")) return `pasted-image-${Date.now()}-${index + 1}.png`
+    if (mime.includes("jpeg") || mime.includes("jpg")) return `pasted-image-${Date.now()}-${index + 1}.jpg`
+    if (mime.includes("webp")) return `pasted-image-${Date.now()}-${index + 1}.webp`
+    if (mime.includes("gif")) return `pasted-image-${Date.now()}-${index + 1}.gif`
+    return `pasted-image-${Date.now()}-${index + 1}`
+  }
+
+  const normalizePastedFile = (file: File, index: number): File => {
+    const nextName = buildPastedFileName(file, index)
+    if (nextName === file.name) {
+      return file
+    }
+    return new File([file], nextName, {
+      type: file.type || "application/octet-stream",
+      lastModified: file.lastModified || Date.now(),
+    })
+  }
+
+  const handleTextareaPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const items = Array.from(e.clipboardData?.items || [])
+    if (items.length === 0) {
+      return
+    }
+
+    const pastedImages = items
+      .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
+      .map((item) => item.getAsFile())
+      .filter((file): file is File => Boolean(file))
+      .map((file, index) => normalizePastedFile(file, index))
+
+    if (pastedImages.length === 0) {
+      return
+    }
+
+    // Prevent browsers from pasting image URL/plaintext into textarea when an image blob is present.
+    e.preventDefault()
+    setAttachments((prev) => [...prev, ...pastedImages])
+  }
+
   const removeAttachment = (index: number) => {
     setAttachments((prev) => prev.filter((_, i) => i !== index))
+  }
+
+  const markPreviewLoaded = (index: number) => {
+    setLoadedPreviewByIndex((prev) => {
+      if (prev[index]) {
+        return prev
+      }
+      return {
+        ...prev,
+        [index]: true,
+      }
+    })
   }
 
   const toggleRecording = () => {
@@ -126,19 +223,69 @@ export function ChatInput({
       <div className="relative rounded-2xl border border-border bg-card shadow-sm transition-shadow focus-within:shadow-md focus-within:border-ring/40">
         {/* Attachments preview */}
         {attachments.length > 0 && (
-          <div className="flex flex-wrap gap-2 px-4 pt-3">
-            {attachments.map((file, i) => (
-              <div key={i} className="flex items-center gap-1.5 rounded-lg bg-secondary px-2.5 py-1 text-xs text-foreground">
-                <Paperclip className="size-3 text-muted-foreground" />
-                <span className="max-w-32 truncate">{file.name}</span>
-                <button
-                  onClick={() => removeAttachment(i)}
-                  className="ml-0.5 text-muted-foreground hover:text-foreground"
-                >
-                  <X className="size-3" />
-                </button>
+          <div className="px-4 pt-3">
+            {imageAttachments.length > 0 ? (
+              <div className="mb-2 flex flex-wrap gap-2">
+                {imageAttachments.map(({ file, index }) => {
+                  const previewUrl = imagePreviewUrlByIndex[index] || ""
+                  const loaded = Boolean(loadedPreviewByIndex[index])
+                  return (
+                    <div
+                      key={`${file.name}-${file.lastModified}-${index}`}
+                      className="relative h-[76px] w-[76px] overflow-hidden rounded-2xl border border-border/70 bg-secondary/50"
+                    >
+                      {!loaded ? (
+                        <div className="absolute inset-0 flex items-center justify-center">
+                          <span className="inline-flex size-5 animate-spin rounded-full border-2 border-muted-foreground/25 border-t-muted-foreground/70" />
+                        </div>
+                      ) : null}
+                      {previewUrl ? (
+                        <img
+                          src={previewUrl}
+                          alt={file.name || "attachment image"}
+                          className={cn(
+                            "h-full w-full object-cover transition-opacity duration-200",
+                            loaded ? "opacity-100" : "opacity-0"
+                          )}
+                          onLoad={() => markPreviewLoaded(index)}
+                          onError={() => markPreviewLoaded(index)}
+                        />
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={() => removeAttachment(index)}
+                        className="absolute right-1 top-1 inline-flex size-5 items-center justify-center rounded-full bg-black/45 text-white transition-colors hover:bg-black/70"
+                        aria-label="移除图片附件"
+                      >
+                        <X className="size-3.5" />
+                      </button>
+                    </div>
+                  )
+                })}
               </div>
-            ))}
+            ) : null}
+
+            {fileAttachments.length > 0 ? (
+              <div className="flex flex-wrap gap-2">
+                {fileAttachments.map(({ file, index }) => (
+                  <div
+                    key={`${file.name}-${file.lastModified}-${index}`}
+                    className="flex items-center gap-1.5 rounded-lg bg-secondary px-2.5 py-1 text-xs text-foreground"
+                  >
+                    <FileIcon className="size-3 text-muted-foreground" />
+                    <span className="max-w-32 truncate">{file.name}</span>
+                    <button
+                      type="button"
+                      onClick={() => removeAttachment(index)}
+                      className="ml-0.5 text-muted-foreground hover:text-foreground"
+                      aria-label="移除文件附件"
+                    >
+                      <X className="size-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : null}
           </div>
         )}
 
@@ -147,6 +294,7 @@ export function ChatInput({
           ref={textareaRef}
           value={input}
           onChange={handleTextareaInput}
+          onPaste={handleTextareaPaste}
           onKeyDown={handleKeyDown}
           onCompositionStart={() => {
             isComposingRef.current = true
@@ -172,7 +320,7 @@ export function ChatInput({
               ref={fileInputRef}
               type="file"
               multiple
-              accept="image/*,.pdf,.doc,.docx,.txt,.csv,.json,.md"
+              accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv,.json,.md"
               className="hidden"
               onChange={handleFileSelect}
             />
