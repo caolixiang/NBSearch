@@ -39,9 +39,18 @@ export function MarkdownBody({ content, streaming = false }: { content: string; 
       isAnimating={streaming}
       rehypePlugins={rehypePlugins}
       components={{
-        h1: ({ children }) => <h1 className="mb-3 mt-5 text-xl font-bold">{children}</h1>,
-        h2: ({ children }) => <h2 className="mb-2 mt-4 text-lg font-semibold">{children}</h2>,
-        h3: ({ children }) => <h3 className="mb-2 mt-4 text-base font-semibold">{children}</h3>,
+        h1: ({ children }) => (
+          <h1 className="mb-4 mt-6 text-3xl leading-tight font-bold tracking-tight text-foreground">{children}</h1>
+        ),
+        h2: ({ children }) => (
+          <h2 className="mb-3 mt-5 text-2xl leading-tight font-semibold tracking-tight text-foreground">{children}</h2>
+        ),
+        h3: ({ children }) => (
+          <h3 className="mb-2.5 mt-4.5 text-xl leading-snug font-semibold text-foreground">{children}</h3>
+        ),
+        h4: ({ children }) => (
+          <h4 className="mb-2 mt-4 text-lg leading-snug font-semibold text-foreground">{children}</h4>
+        ),
         p: ({ children }) => {
           if (streaming) {
             return <p className="leading-7">{children}</p>
