@@ -31,11 +31,13 @@ function AudioWaveIcon({ className = "size-5" }: { className?: string }) {
 }
 
 interface ChatInputProps {
-  onSendMessage: (text: string, attachments?: File[]) => void
+  onSendMessage: (text: string, attachments?: File[], options?: { deepSearch?: boolean }) => void
   onVoiceStart?: () => void
   isLoading: boolean
   onStop?: () => void
   onHeightChange?: (height: number) => void
+  deepSearchEnabled?: boolean
+  onDeepSearchChange?: (enabled: boolean) => void
 }
 
 export function ChatInput({
@@ -44,9 +46,10 @@ export function ChatInput({
   isLoading,
   onStop,
   onHeightChange,
+  deepSearchEnabled = false,
+  onDeepSearchChange,
 }: ChatInputProps) {
   const [input, setInput] = useState("")
-  const [deepSearch, setDeepSearch] = useState(false)
   const [isRecording, setIsRecording] = useState(false)
   const [attachments, setAttachments] = useState<File[]>([])
   const [imagePreviewUrlByIndex, setImagePreviewUrlByIndex] = useState<Record<number, string>>({})
@@ -114,13 +117,15 @@ export function ChatInput({
 
   const handleSubmit = useCallback(() => {
     if ((!input.trim() && attachments.length === 0) || isLoading) return
-    onSendMessage(input.trim(), attachments.length > 0 ? attachments : undefined)
+    onSendMessage(input.trim(), attachments.length > 0 ? attachments : undefined, {
+      deepSearch: deepSearchEnabled,
+    })
     setInput("")
     setAttachments([])
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto"
     }
-  }, [input, isLoading, onSendMessage, attachments])
+  }, [attachments, deepSearchEnabled, input, isLoading, onSendMessage])
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     const nativeEvent = e.nativeEvent as KeyboardEvent & { isComposing?: boolean }
@@ -391,10 +396,10 @@ export function ChatInput({
       {/* DeepSearch toggle pill below input */}
       <div className="mt-2 flex items-center justify-center gap-2">
         <button
-          onClick={() => setDeepSearch(!deepSearch)}
+          onClick={() => onDeepSearchChange?.(!deepSearchEnabled)}
           className={cn(
             "flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-xs font-medium transition-colors",
-            deepSearch
+            deepSearchEnabled
               ? "border-foreground bg-foreground text-background"
               : "border-border bg-card text-muted-foreground hover:text-foreground hover:border-foreground/30"
           )}

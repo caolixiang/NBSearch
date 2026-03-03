@@ -222,6 +222,46 @@ function resolveStreamingConnectionHealth(
   }
 }
 
+function resolveDeepSearchExpertModelId(models: ModelOption[], fallbackModelId: string): string {
+  const fallback = fallbackModelId || models[0]?.id || ""
+  if (models.length === 0) {
+    return fallback
+  }
+
+  const pickPreferred = (list: ModelOption[]): string => {
+    if (list.length === 0) {
+      return ""
+    }
+    const grok = list.find((item) => item.id.toLowerCase().includes("grok"))
+    return (grok || list[0]).id
+  }
+
+  const withExpertKeyword = models.filter((item) => {
+    const text = `${item.id} ${item.name} ${item.shortName} ${item.description}`.toLowerCase()
+    return text.includes("expert")
+  })
+  const expertId = pickPreferred(withExpertKeyword)
+  if (expertId) {
+    return expertId
+  }
+
+  const reasoningModels = models.filter((item) => item.visualKind === "reasoning")
+  const reasoningId = pickPreferred(reasoningModels)
+  if (reasoningId) {
+    return reasoningId
+  }
+
+  const grokNonFast = models.find((item) => {
+    const id = item.id.toLowerCase()
+    return id.includes("grok") && !id.includes("fast")
+  })
+  if (grokNonFast) {
+    return grokNonFast.id
+  }
+
+  return fallback
+}
+
 function appendReasoningEvent(
   previous: ChatReasoningEventDetail[],
   detail: ChatReasoningEventDetail
@@ -327,6 +367,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     const models = getInitialModelOptions()
     return resolveSelectedModel(models, [readStoredSelectedModel(), runtime.config.defaultModel])
   })
+  const [deepSearchEnabled, setDeepSearchEnabled] = useState(false)
   const [isRefreshingModels, setIsRefreshingModels] = useState(false)
 
   const abortControllerByConversationIdRef = useRef<Record<string, AbortController>>({})
@@ -554,6 +595,21 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     activeStreamingState?.startedAt,
   ])
   const shouldShowHeaderNewConversationButton = conversations.length > 0
+
+  const handleDeepSearchEnabledChange = useCallback(
+    (enabled: boolean) => {
+      setDeepSearchEnabled(enabled)
+      if (!enabled) {
+        return
+      }
+      const expertModelId = resolveDeepSearchExpertModelId(modelOptions, selectedModel)
+      if (expertModelId && expertModelId !== selectedModel) {
+        setSelectedModel(expertModelId)
+        setModelError("")
+      }
+    },
+    [modelOptions, selectedModel]
+  )
 
   const shouldUseThinkMarkupFallback = activeStreamingReasoningEvents.length === 0
   const hasThinkMarkup = shouldUseThinkMarkupFallback && hasAnyThinkTag(activeStreamingAssistantText)
@@ -805,11 +861,12 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
   }, [activeConversationId, clearChatInputRevealTimer])
 
   const handleSendMessage = useCallback(
-    async (text: string, attachments?: File[]): Promise<void> => {
+    async (text: string, attachments?: File[], options?: { deepSearch?: boolean }): Promise<void> => {
       const content = text.trim()
       const selectedAttachments = Array.isArray(attachments)
         ? attachments.filter((file) => Boolean(file))
         : []
+      const deepSearch = options?.deepSearch === true
       if (!content && selectedAttachments.length === 0) {
         return
       }
@@ -927,6 +984,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
             text: content,
             attachments: selectedAttachments,
             anchors,
+            deepSearch,
           },
           (event) => {
             if (event.type === "heartbeat") {
@@ -1550,6 +1608,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
             selectedModel={selectedModel}
             onModelChange={(modelId) => {
               setSelectedModel(modelId)
+              setDeepSearchEnabled(false)
               setModelError("")
             }}
             onRefresh={() => {
@@ -1672,11 +1731,13 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
         >
           <div className="min-h-0">
             <ChatInput
-              onSendMessage={(text, attachments) => {
-                void handleSendMessage(text, attachments)
+              onSendMessage={(text, attachments, options) => {
+                void handleSendMessage(text, attachments, options)
               }}
               onVoiceStart={() => setVoiceOpen(true)}
               isLoading={isActiveConversationStreaming}
+              deepSearchEnabled={deepSearchEnabled}
+              onDeepSearchChange={handleDeepSearchEnabledChange}
               onHeightChange={(height) => {
                 setChatInputHeight((prev) => (Math.abs(prev - height) < 1 ? prev : height))
               }}

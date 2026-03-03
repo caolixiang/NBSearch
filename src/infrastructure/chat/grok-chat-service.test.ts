@@ -784,4 +784,75 @@ describe("streamTurn heartbeats and timeout", () => {
     expect(messages[0]?.role).toBe("assistant")
     expect(messages[0]?.content).toContain("Regenerated")
   })
+
+  it("sends x_grok deep_search payload for deep-search turns", async () => {
+    const repository = new MemoryAppRepository()
+    const service = new GrokChatService(repository, {
+      apiBaseUrl: "http://127.0.0.1:8787",
+      apiKey: "test-key",
+      defaultModel: "grok-4.1-fast",
+      voiceEnabled: false,
+    })
+
+    const streamChunk = [
+      JSON.stringify({
+        type: "response.created",
+        response: {
+          id: "resp_deep_1",
+        },
+      }),
+      JSON.stringify({
+        type: "response.output_text.delta",
+        delta: "Deep result",
+      }),
+      JSON.stringify({
+        type: "response.completed",
+        response: {
+          id: "resp_deep_1",
+          output: [
+            {
+              type: "message",
+              content: [
+                {
+                  type: "output_text",
+                  text: "Deep result",
+                },
+              ],
+            },
+          ],
+        },
+      }),
+    ].join("")
+
+    const requestBodies: string[] = []
+    const mockedFetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      requestBodies.push(typeof init?.body === "string" ? init.body : "")
+      return createStreamingResponse([streamChunk])
+    }) as unknown as typeof fetch
+    ;(mockedFetch as unknown as { preconnect: (url: string) => void }).preconnect = () => {}
+    ;(service as unknown as { runtimeFetch: typeof fetch }).runtimeFetch = mockedFetch
+
+    await service.streamTurn(
+      {
+        model: "grok-4.1-fast",
+        text: "请深挖这个主题",
+        anchors: {
+          conversationId: "conv_deep_1",
+          sessionId: "sess_deep_1",
+          lastResponseId: "resp_prev_deep",
+        },
+        deepSearch: true,
+      },
+      () => {}
+    )
+
+    expect(requestBodies).toHaveLength(1)
+    const body = JSON.parse(requestBodies[0] || "{}") as Record<string, unknown>
+    expect(body["session_id"]).toBe("sess_deep_1")
+    expect(body["previous_response_id"]).toBe("resp_prev_deep")
+    expect(Array.isArray(body["input"])).toBe(true)
+    expect(body["x_grok"]).toEqual({
+      deep_search: true,
+    })
+  })
 })

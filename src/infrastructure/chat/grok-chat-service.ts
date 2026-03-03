@@ -1486,6 +1486,7 @@ export class GrokChatService implements ChatService {
     const sessionId = input.anchors.sessionId?.trim() || `sess_${crypto.randomUUID()}`
     const regenerateTargetResponseId = input.regenerateTargetResponseId?.trim() || ""
     const isRegenerate = regenerateTargetResponseId.length > 0
+    const isDeepSearch = !isRegenerate && input.deepSearch === true
     if (!isRegenerate) {
       const userMessage = buildUserMessage(buildUserMessageText(input.text, input.attachments))
       await this.repository.appendMessage(conversationId, userMessage)
@@ -1575,6 +1576,11 @@ export class GrokChatService implements ChatService {
         ]
         if (previousResponseId) {
           requestBodyPayload["previous_response_id"] = previousResponseId
+        }
+        if (isDeepSearch) {
+          requestBodyPayload["x_grok"] = {
+            deep_search: true,
+          }
         }
       }
       const requestBody = JSON.stringify(requestBodyPayload)
