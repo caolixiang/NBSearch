@@ -581,7 +581,7 @@ export const MarkdownImage = memo(function({
         loading="lazy"
         onError={handleError}
         onClick={handleImageClick}
-        className="grok-md-image block h-auto max-h-[72vh] w-full cursor-zoom-in rounded-[24px] bg-secondary/20 object-contain"
+        className="grok-md-image block h-auto max-h-[72vh] w-full cursor-pointer rounded-[24px] bg-secondary/20 object-contain"
         data-grok-md-image="true"
       />
 
