@@ -519,6 +519,16 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     }
     return map
   }, [visibleMessages])
+  const latestAssistantMessageId = useMemo(() => {
+    for (let index = visibleMessages.length - 1; index >= 0; index -= 1) {
+      const message = visibleMessages[index]
+      if (message.role !== "assistant" || message.id === "streaming_assistant") {
+        continue
+      }
+      return message.id
+    }
+    return ""
+  }, [visibleMessages])
   const pdfExportMetaByMessageId = useMemo(() => {
     const map: Record<string, { title: string; round: number; fileName: string }> = {}
     for (const [messageId, round] of Object.entries(assistantRoundByMessageId)) {
@@ -1586,9 +1596,18 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
             >
               {visibleMessages.map((message) => (
                 <div key={message.id} data-message-id={message.id}>
+                  {/*
+                    Keep actions visible for the latest assistant response.
+                    Older assistant responses only reveal actions on hover/focus.
+                  */}
                   <ChatMessage
                     message={message}
                     regenerateDisabled={isActiveConversationStreaming}
+                    actionsAlwaysVisible={
+                      message.role === "assistant" &&
+                      message.id !== "streaming_assistant" &&
+                      message.id === latestAssistantMessageId
+                    }
                     pdfExportMeta={
                       message.role === "assistant" && message.id !== "streaming_assistant"
                         ? pdfExportMetaByMessageId[message.id]
