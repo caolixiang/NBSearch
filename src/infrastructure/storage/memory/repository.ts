@@ -60,6 +60,20 @@ export class MemoryAppRepository implements AppRepository {
     return [...(this.messages.get(conversationId) || [])]
   }
 
+  async truncateMessagesAfter(
+    conversationId: string,
+    messageId: string,
+    includeMessage = false
+  ): Promise<void> {
+    const list = this.messages.get(conversationId) || []
+    const index = list.findIndex((item) => item.id === messageId)
+    if (index < 0) {
+      return
+    }
+    const keepCount = includeMessage ? index : index + 1
+    this.messages.set(conversationId, list.slice(0, Math.max(0, keepCount)))
+  }
+
   async upsertVoiceSession(record: VoiceSessionRecord): Promise<void> {
     this.voiceSessions.set(record.id, record)
   }

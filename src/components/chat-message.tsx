@@ -15,6 +15,9 @@ export interface RenderChatMessage {
   id: string
   role: "user" | "assistant"
   content: string
+  createdAt?: number
+  responseId?: string
+  previousResponseId?: string
   reasoningEvents?: ChatReasoningEventDetail[]
   reasoningActive?: boolean
   reasoningDurationSeconds?: number
@@ -93,7 +96,11 @@ function truncateAttachmentName(fileName: string, maxUnits = 20): string {
   return normalized ? `${normalized}...` : `${input.slice(0, 1)}...`
 }
 
-export function ChatMessage({ message }: { message: RenderChatMessage }) {
+export function ChatMessage({
+  message,
+}: {
+  message: RenderChatMessage
+}) {
   const isUser = message.role === "user"
   const isStreamingAssistant = !isUser && message.id === "streaming_assistant"
 

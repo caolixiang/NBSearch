@@ -1484,9 +1484,12 @@ export class GrokChatService implements ChatService {
   ): Promise<void> {
     const conversationId = buildConversationId(input.anchors)
     const sessionId = input.anchors.sessionId?.trim() || `sess_${crypto.randomUUID()}`
-    const userMessage = buildUserMessage(buildUserMessageText(input.text, input.attachments))
-
-    await this.repository.appendMessage(conversationId, userMessage)
+    const regenerateTargetResponseId = input.regenerateTargetResponseId?.trim() || ""
+    const isRegenerate = regenerateTargetResponseId.length > 0
+    if (!isRegenerate) {
+      const userMessage = buildUserMessage(buildUserMessageText(input.text, input.attachments))
+      await this.repository.appendMessage(conversationId, userMessage)
+    }
 
     const requestId = `req_${crypto.randomUUID()}`
     const streamStartedAt = Date.now()
@@ -1551,20 +1554,30 @@ export class GrokChatService implements ChatService {
     emitStarted(requestId)
 
     try {
-      const contentBlocks = await buildResponsesInputContent(input.text, input.attachments)
       const previousResponseId = input.anchors.lastResponseId?.trim() || ""
-      const requestBody = JSON.stringify({
+      const requestBodyPayload: Record<string, unknown> = {
         model: input.model,
-        input: [
+        session_id: sessionId,
+        stream: true,
+      }
+      if (isRegenerate) {
+        requestBodyPayload["x_grok"] = {
+          regenerate: true,
+          target_response_id: regenerateTargetResponseId,
+        }
+      } else {
+        const contentBlocks = await buildResponsesInputContent(input.text, input.attachments)
+        requestBodyPayload["input"] = [
           {
             role: "user",
             content: contentBlocks,
           },
-        ],
-        session_id: sessionId,
-        ...(previousResponseId ? { previous_response_id: previousResponseId } : {}),
-        stream: true,
-      })
+        ]
+        if (previousResponseId) {
+          requestBodyPayload["previous_response_id"] = previousResponseId
+        }
+      }
+      const requestBody = JSON.stringify(requestBodyPayload)
 
       let upstreamConversationTitle = ""
       let assistantText = ""

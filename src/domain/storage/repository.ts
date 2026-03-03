@@ -33,5 +33,11 @@ export interface AppRepository {
 
   listMessages(conversationId: string): Promise<ChatMessage[]>
 
+  truncateMessagesAfter(
+    conversationId: string,
+    messageId: string,
+    includeMessage?: boolean
+  ): Promise<void>
+
   upsertVoiceSession(record: VoiceSessionRecord): Promise<void>
 }

@@ -47,6 +47,9 @@ function toRenderMessage(message: DomainChatMessage): RenderChatMessage | null {
     id: message.id,
     role: message.role,
     content: message.content,
+    createdAt: message.createdAt,
+    responseId: message.responseId,
+    previousResponseId: message.previousResponseId,
   }
 }
 
@@ -66,6 +69,46 @@ function buildUserMessageContent(text: string, attachments?: File[]): string {
     return attachmentLines.join("\n")
   }
   return `${content}\n\n${attachmentLines.join("\n")}`
+}
+
+function buildReasoningCaches(list: DomainChatMessage[]): {
+  reasoningByMessageId: Record<string, ChatReasoningEventDetail[]>
+  reasoningDurationByMessageId: Record<string, number>
+} {
+  const reasoningByMessageId: Record<string, ChatReasoningEventDetail[]> = {}
+  const reasoningDurationByMessageId: Record<string, number> = {}
+
+  for (const message of list) {
+    if (message.role !== "assistant") {
+      continue
+    }
+    const messageId = message.id.trim()
+    const responseId = message.responseId?.trim() || ""
+
+    if (Array.isArray(message.reasoningEvents) && message.reasoningEvents.length > 0) {
+      reasoningByMessageId[messageId] = message.reasoningEvents
+      if (responseId) {
+        reasoningByMessageId[responseId] = message.reasoningEvents
+      }
+    }
+
+    if (
+      typeof message.reasoningDurationSeconds === "number" &&
+      Number.isFinite(message.reasoningDurationSeconds) &&
+      message.reasoningDurationSeconds > 0
+    ) {
+      const normalizedDuration = Math.max(1, Math.round(message.reasoningDurationSeconds))
+      reasoningDurationByMessageId[messageId] = normalizedDuration
+      if (responseId) {
+        reasoningDurationByMessageId[responseId] = normalizedDuration
+      }
+    }
+  }
+
+  return {
+    reasoningByMessageId,
+    reasoningDurationByMessageId,
+  }
 }
 
 function getInitialModelOptions(): ModelOption[] {
@@ -530,39 +573,9 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     async (conversationId: string): Promise<void> => {
       const list = await chatService.listMessages(conversationId)
       setMessagesForConversation(conversationId, list)
-
-      const nextReasoningByMessageId: Record<string, ChatReasoningEventDetail[]> = {}
-      const nextReasoningDurationByMessageId: Record<string, number> = {}
-
-      for (const message of list) {
-        if (message.role !== "assistant") {
-          continue
-        }
-        const messageId = message.id.trim()
-        const responseId = message.responseId?.trim() || ""
-
-        if (Array.isArray(message.reasoningEvents) && message.reasoningEvents.length > 0) {
-          nextReasoningByMessageId[messageId] = message.reasoningEvents
-          if (responseId) {
-            nextReasoningByMessageId[responseId] = message.reasoningEvents
-          }
-        }
-
-        if (
-          typeof message.reasoningDurationSeconds === "number" &&
-          Number.isFinite(message.reasoningDurationSeconds) &&
-          message.reasoningDurationSeconds > 0
-        ) {
-          const normalizedDuration = Math.max(1, Math.round(message.reasoningDurationSeconds))
-          nextReasoningDurationByMessageId[messageId] = normalizedDuration
-          if (responseId) {
-            nextReasoningDurationByMessageId[responseId] = normalizedDuration
-          }
-        }
-      }
-
-      setPersistedReasoningForConversation(conversationId, nextReasoningByMessageId)
-      setPersistedReasoningDurationForConversation(conversationId, nextReasoningDurationByMessageId)
+      const caches = buildReasoningCaches(list)
+      setPersistedReasoningForConversation(conversationId, caches.reasoningByMessageId)
+      setPersistedReasoningDurationForConversation(conversationId, caches.reasoningDurationByMessageId)
     },
     [chatService, setMessagesForConversation, setPersistedReasoningDurationForConversation, setPersistedReasoningForConversation]
   )
@@ -1016,6 +1029,340 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       setLastErrorForConversation,
       refreshConversations,
       selectedModel,
+      streamingStateByConversationId,
+      upsertPersistedReasoningDurationEntry,
+      upsertPersistedReasoningEntry,
+    ]
+  )
+
+  const handleRegenerateMessage = useCallback(
+    async (targetMessage: RenderChatMessage): Promise<void> => {
+      const conversationId = activeConversationIdRef.current
+      if (!conversationId || conversationId === DRAFT_CONVERSATION_ID) {
+        return
+      }
+      if (isConversationStreaming(streamingStateByConversationId, conversationId)) {
+        return
+      }
+      const currentMessages = messagesByConversationId[conversationId] || []
+      const targetIndex = currentMessages.findIndex(
+        (item) => item.id === targetMessage.id && item.role === "assistant"
+      )
+      if (targetIndex < 0) {
+        return
+      }
+      const targetAssistant = currentMessages[targetIndex]
+      if (!targetAssistant || targetAssistant.role !== "assistant") {
+        return
+      }
+      const targetResponseId = (targetAssistant.responseId || targetAssistant.id || "").trim()
+      if (!targetResponseId) {
+        setLastErrorForConversation(conversationId, "重试失败：缺少目标回复 ID")
+        return
+      }
+
+      let previousUserIndex = -1
+      for (let index = targetIndex - 1; index >= 0; index -= 1) {
+        if (currentMessages[index]?.role === "user") {
+          previousUserIndex = index
+          break
+        }
+      }
+      if (previousUserIndex < 0) {
+        setLastErrorForConversation(conversationId, "重试失败：未找到对应用户问题")
+        return
+      }
+
+      const parentResponseId = (() => {
+        const direct = targetAssistant.previousResponseId?.trim()
+        if (direct) {
+          return direct
+        }
+        for (let index = targetIndex - 1; index >= 0; index -= 1) {
+          const item = currentMessages[index]
+          if (!item || item.role !== "assistant") {
+            continue
+          }
+          const responseId = (item.responseId || item.id || "").trim()
+          if (responseId) {
+            return responseId
+          }
+        }
+        return ""
+      })()
+
+      const keptMessages = currentMessages.slice(0, targetIndex)
+      const leadAnchorMessageId = currentMessages[previousUserIndex]?.id || null
+      const currentConversation =
+        conversations.find((item) => item.id === conversationId) || null
+      const sessionId =
+        currentConversation?.anchors.sessionId?.trim() ||
+        `sess_${conversationId}`
+
+      clearLastErrorForConversation(conversationId)
+      await repository.truncateMessagesAfter(conversationId, targetAssistant.id, true)
+      const now = Date.now()
+      await repository.upsertConversation({
+        id: conversationId,
+        title: currentConversation?.title || "",
+        anchors: {
+          sessionId,
+          conversationId,
+          lastResponseId: parentResponseId,
+        },
+        createdAt: currentConversation?.createdAt || now,
+        updatedAt: now,
+      })
+      setMessagesForConversation(conversationId, keptMessages)
+      const keptCaches = buildReasoningCaches(keptMessages)
+      setPersistedReasoningForConversation(conversationId, keptCaches.reasoningByMessageId)
+      setPersistedReasoningDurationForConversation(conversationId, keptCaches.reasoningDurationByMessageId)
+
+      const startedAt = Date.now()
+      let assistantText = ""
+      let reasoningEvents: ChatReasoningEventDetail[] = []
+      let reasoningActive = false
+      let assistantOutputStarted = false
+      let reasoningEverStarted = false
+      let reasoningStopTimer: number | null = null
+      let pendingCardAttachmentDetails: ChatReasoningEventDetail[] = []
+      let cardAttachmentFlushTimer: number | null = null
+
+      setStreamingStateForConversation(conversationId, {
+        assistantText: "",
+        reasoningEvents: [],
+        reasoningActive: false,
+        reasoningDurationSeconds: 0,
+        startedAt,
+        lastHeartbeatAt: startedAt,
+        leadAnchorMessageId,
+      })
+
+      const syncStreamingState = () => {
+        patchStreamingStateForConversation(conversationId, {
+          assistantText,
+          reasoningEvents,
+          reasoningActive,
+        })
+      }
+
+      const clearReasoningStopTimer = () => {
+        if (reasoningStopTimer !== null) {
+          window.clearTimeout(reasoningStopTimer)
+          reasoningStopTimer = null
+        }
+      }
+
+      const clearCardAttachmentFlushTimer = () => {
+        if (cardAttachmentFlushTimer !== null) {
+          window.clearTimeout(cardAttachmentFlushTimer)
+          cardAttachmentFlushTimer = null
+        }
+      }
+
+      const flushPendingCardAttachments = (syncAfterFlush: boolean) => {
+        clearCardAttachmentFlushTimer()
+        if (pendingCardAttachmentDetails.length === 0) {
+          return
+        }
+        for (const detail of pendingCardAttachmentDetails) {
+          reasoningEvents = appendReasoningEvent(reasoningEvents, detail)
+        }
+        pendingCardAttachmentDetails = []
+        if (syncAfterFlush) {
+          syncStreamingState()
+        }
+      }
+
+      const scheduleCardAttachmentFlush = () => {
+        if (cardAttachmentFlushTimer !== null) {
+          return
+        }
+        cardAttachmentFlushTimer = window.setTimeout(() => {
+          cardAttachmentFlushTimer = null
+          flushPendingCardAttachments(true)
+        }, 180)
+      }
+
+      const durationTimer = window.setInterval(() => {
+        const nextDuration = Math.max(1, Math.round((Date.now() - startedAt) / 1000))
+        patchStreamingStateForConversation(conversationId, {
+          reasoningDurationSeconds: nextDuration,
+        })
+      }, 1000)
+
+      const clearStreamingState = () => {
+        clearReasoningStopTimer()
+        clearCardAttachmentFlushTimer()
+        pendingCardAttachmentDetails = []
+        window.clearInterval(durationTimer)
+        delete abortControllerByConversationIdRef.current[conversationId]
+        removeStreamingStateForConversation(conversationId)
+      }
+
+      const controller = new AbortController()
+      abortControllerByConversationIdRef.current[conversationId] = controller
+      shouldAutoScrollRef.current = activeConversationIdRef.current === conversationId
+
+      try {
+        await chatService.streamTurn(
+          {
+            model: selectedModel,
+            text: "",
+            anchors: {
+              conversationId,
+              sessionId,
+              lastResponseId: parentResponseId,
+            },
+            regenerateTargetResponseId: targetResponseId,
+          },
+          (event) => {
+            if (event.type === "heartbeat") {
+              patchStreamingStateForConversation(conversationId, {
+                lastHeartbeatAt: event.meta.ts,
+              })
+              return
+            }
+
+            if (event.type === "delta") {
+              const nextText = `${assistantText}${event.textDelta}`
+              assistantText = nextText
+              const hasVisibleDelta = event.textDelta.trim().length > 0
+              if (hasVisibleDelta) {
+                assistantOutputStarted = true
+              }
+
+              if (
+                assistantOutputStarted &&
+                (reasoningEverStarted || reasoningEvents.length > 0 || reasoningActive) &&
+                (!hasAnyThinkTag(nextText) || !hasOpenThinkTag(nextText))
+              ) {
+                clearReasoningStopTimer()
+                reasoningActive = false
+              }
+              syncStreamingState()
+              return
+            }
+
+            if (event.type === "reasoning") {
+              if (event.detail.kind === "card_attachment") {
+                pendingCardAttachmentDetails.push(event.detail)
+                scheduleCardAttachmentFlush()
+                return
+              }
+
+              flushPendingCardAttachments(false)
+              reasoningEvents = appendReasoningEvent(reasoningEvents, event.detail)
+              const nextReasoningActive = inferReasoningActive(reasoningEvents)
+              if (nextReasoningActive && !assistantOutputStarted) {
+                reasoningEverStarted = true
+                clearReasoningStopTimer()
+                reasoningActive = true
+              } else if (assistantOutputStarted) {
+                clearReasoningStopTimer()
+                reasoningActive = false
+              } else if (reasoningEverStarted && !assistantText.trim()) {
+                clearReasoningStopTimer()
+                reasoningActive = true
+              } else if (reasoningStopTimer === null) {
+                reasoningStopTimer = window.setTimeout(() => {
+                  reasoningActive = false
+                  reasoningStopTimer = null
+                  syncStreamingState()
+                }, 700)
+              }
+              syncStreamingState()
+              return
+            }
+
+            if (event.type === "completed") {
+              flushPendingCardAttachments(false)
+              clearReasoningStopTimer()
+              const completedAssistantMessage = event.result.assistantMessage
+              const reasoningSnapshot = completedAssistantMessage.reasoningEvents || reasoningEvents
+              const finalDurationSeconds =
+                completedAssistantMessage.reasoningDurationSeconds ||
+                Math.max(1, Math.round((Date.now() - startedAt) / 1000))
+              const shouldPersistReasoningDuration =
+                (typeof completedAssistantMessage.reasoningDurationSeconds === "number" &&
+                  completedAssistantMessage.reasoningDurationSeconds > 0) ||
+                reasoningEverStarted ||
+                reasoningSnapshot.length > 0
+              if (reasoningSnapshot.length > 0) {
+                const messageId = completedAssistantMessage.id.trim()
+                const responseId = completedAssistantMessage.responseId?.trim() || ""
+                upsertPersistedReasoningEntry(conversationId, messageId, responseId, reasoningSnapshot)
+                if (shouldPersistReasoningDuration) {
+                  upsertPersistedReasoningDurationEntry(
+                    conversationId,
+                    messageId,
+                    responseId,
+                    finalDurationSeconds
+                  )
+                }
+              } else if (shouldPersistReasoningDuration) {
+                const messageId = completedAssistantMessage.id.trim()
+                const responseId = completedAssistantMessage.responseId?.trim() || ""
+                upsertPersistedReasoningDurationEntry(
+                  conversationId,
+                  messageId,
+                  responseId,
+                  finalDurationSeconds
+                )
+              }
+              shouldAutoScrollRef.current = true
+              clearStreamingState()
+              const scrollNode = messagesScrollRef.current
+              if (scrollNode) {
+                setProgrammaticScrollTop(scrollNode, scrollNode.scrollHeight)
+              }
+              void refreshConversations().then(async () => {
+                await loadMessages(conversationId)
+                if (activeConversationIdRef.current === conversationId) {
+                  const node = messagesScrollRef.current
+                  if (node) {
+                    setProgrammaticScrollTop(node, node.scrollHeight)
+                  }
+                }
+              })
+              return
+            }
+
+            if (event.type === "failed") {
+              clearCardAttachmentFlushTimer()
+              pendingCardAttachmentDetails = []
+              clearStreamingState()
+              setLastErrorForConversation(conversationId, event.message)
+            }
+          },
+          controller.signal
+        )
+      } catch (error) {
+        const wasAborted = controller.signal.aborted
+        clearStreamingState()
+        if (wasAborted) {
+          return
+        }
+        setLastErrorForConversation(conversationId, error instanceof Error ? error.message : "chat_stream_error")
+      }
+    },
+    [
+      chatService,
+      clearLastErrorForConversation,
+      conversations,
+      loadMessages,
+      messagesByConversationId,
+      patchStreamingStateForConversation,
+      refreshConversations,
+      removeStreamingStateForConversation,
+      repository,
+      selectedModel,
+      setLastErrorForConversation,
+      setMessagesForConversation,
+      setPersistedReasoningDurationForConversation,
+      setPersistedReasoningForConversation,
+      setProgrammaticScrollTop,
+      setStreamingStateForConversation,
       streamingStateByConversationId,
       upsertPersistedReasoningDurationEntry,
       upsertPersistedReasoningEntry,

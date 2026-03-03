@@ -23,6 +23,7 @@ export interface SendChatTurnInput {
   text: string
   attachments?: File[]
   anchors: Partial<ChatAnchors>
+  regenerateTargetResponseId?: string
 }
 
 export interface ChatUsage {

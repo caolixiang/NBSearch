@@ -201,7 +201,7 @@ export class SqliteAppRepository implements AppRepository {
       `SELECT id, role, content_json, response_id, previous_response_id, status, created_at
        FROM messages
        WHERE conversation_id = $1
-       ORDER BY created_at ASC`,
+       ORDER BY created_at ASC, rowid ASC`,
       [conversationId]
     )
 
@@ -219,6 +219,27 @@ export class SqliteAppRepository implements AppRepository {
         createdAt: row.created_at,
       }
     })
+  }
+
+  async truncateMessagesAfter(
+    conversationId: string,
+    messageId: string,
+    includeMessage = false
+  ): Promise<void> {
+    const db = await getDatabase()
+    const operator = includeMessage ? ">=" : ">"
+    await db.execute(
+      `DELETE FROM messages
+       WHERE conversation_id = $1
+         AND rowid ${operator} (
+           SELECT rowid
+           FROM messages
+           WHERE conversation_id = $1 AND id = $2
+           ORDER BY rowid DESC
+           LIMIT 1
+         )`,
+      [conversationId, messageId]
+    )
   }
 
   async upsertVoiceSession(record: VoiceSessionRecord): Promise<void> {

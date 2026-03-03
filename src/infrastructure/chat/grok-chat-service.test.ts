@@ -707,4 +707,81 @@ describe("streamTurn heartbeats and timeout", () => {
     expect(parsedRequestBodies).toHaveLength(2)
     expect(parsedRequestBodies.every((payload) => payload["previous_response_id"] === "resp_prev_42")).toBe(true)
   })
+
+  it("sends x_grok regenerate payload without appending a new user message", async () => {
+    const repository = new MemoryAppRepository()
+    const service = new GrokChatService(repository, {
+      apiBaseUrl: "http://127.0.0.1:8787",
+      apiKey: "test-key",
+      defaultModel: "grok-4.1-fast",
+      voiceEnabled: false,
+    })
+
+    const streamChunk = [
+      JSON.stringify({
+        type: "response.created",
+        response: {
+          id: "resp_regen_1",
+        },
+      }),
+      JSON.stringify({
+        type: "response.output_text.delta",
+        delta: "Regenerated",
+      }),
+      JSON.stringify({
+        type: "response.completed",
+        response: {
+          id: "resp_regen_1",
+          output: [
+            {
+              type: "message",
+              content: [
+                {
+                  type: "output_text",
+                  text: "Regenerated",
+                },
+              ],
+            },
+          ],
+        },
+      }),
+    ].join("")
+
+    const requestBodies: string[] = []
+    const mockedFetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      requestBodies.push(typeof init?.body === "string" ? init.body : "")
+      return createStreamingResponse([streamChunk])
+    }) as unknown as typeof fetch
+    ;(mockedFetch as unknown as { preconnect: (url: string) => void }).preconnect = () => {}
+    ;(service as unknown as { runtimeFetch: typeof fetch }).runtimeFetch = mockedFetch
+
+    await service.streamTurn(
+      {
+        model: "grok-4.1-fast",
+        text: "",
+        anchors: {
+          conversationId: "conv_regen_1",
+          sessionId: "sess_regen_1",
+          lastResponseId: "resp_parent_1",
+        },
+        regenerateTargetResponseId: "resp_target_3",
+      },
+      () => {}
+    )
+
+    expect(requestBodies).toHaveLength(1)
+    const body = JSON.parse(requestBodies[0] || "{}") as Record<string, unknown>
+    expect(body["session_id"]).toBe("sess_regen_1")
+    expect(body["input"]).toBeUndefined()
+    expect(body["previous_response_id"]).toBeUndefined()
+    expect(body["x_grok"]).toEqual({
+      regenerate: true,
+      target_response_id: "resp_target_3",
+    })
+
+    const messages = await repository.listMessages("conv_regen_1")
+    expect(messages).toHaveLength(1)
+    expect(messages[0]?.role).toBe("assistant")
+    expect(messages[0]?.content).toContain("Regenerated")
+  })
 })
