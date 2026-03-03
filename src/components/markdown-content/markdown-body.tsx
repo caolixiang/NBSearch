@@ -65,8 +65,7 @@ export function MarkdownBody({ content, streaming = false }: { content: string; 
           const allGeneratedImages = imageCount > 0 && imageNodes.every((node) => isGeneratedImageNode(node))
           const isSingleGeneratedImage = imageCount === 1 && allGeneratedImages
           const isSingleNonGeneratedImage = imageCount === 1 && !allGeneratedImages
-          const isTwoNonGeneratedImages = imageCount === 2 && !allGeneratedImages
-          const isThreeNonGeneratedImages = imageCount === 3 && !allGeneratedImages
+          const isNonGeneratedGallery = imageCount > 1 && !allGeneratedImages
 
           let gridClass = "grid-cols-1"
           if (imageCount === 2) gridClass = "grid-cols-2"
@@ -77,24 +76,17 @@ export function MarkdownBody({ content, streaming = false }: { content: string; 
             <div className="my-2 w-full">
               <div
                 className={cn(
-                  "grok-md-image-grid gap-1.5",
-                  isTwoNonGeneratedImages ? "flex items-stretch" : "grid",
+                  "grok-md-image-grid grid gap-2",
                   imageCount === 1
                     ? cn(
                         "grok-md-image-grid-single grid-cols-1 [&_.grok-md-image]:rounded-[24px]!",
                         isSingleGeneratedImage
                           ? "w-fit max-w-[75%] ml-auto mr-0 [&_a]:inline-block [&_a]:max-w-full [&_.grok-md-image]:w-auto! [&_.grok-md-image]:max-w-full!"
-                          : "w-fit max-w-full mx-auto [&_a]:block [&_a]:w-full [&_.grok-md-image]:w-full! [&_.grok-md-image]:max-w-full! [&_.grok-md-image]:max-h-none!"
+                          : "w-full max-w-none mx-0 [&_a]:inline-block [&_a]:max-w-full [&_.grok-md-image]:w-auto! [&_.grok-md-image]:max-w-full! [&_.grok-md-image]:h-auto! [&_.grok-md-image]:max-h-[448px]! [&_.grok-md-image]:object-contain! [&_.grok-md-image]:rounded-lg! [&_.grok-md-image]:bg-transparent!"
                       )
-                    : isTwoNonGeneratedImages
-                      ? ""
-                      : gridClass,
-                  isTwoNonGeneratedImages
-                    ? "[&_.grok-md-image]:m-0! [&_.grok-md-image]:absolute! [&_.grok-md-image]:inset-0! [&_.grok-md-image]:w-full! [&_.grok-md-image]:h-full! [&_.grok-md-image]:max-h-none! [&_.grok-md-image]:object-cover! [&_.grok-md-image]:rounded-[24px]! [&_.grok-md-image]:bg-transparent! [&_a]:block [&_a]:w-full [&_a]:h-full"
-                    : isThreeNonGeneratedImages
-                      ? "[&_.grok-md-image]:m-0! [&_.grok-md-image]:absolute! [&_.grok-md-image]:inset-0! [&_.grok-md-image]:w-full! [&_.grok-md-image]:h-full! [&_.grok-md-image]:max-h-none! [&_.grok-md-image]:object-cover! [&_.grok-md-image]:rounded-[24px]! [&_.grok-md-image]:bg-transparent! [&_a]:block [&_a]:w-full [&_a]:h-full"
-                    : imageCount > 1 && !allGeneratedImages
-                      ? "[&_.grok-md-image]:m-0! [&_.grok-md-image]:block! [&_.grok-md-image]:w-full! [&_.grok-md-image]:h-auto! [&_.grok-md-image]:max-h-[60vh]! [&_.grok-md-image]:object-contain! [&_.grok-md-image]:rounded-[24px]! [&_.grok-md-image]:bg-transparent! [&_a]:block [&_a]:w-full"
+                    : gridClass,
+                  isNonGeneratedGallery
+                    ? "[&_.grok-md-image]:m-0! [&_.grok-md-image]:block! [&_.grok-md-image]:w-full! [&_.grok-md-image]:h-full! [&_.grok-md-image]:max-h-none! [&_.grok-md-image]:object-cover! [&_.grok-md-image]:rounded-lg! [&_.grok-md-image]:bg-transparent! [&_a]:block [&_a]:w-full [&_a]:h-full"
                     : "",
                   imageCount > 1 && allGeneratedImages
                     ? "grok-md-image-grid-generated w-[75%] max-w-none ml-auto mr-0 grid-cols-2 gap-1.5 [&_a]:block [&_a]:w-full [&_.grok-md-image]:rounded-[24px]! [&_.grok-md-image]:max-h-[72vh]! [&_.grok-md-image]:bg-transparent!"
@@ -110,12 +102,10 @@ export function MarkdownBody({ content, streaming = false }: { content: string; 
                         ? cn(
                             isSingleGeneratedImage
                               ? "w-fit max-w-[75%] ml-auto mr-0"
-                              : "w-fit max-w-full min-w-0 sm:min-w-160 lg:min-w-150 mx-auto"
+                              : "flex w-full justify-center rounded-lg"
                           )
-                        : isTwoNonGeneratedImages
-                          ? "h-[clamp(16rem,30vw,26rem)] min-h-64 min-w-0 flex-none basis-[45%] first:basis-[43%] last:basis-[57%]"
-                        : isThreeNonGeneratedImages
-                          ? "w-full aspect-square"
+                        : isNonGeneratedGallery
+                          ? "h-52 w-full"
                         : "w-full",
                       ""
                     )}
