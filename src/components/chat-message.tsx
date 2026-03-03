@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, type MouseEvent } from "react"
+import { useRef, useState, type MouseEvent } from "react"
 import type { ChatReasoningEventDetail } from "@/domain/chat/types"
 import { hasTauriRuntime } from "@/app/runtime-info"
 import { buildMessagePdfBytes } from "@/features/chat/export-message-pdf"
@@ -172,6 +172,7 @@ export function ChatMessage({
   }
 }) {
   const isTauri = hasTauriRuntime()
+  const messageContentRef = useRef<HTMLDivElement | null>(null)
   const [pdfExportState, setPdfExportState] = useState<"idle" | "loading" | "done" | "error">("idle")
   const isUser = message.role === "user"
   const isStreamingAssistant = !isUser && message.id === "streaming_assistant"
@@ -197,6 +198,7 @@ export function ChatMessage({
         title: pdfExportMeta.title,
         round: pdfExportMeta.round,
         content: message.content,
+        element: messageContentRef.current,
       })
 
       if (isTauri) {
@@ -276,13 +278,15 @@ export function ChatMessage({
 
   return (
     <div className="group/message px-6 py-4 text-[16px] leading-7 text-foreground">
-      <MarkdownContent
-        content={message.content}
-        streaming={isStreamingAssistant}
-        reasoningEvents={message.reasoningEvents}
-        reasoningActive={message.reasoningActive}
-        reasoningDurationSeconds={message.reasoningDurationSeconds}
-      />
+      <div ref={messageContentRef}>
+        <MarkdownContent
+          content={message.content}
+          streaming={isStreamingAssistant}
+          reasoningEvents={message.reasoningEvents}
+          reasoningActive={message.reasoningActive}
+          reasoningDurationSeconds={message.reasoningDurationSeconds}
+        />
+      </div>
       {!isStreamingAssistant && (onRegenerate || canExportPdf) ? (
         <div
           className={cn(
