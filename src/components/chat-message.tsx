@@ -7,6 +7,7 @@ import {
   FileCode2,
   FileSpreadsheet,
   FileText,
+  RotateCcw,
   type LucideIcon,
 } from "lucide-react"
 import { MarkdownContent } from "./markdown-content/index"
@@ -98,8 +99,12 @@ function truncateAttachmentName(fileName: string, maxUnits = 20): string {
 
 export function ChatMessage({
   message,
+  onRegenerate,
+  regenerateDisabled = false,
 }: {
   message: RenderChatMessage
+  onRegenerate?: (message: RenderChatMessage) => void
+  regenerateDisabled?: boolean
 }) {
   const isUser = message.role === "user"
   const isStreamingAssistant = !isUser && message.id === "streaming_assistant"
@@ -142,6 +147,24 @@ export function ChatMessage({
         reasoningActive={message.reasoningActive}
         reasoningDurationSeconds={message.reasoningDurationSeconds}
       />
+      {!isStreamingAssistant && onRegenerate ? (
+        <div className="mt-2 flex items-center">
+          <button
+            type="button"
+            aria-label="重新生成"
+            className={cn(
+              "inline-flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground transition-colors",
+              "hover:bg-secondary hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+            )}
+            disabled={regenerateDisabled}
+            onClick={() => {
+              onRegenerate(message)
+            }}
+          >
+            <RotateCcw className="size-4" />
+          </button>
+        </div>
+      ) : null}
     </div>
   )
 }

@@ -1551,7 +1551,13 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
             >
               {visibleMessages.map((message) => (
                 <div key={message.id} data-message-id={message.id}>
-                  <ChatMessage message={message} />
+                  <ChatMessage
+                    message={message}
+                    regenerateDisabled={isActiveConversationStreaming}
+                    onRegenerate={(target) => {
+                      void handleRegenerateMessage(target)
+                    }}
+                  />
                 </div>
               ))}
               {shouldShowThinkingWarmup ? (
