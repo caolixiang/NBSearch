@@ -1,3 +1,5 @@
+import { normalizeAssistantMarkdown } from "@/components/markdown-content"
+
 const PDF_PAGE_WIDTH_PT = 595.28
 const PDF_PAGE_HEIGHT_PT = 841.89
 const PDF_PAGE_RATIO = PDF_PAGE_HEIGHT_PT / PDF_PAGE_WIDTH_PT
@@ -197,26 +199,51 @@ async function renderElementPageImages(element: HTMLElement): Promise<string[]> 
 
   await waitForElementImages(element)
 
-  const html2canvasModule = await import("html2canvas")
-  const html2canvas = html2canvasModule.default
   const scale = Math.max(2, Math.min(window.devicePixelRatio || 1, 3))
-  const canvas = await html2canvas(element, {
-    backgroundColor: "#FFFFFF",
-    useCORS: true,
-    allowTaint: false,
-    logging: false,
-    scale,
-    imageTimeout: IMAGE_WAIT_TIMEOUT_MS,
-    removeContainer: true,
-    windowWidth: Math.max(element.scrollWidth, element.clientWidth),
-    windowHeight: Math.max(element.scrollHeight, element.clientHeight),
-    ignoreElements: (node) => {
-      if (!(node instanceof HTMLElement)) {
-        return false
-      }
-      return node.dataset.pdfExportIgnore === "true"
-    },
-  })
+  let canvas: HTMLCanvasElement | null = null
+  try {
+    const htmlToImageModule = await import("html-to-image")
+    canvas = await htmlToImageModule.toCanvas(element, {
+      pixelRatio: scale,
+      backgroundColor: "#FFFFFF",
+      cacheBust: true,
+      skipAutoScale: true,
+      style: {
+        backgroundColor: "#FFFFFF",
+      },
+      filter: (node) => {
+        if (!(node instanceof HTMLElement)) {
+          return true
+        }
+        return node.dataset.pdfExportIgnore !== "true"
+      },
+    })
+  } catch {
+    canvas = null
+  }
+
+  if (!canvas) {
+    const html2canvasModule = await import("html2canvas")
+    const html2canvas = html2canvasModule.default
+    canvas = await html2canvas(element, {
+      backgroundColor: "#FFFFFF",
+      useCORS: true,
+      allowTaint: false,
+      logging: false,
+      scale,
+      imageTimeout: IMAGE_WAIT_TIMEOUT_MS,
+      removeContainer: true,
+      foreignObjectRendering: true,
+      windowWidth: Math.max(element.scrollWidth, element.clientWidth),
+      windowHeight: Math.max(element.scrollHeight, element.clientHeight),
+      ignoreElements: (node) => {
+        if (!(node instanceof HTMLElement)) {
+          return false
+        }
+        return node.dataset.pdfExportIgnore === "true"
+      },
+    })
+  }
 
   return splitCanvasIntoPageDataUrls(canvas)
 }
@@ -259,7 +286,10 @@ export async function buildMessagePdfBytes(params: {
   const safeTitle = normalizeConversationTitle(params.title)
   const safeRound = Number.isFinite(params.round) && params.round > 0 ? Math.floor(params.round) : 1
   const headLine = `${safeTitle} · 第${safeRound}轮`
-  const lines = [headLine, "", ...buildRenderableLines(params.content || "")]
+  const normalizedText = normalizeAssistantMarkdown(params.content || "")
+    .replace(/!\[(.*?)\]\((.*?)\)/g, "")
+    .replace(/\[[^\]]+\]\(([^)]+)\)/g, "$1")
+  const lines = [headLine, "", ...buildRenderableLines(normalizedText)]
   const pageImages = renderPageImageDataUrlsFromLines(lines)
   return buildPdfFromPageImages(pageImages)
 }
