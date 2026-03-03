@@ -113,7 +113,7 @@ export function MarkdownBody({ content, streaming = false }: { content: string; 
                           )
                         : isNonGeneratedGallery
                           ? isTwoNonGeneratedImages
-                            ? "h-full w-full max-h-56 max-w-80"
+                            ? "h-full w-full max-h-56 max-w-88"
                             : "h-52 w-full"
                         : "w-full",
                       ""
