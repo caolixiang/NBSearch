@@ -14,6 +14,19 @@ const PAGE_LINE_HEIGHT = 42
 const MAX_TITLE_LENGTH = 64
 const IMAGE_WAIT_TIMEOUT_MS = 12000
 
+const EXPORT_THEME_VARS: Record<string, string> = {
+  "--background": "#FFFFFF",
+  "--card": "#FFFFFF",
+  "--popover": "#FFFFFF",
+  "--foreground": "#2D2B28",
+  "--card-foreground": "#2D2B28",
+  "--popover-foreground": "#2D2B28",
+  "--secondary": "#ECE7DE",
+  "--secondary-foreground": "#2D2B28",
+  "--muted-foreground": "#8C877D",
+  "--accent-foreground": "#2D2B28",
+}
+
 function normalizeConversationTitle(rawTitle: string): string {
   const normalized = rawTitle
     .trim()
@@ -290,15 +303,11 @@ async function renderElementPageImages(element: HTMLElement): Promise<string[]> 
 
   const scale = Math.max(2, Math.min(window.devicePixelRatio || 1, 3))
   let canvas: HTMLCanvasElement | null = null
-  const rootStyles = window.getComputedStyle(document.documentElement)
   const captureStyle = {
     backgroundColor: "#FFFFFF",
-    color: rootStyles.getPropertyValue("--foreground").trim() || "#2D2B28",
-    "--foreground": rootStyles.getPropertyValue("--foreground").trim() || "#2D2B28",
-    "--muted-foreground": rootStyles.getPropertyValue("--muted-foreground").trim() || "#8C877D",
-    "--background": "#FFFFFF",
-    "--card": "#FFFFFF",
-    "--secondary": rootStyles.getPropertyValue("--secondary").trim() || "#ECE7DE",
+    color: "#2D2B28",
+    colorScheme: "light",
+    ...EXPORT_THEME_VARS,
   } as Record<string, string>
   try {
     const htmlToImageModule = await import("html-to-image")
@@ -337,6 +346,19 @@ async function renderElementPageImages(element: HTMLElement): Promise<string[]> 
       foreignObjectRendering: true,
       windowWidth: Math.max(element.scrollWidth, element.clientWidth),
       windowHeight: Math.max(element.scrollHeight, element.clientHeight),
+      onclone: (clonedDocument) => {
+        const html = clonedDocument.documentElement
+        const body = clonedDocument.body
+        html.classList.remove("dark")
+        body.classList.remove("dark")
+        html.style.colorScheme = "light"
+        for (const [name, value] of Object.entries(EXPORT_THEME_VARS)) {
+          html.style.setProperty(name, value)
+          body.style.setProperty(name, value)
+        }
+        body.style.backgroundColor = "#FFFFFF"
+        body.style.color = "#2D2B28"
+      },
       ignoreElements: (node) => {
         if (!(node instanceof HTMLElement)) {
           return false
@@ -363,6 +385,19 @@ async function renderElementPageImages(element: HTMLElement): Promise<string[]> 
       foreignObjectRendering: false,
       windowWidth: Math.max(element.scrollWidth, element.clientWidth),
       windowHeight: Math.max(element.scrollHeight, element.clientHeight),
+      onclone: (clonedDocument) => {
+        const html = clonedDocument.documentElement
+        const body = clonedDocument.body
+        html.classList.remove("dark")
+        body.classList.remove("dark")
+        html.style.colorScheme = "light"
+        for (const [name, value] of Object.entries(EXPORT_THEME_VARS)) {
+          html.style.setProperty(name, value)
+          body.style.setProperty(name, value)
+        }
+        body.style.backgroundColor = "#FFFFFF"
+        body.style.color = "#2D2B28"
+      },
       ignoreElements: (node) => {
         if (!(node instanceof HTMLElement)) {
           return false
