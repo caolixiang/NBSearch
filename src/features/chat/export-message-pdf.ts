@@ -294,48 +294,86 @@ function isCanvasRenderable(canvas: HTMLCanvasElement): boolean {
   return hasVisibleInk(canvas)
 }
 
+function createOffscreenCaptureRoot(source: HTMLElement): {
+  root: HTMLElement
+  cleanup: () => void
+} {
+  const host = document.createElement("div")
+  host.style.position = "fixed"
+  host.style.left = "-100000px"
+  host.style.top = "0"
+  host.style.zIndex = "-1"
+  host.style.pointerEvents = "none"
+  host.style.opacity = "1"
+  host.style.background = "#FFFFFF"
+  host.style.color = "#2D2B28"
+  host.style.colorScheme = "light"
+  host.style.isolation = "isolate"
+
+  const sourceRect = source.getBoundingClientRect()
+  const sourceWidth = Math.round(sourceRect.width || source.clientWidth || source.scrollWidth || 820)
+  const exportWidth = Math.max(680, Math.min(1100, sourceWidth))
+  host.style.width = `${exportWidth}px`
+  host.style.padding = "20px 24px"
+
+  const style = document.createElement("style")
+  style.textContent = `
+    :host, * {
+      color: #2D2B28 !important;
+      text-shadow: none !important;
+    }
+    a {
+      color: #7A4A2F !important;
+    }
+    img {
+      display: block !important;
+      max-width: 100% !important;
+      height: auto !important;
+    }
+    .grok-md-image {
+      width: 100% !important;
+      max-height: none !important;
+      object-fit: contain !important;
+    }
+    .text-muted-foreground {
+      color: #77746E !important;
+    }
+  `
+  host.appendChild(style)
+
+  const clone = source.cloneNode(true) as HTMLElement
+  clone.style.opacity = "1"
+  clone.style.transform = "none"
+  clone.style.filter = "none"
+  clone.style.visibility = "visible"
+  clone.style.background = "transparent"
+  clone.style.color = "#2D2B28"
+  host.appendChild(clone)
+
+  document.body.appendChild(host)
+
+  return {
+    root: host,
+    cleanup: () => {
+      host.remove()
+    },
+  }
+}
+
 async function renderElementPageImages(element: HTMLElement): Promise<string[]> {
   if (typeof document === "undefined" || typeof window === "undefined") {
     throw new Error("pdf_dom_capture_unavailable")
   }
 
-  await waitForElementImages(element)
-
-  const scale = Math.max(2, Math.min(window.devicePixelRatio || 1, 3))
-  let canvas: HTMLCanvasElement | null = null
-  const captureStyle = {
-    backgroundColor: "#FFFFFF",
-    color: "#2D2B28",
-    colorScheme: "light",
-    ...EXPORT_THEME_VARS,
-  } as Record<string, string>
+  const { root, cleanup } = createOffscreenCaptureRoot(element)
   try {
-    const htmlToImageModule = await import("html-to-image")
-    canvas = await htmlToImageModule.toCanvas(element, {
-      pixelRatio: scale,
-      backgroundColor: "#FFFFFF",
-      cacheBust: true,
-      skipAutoScale: true,
-      style: captureStyle,
-      filter: (node) => {
-        if (!(node instanceof HTMLElement)) {
-          return true
-        }
-        return node.dataset.pdfExportIgnore !== "true"
-      },
-    })
-  } catch {
-    canvas = null
-  }
+    await waitForElementImages(root)
 
-  if (canvas && isCanvasRenderable(canvas)) {
-    return splitCanvasIntoPageDataUrls(canvas)
-  }
-
-  {
+    const scale = Math.max(2, Math.min(window.devicePixelRatio || 1, 3))
     const html2canvasModule = await import("html2canvas")
     const html2canvas = html2canvasModule.default
-    canvas = await html2canvas(element, {
+
+    let canvas = await html2canvas(root, {
       backgroundColor: "#FFFFFF",
       useCORS: true,
       allowTaint: false,
@@ -344,8 +382,8 @@ async function renderElementPageImages(element: HTMLElement): Promise<string[]> 
       imageTimeout: IMAGE_WAIT_TIMEOUT_MS,
       removeContainer: true,
       foreignObjectRendering: true,
-      windowWidth: Math.max(element.scrollWidth, element.clientWidth),
-      windowHeight: Math.max(element.scrollHeight, element.clientHeight),
+      windowWidth: Math.max(root.scrollWidth, root.clientWidth),
+      windowHeight: Math.max(root.scrollHeight, root.clientHeight),
       onclone: (clonedDocument) => {
         const html = clonedDocument.documentElement
         const body = clonedDocument.body
@@ -369,12 +407,8 @@ async function renderElementPageImages(element: HTMLElement): Promise<string[]> 
     if (canvas && isCanvasRenderable(canvas)) {
       return splitCanvasIntoPageDataUrls(canvas)
     }
-  }
 
-  {
-    const html2canvasModule = await import("html2canvas")
-    const html2canvas = html2canvasModule.default
-    canvas = await html2canvas(element, {
+    canvas = await html2canvas(root, {
       backgroundColor: "#FFFFFF",
       useCORS: true,
       allowTaint: false,
@@ -383,8 +417,8 @@ async function renderElementPageImages(element: HTMLElement): Promise<string[]> 
       imageTimeout: IMAGE_WAIT_TIMEOUT_MS,
       removeContainer: true,
       foreignObjectRendering: false,
-      windowWidth: Math.max(element.scrollWidth, element.clientWidth),
-      windowHeight: Math.max(element.scrollHeight, element.clientHeight),
+      windowWidth: Math.max(root.scrollWidth, root.clientWidth),
+      windowHeight: Math.max(root.scrollHeight, root.clientHeight),
       onclone: (clonedDocument) => {
         const html = clonedDocument.documentElement
         const body = clonedDocument.body
@@ -408,9 +442,11 @@ async function renderElementPageImages(element: HTMLElement): Promise<string[]> 
     if (canvas && isCanvasRenderable(canvas)) {
       return splitCanvasIntoPageDataUrls(canvas)
     }
-  }
 
-  throw new Error("pdf_dom_capture_blank")
+    throw new Error("pdf_dom_capture_blank")
+  } finally {
+    cleanup()
+  }
 }
 
 async function buildPdfFromPageImages(pageImages: string[]): Promise<Uint8Array> {
