@@ -232,6 +232,55 @@ function isCanvasMostlyUniform(canvas: HTMLCanvasElement): boolean {
   return lumaRange <= 12 && alphaRange <= 3
 }
 
+function hasVisibleInk(canvas: HTMLCanvasElement): boolean {
+  if (canvas.width <= 0 || canvas.height <= 0) {
+    return false
+  }
+
+  const probe = document.createElement("canvas")
+  probe.width = 64
+  probe.height = 64
+  const context = probe.getContext("2d")
+  if (!context) {
+    return true
+  }
+  context.drawImage(canvas, 0, 0, probe.width, probe.height)
+  const { data } = context.getImageData(0, 0, probe.width, probe.height)
+  if (!data || data.length === 0) {
+    return false
+  }
+
+  let darkPixels = 0
+  let opaquePixels = 0
+  for (let index = 0; index < data.length; index += 4) {
+    const r = data[index]
+    const g = data[index + 1]
+    const b = data[index + 2]
+    const a = data[index + 3]
+    if (a < 10) {
+      continue
+    }
+    opaquePixels += 1
+    const luma = 0.2126 * r + 0.7152 * g + 0.0722 * b
+    if (luma < 215) {
+      darkPixels += 1
+    }
+  }
+
+  if (opaquePixels <= 0) {
+    return false
+  }
+  const darkRatio = darkPixels / opaquePixels
+  return darkPixels >= 12 && darkRatio >= 0.003
+}
+
+function isCanvasRenderable(canvas: HTMLCanvasElement): boolean {
+  if (isCanvasMostlyUniform(canvas)) {
+    return false
+  }
+  return hasVisibleInk(canvas)
+}
+
 async function renderElementPageImages(element: HTMLElement): Promise<string[]> {
   if (typeof document === "undefined" || typeof window === "undefined") {
     throw new Error("pdf_dom_capture_unavailable")
@@ -270,7 +319,7 @@ async function renderElementPageImages(element: HTMLElement): Promise<string[]> 
     canvas = null
   }
 
-  if (canvas && !isCanvasMostlyUniform(canvas)) {
+  if (canvas && isCanvasRenderable(canvas)) {
     return splitCanvasIntoPageDataUrls(canvas)
   }
 
@@ -295,7 +344,7 @@ async function renderElementPageImages(element: HTMLElement): Promise<string[]> 
         return node.dataset.pdfExportIgnore === "true"
       },
     })
-    if (canvas && !isCanvasMostlyUniform(canvas)) {
+    if (canvas && isCanvasRenderable(canvas)) {
       return splitCanvasIntoPageDataUrls(canvas)
     }
   }
@@ -321,7 +370,7 @@ async function renderElementPageImages(element: HTMLElement): Promise<string[]> 
         return node.dataset.pdfExportIgnore === "true"
       },
     })
-    if (canvas && !isCanvasMostlyUniform(canvas)) {
+    if (canvas && isCanvasRenderable(canvas)) {
       return splitCanvasIntoPageDataUrls(canvas)
     }
   }
