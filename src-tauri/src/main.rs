@@ -383,6 +383,34 @@ fn with_extension_if_missing(file_name: &str, ext: &str) -> String {
     }
 }
 
+fn sanitize_unicode_file_name(raw: &str, fallback: &str) -> String {
+    let mut out = String::with_capacity(raw.len());
+    for ch in raw.chars() {
+        if ch.is_control() {
+            continue;
+        }
+        if matches!(ch, '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*') {
+            out.push('_');
+        } else {
+            out.push(ch);
+        }
+    }
+    let trimmed = out.trim().trim_matches('.').to_string();
+    if trimmed.is_empty() {
+        fallback.to_string()
+    } else {
+        trimmed
+    }
+}
+
+fn with_pdf_extension_if_missing(file_name: &str) -> String {
+    if file_name.to_ascii_lowercase().ends_with(".pdf") {
+        file_name.to_string()
+    } else {
+        format!("{file_name}.pdf")
+    }
+}
+
 fn unique_destination_path(base_dir: PathBuf, file_name: &str) -> PathBuf {
     let initial = base_dir.join(file_name);
     if !initial.exists() {
@@ -413,6 +441,57 @@ fn unique_destination_path(base_dir: PathBuf, file_name: &str) -> PathBuf {
     }
 
     initial
+}
+
+#[tauri::command(rename_all = "camelCase")]
+fn save_pdf_document(
+    app: tauri::AppHandle,
+    bytes: Vec<u8>,
+    file_name: Option<String>,
+    destination_path: Option<String>,
+) -> Result<DownloadImageResponse, String> {
+    if bytes.is_empty() {
+        return Err("empty pdf bytes".to_string());
+    }
+
+    let suggested = file_name.unwrap_or_else(|| "conversation.pdf".to_string());
+    let cleaned = sanitize_unicode_file_name(&suggested, "conversation.pdf");
+    let with_ext = with_pdf_extension_if_missing(&cleaned);
+
+    let destination = if let Some(raw_path) = destination_path {
+        let trimmed = raw_path.trim();
+        if trimmed.is_empty() {
+            return Err("empty destination path".to_string());
+        }
+        let mut candidate = PathBuf::from(trimmed);
+        if candidate.extension().is_none() {
+            candidate.set_extension("pdf");
+        }
+        candidate
+    } else {
+        let downloads_dir = app
+            .path()
+            .download_dir()
+            .or_else(|_| app.path().desktop_dir())
+            .or_else(|_| app.path().home_dir())
+            .map_err(|e| format!("resolve downloads dir failed: {e}"))?;
+        unique_destination_path(downloads_dir, &with_ext)
+    };
+
+    if let Some(parent) = destination.parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("prepare destination dir failed: {e}"))?;
+    }
+    fs::write(&destination, &bytes).map_err(|e| format!("write pdf failed: {e}"))?;
+
+    Ok(DownloadImageResponse {
+        path: destination.to_string_lossy().to_string(),
+        file_name: destination
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("conversation.pdf")
+            .to_string(),
+        bytes: bytes.len(),
+    })
 }
 
 #[tauri::command]
@@ -738,7 +817,8 @@ fn main() {
             fetch_image_with_cache,
             get_image_cache_stats,
             clear_image_cache,
-            download_image_to_downloads
+            download_image_to_downloads,
+            save_pdf_document
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

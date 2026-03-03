@@ -14,6 +14,7 @@ import { SettingsDialog } from "@/components/settings-dialog"
 import { VoiceMode } from "@/components/voice-mode"
 import { WelcomeScreen } from "@/components/welcome-screen"
 import { cn } from "@/lib/utils"
+import { buildConversationPdfFileName } from "./export-message-pdf"
 import {
   getConversationStreamingState,
   isConversationStreaming,
@@ -375,6 +376,17 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
   const activeStreamingState = useMemo(() => {
     return getConversationStreamingState(streamingStateByConversationId, activeConversationId)
   }, [activeConversationId, streamingStateByConversationId])
+  const activeConversationTitle = useMemo(() => {
+    if (activeConversationId === DRAFT_CONVERSATION_ID) {
+      return "新对话"
+    }
+    if (!activeConversationId) {
+      return "新对话"
+    }
+    const conversation = conversations.find((item) => item.id === activeConversationId)
+    const title = conversation?.title?.trim() || ""
+    return title || "新对话"
+  }, [activeConversationId, conversations])
 
   const isActiveConversationStreaming = Boolean(activeStreamingState)
   const activeLeadAnchorMessageId = activeStreamingState?.leadAnchorMessageId || null
@@ -495,6 +507,29 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
   const activeStreamingReasoningEvents = activeStreamingState?.reasoningEvents || []
   const activeStreamingReasoningActive = activeStreamingState?.reasoningActive || false
   const activeStreamingReasoningDurationSeconds = activeStreamingState?.reasoningDurationSeconds || 0
+  const assistantRoundByMessageId = useMemo(() => {
+    const map: Record<string, number> = {}
+    let round = 0
+    for (const message of visibleMessages) {
+      if (message.role !== "assistant" || message.id === "streaming_assistant") {
+        continue
+      }
+      round += 1
+      map[message.id] = round
+    }
+    return map
+  }, [visibleMessages])
+  const pdfExportMetaByMessageId = useMemo(() => {
+    const map: Record<string, { title: string; round: number; fileName: string }> = {}
+    for (const [messageId, round] of Object.entries(assistantRoundByMessageId)) {
+      map[messageId] = {
+        title: activeConversationTitle,
+        round,
+        fileName: buildConversationPdfFileName(activeConversationTitle, round),
+      }
+    }
+    return map
+  }, [activeConversationTitle, assistantRoundByMessageId])
   const activeConnectionHealth = useMemo(() => {
     return resolveStreamingConnectionHealth(
       isActiveConversationStreaming,
@@ -1554,6 +1589,11 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
                   <ChatMessage
                     message={message}
                     regenerateDisabled={isActiveConversationStreaming}
+                    pdfExportMeta={
+                      message.role === "assistant" && message.id !== "streaming_assistant"
+                        ? pdfExportMetaByMessageId[message.id]
+                        : undefined
+                    }
                     onRegenerate={(target) => {
                       void handleRegenerateMessage(target)
                     }}
