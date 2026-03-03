@@ -20,6 +20,8 @@ import type { AgentGroupedEntries } from "./structured-reasoning"
 import { formatSearchTextForDisplay } from "./think-parser"
 import { AgentAvatarStack, AgentCanvasOrb } from "./agent-orbs"
 
+const OPEN_REASONING_DRAWER_EVENT = "nbsearch:open-reasoning-drawer"
+
 /* ------------------------------------------------------------------ */
 /* Entry rendering helpers                                             */
 /* ------------------------------------------------------------------ */
@@ -253,11 +255,13 @@ function ReasoningDrawer({
 /* ------------------------------------------------------------------ */
 
 export function StructuredReasoningPanel({
+  messageId,
   events,
   isThinking,
   isStreaming = false,
   durationSeconds = 0,
 }: {
+  messageId?: string
   events: ChatReasoningEventDetail[]
   isThinking: boolean
   isStreaming?: boolean
@@ -357,6 +361,26 @@ export function StructuredReasoningPanel({
   const hasAnyRecords = summary.entries.length > 0
   const showPanel = effectiveThinking || hasAnyRecords
 
+  useEffect(() => {
+    const onOpenDrawer = (event: Event) => {
+      const customEvent = event as CustomEvent<{ messageId?: string }>
+      const targetMessageId = (customEvent.detail?.messageId || "").trim()
+      const currentMessageId = (messageId || "").trim()
+      if (targetMessageId && currentMessageId && targetMessageId !== currentMessageId) {
+        return
+      }
+      if (!hasAnyRecords || effectiveThinking) {
+        return
+      }
+      setDrawerOpen(true)
+    }
+
+    window.addEventListener(OPEN_REASONING_DRAWER_EVENT, onOpenDrawer)
+    return () => {
+      window.removeEventListener(OPEN_REASONING_DRAWER_EVENT, onOpenDrawer)
+    }
+  }, [effectiveThinking, hasAnyRecords, messageId])
+
   if (!showPanel) {
     return null
   }
@@ -364,7 +388,7 @@ export function StructuredReasoningPanel({
   /* ---- Completed: lightbulb trigger → side drawer ---- */
   if (!effectiveThinking) {
     return (
-      <div className="my-2">
+      <div id={messageId ? `reasoning-panel-${messageId}` : undefined} className="my-2">
         <button
           type="button"
           className="inline-flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors"
@@ -391,7 +415,7 @@ export function StructuredReasoningPanel({
   const thinkingLabel = hasAgentItems ? `代理人协作思考中${durationSuffix}` : `思考中${durationSuffix}`
 
   return (
-    <div className="my-2 w-full">
+    <div id={messageId ? `reasoning-panel-${messageId}` : undefined} className="my-2 w-full">
       <span className="inline-flex items-center gap-1.5 cursor-default">
         <AgentAvatarStack agents={agents} activeAgentKey={activeAgentKey} thinking />
         <span className="text-sm font-medium whitespace-nowrap text-foreground/80">

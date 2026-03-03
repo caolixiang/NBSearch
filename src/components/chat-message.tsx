@@ -30,6 +30,7 @@ const CJK_CHAR_PATTERN = /[\u3400-\u9FFF\uF900-\uFAFF\u3000-\u303F\uFF00-\uFFEF]
 const SPREADSHEET_EXTENSIONS = new Set(["xls", "xlsx", "xlsm", "ods", "csv", "tsv"])
 const DOCUMENT_EXTENSIONS = new Set(["pdf", "doc", "docx", "odt", "pages", "txt", "rtf", "md"])
 const CODE_TEXT_EXTENSIONS = new Set(["json", "xml", "yaml", "yml", "toml", "ini", "log"])
+const OPEN_REASONING_DRAWER_EVENT = "nbsearch:open-reasoning-drawer"
 
 function parseUserMessageContent(content: string): { text: string; attachments: string[] } {
   const textLines: string[] = []
@@ -115,6 +116,45 @@ function triggerBinaryDownload(bytes: Uint8Array, fileName: string, mimeType: st
   }, 1200)
 }
 
+function resolveSourceCount(events: ChatReasoningEventDetail[] | undefined): number {
+  if (!events || events.length === 0) {
+    return 0
+  }
+
+  const countByCardId = new Map<string, number>()
+  let totalWithoutCardId = 0
+
+  for (const detail of events) {
+    if (detail.kind !== "tool_result") {
+      continue
+    }
+
+    const webSearchResults = Array.isArray(detail.result.webSearchResults) ? detail.result.webSearchResults : []
+    const fromRows = webSearchResults.length
+    const fromCount =
+      typeof detail.result.webSearchResultsCount === "number" && Number.isFinite(detail.result.webSearchResultsCount)
+        ? Math.max(0, Math.floor(detail.result.webSearchResultsCount))
+        : 0
+    const count = Math.max(fromRows, fromCount)
+    if (count <= 0) {
+      continue
+    }
+
+    const cardId = (detail.result.toolUsageCardId || "").trim()
+    if (!cardId) {
+      totalWithoutCardId += count
+      continue
+    }
+    countByCardId.set(cardId, Math.max(countByCardId.get(cardId) || 0, count))
+  }
+
+  let total = totalWithoutCardId
+  for (const count of countByCardId.values()) {
+    total += count
+  }
+  return total
+}
+
 function RegenerateIcon({ className }: { className?: string }) {
   return (
     <svg
@@ -160,11 +200,13 @@ export function ChatMessage({
   message,
   onRegenerate,
   regenerateDisabled = false,
+  actionsAlwaysVisible = false,
   pdfExportMeta,
 }: {
   message: RenderChatMessage
   onRegenerate?: (message: RenderChatMessage) => void
   regenerateDisabled?: boolean
+  actionsAlwaysVisible?: boolean
   pdfExportMeta?: {
     title: string
     round: number
@@ -177,6 +219,9 @@ export function ChatMessage({
   const isUser = message.role === "user"
   const isStreamingAssistant = !isUser && message.id === "streaming_assistant"
   const canExportPdf = !isUser && !isStreamingAssistant && Boolean(pdfExportMeta)
+  const sourceCount = !isUser && !isStreamingAssistant ? resolveSourceCount(message.reasoningEvents) : 0
+  const showSourceSummary = sourceCount > 0
+  const reasoningPanelId = `reasoning-panel-${message.id}`
 
   const setPdfStateWithReset = (state: "done" | "error") => {
     setPdfExportState(state)
@@ -234,6 +279,25 @@ export function ChatMessage({
     }
   }
 
+  const onOpenReasoningDrawer = (event: MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault()
+    event.stopPropagation()
+
+    const panel = document.getElementById(reasoningPanelId)
+    if (panel) {
+      panel.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      })
+    }
+
+    window.dispatchEvent(
+      new CustomEvent(OPEN_REASONING_DRAWER_EVENT, {
+        detail: { messageId: message.id },
+      })
+    )
+  }
+
   if (isUser) {
     const { text, attachments } = parseUserMessageContent(message.content)
     return (
@@ -264,6 +328,7 @@ export function ChatMessage({
   }
 
   const exportStatusPinned = pdfExportState !== "idle"
+  const actionBarPinned = exportStatusPinned || actionsAlwaysVisible
   const exportStatusLabel =
     pdfExportState === "loading"
       ? "导出中"
@@ -285,13 +350,14 @@ export function ChatMessage({
           reasoningEvents={message.reasoningEvents}
           reasoningActive={message.reasoningActive}
           reasoningDurationSeconds={message.reasoningDurationSeconds}
+          messageId={message.id}
         />
       </div>
-      {!isStreamingAssistant && (onRegenerate || canExportPdf) ? (
+      {!isStreamingAssistant && (onRegenerate || canExportPdf || showSourceSummary) ? (
         <div
           className={cn(
             "mt-2 flex items-center gap-1 transition-opacity duration-100",
-            exportStatusPinned
+            actionBarPinned
               ? "opacity-100"
               : "opacity-0 group-hover/message:opacity-100 group-focus-within/message:opacity-100"
           )}
@@ -337,6 +403,19 @@ export function ChatMessage({
                 <ExportPdfIcon />
               </button>
             </div>
+          ) : null}
+          {showSourceSummary ? (
+            <button
+              type="button"
+              aria-label={`${sourceCount} 个来源`}
+              className={cn(
+                "inline-flex items-center rounded-full border border-foreground/10 bg-secondary/30 px-2.5 py-1 text-sm text-foreground transition-colors",
+                "hover:bg-secondary/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              )}
+              onClick={onOpenReasoningDrawer}
+            >
+              <span className="truncate">{sourceCount} 个来源</span>
+            </button>
           ) : null}
         </div>
       ) : null}

@@ -18,12 +18,14 @@ export function MarkdownContent({
   reasoningEvents = [],
   reasoningActive = false,
   reasoningDurationSeconds = 0,
+  messageId,
 }: {
   content: string
   streaming?: boolean
   reasoningEvents?: ChatReasoningEventDetail[]
   reasoningActive?: boolean
   reasoningDurationSeconds?: number
+  messageId?: string
 }) {
   const parsed = useMemo(() => extractAssistantToolMeta(content), [content])
   const liveCards = useMemo(() => collectCardsFromReasoningEvents(reasoningEvents), [reasoningEvents])
@@ -70,6 +72,7 @@ export function MarkdownContent({
     <div className="space-y-1 text-foreground">
       {shouldShowStructuredReasoning ? (
         <StructuredReasoningPanel
+          messageId={messageId}
           events={reasoningEvents}
           isThinking={reasoningActive}
           isStreaming={streaming}
