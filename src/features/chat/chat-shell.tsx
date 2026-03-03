@@ -1582,33 +1582,38 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
               </div>
             ) : null}
             {shouldShowHeaderNewConversationButton ? (
-              <button
-                type="button"
-                onClick={handleNewConversation}
-                aria-label="新建对话"
-                className="ms-1 inline-flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border border-border/80 bg-background p-2 text-foreground transition-colors duration-100 hover:bg-secondary"
-              >
-                <svg
-                  width="20"
-                  height="20"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  xmlns="http://www.w3.org/2000/svg"
-                  className="stroke-[2]"
-                  strokeWidth="2"
+              <div className="group/new-chat relative ms-1">
+                <span className="pointer-events-none absolute top-[calc(100%+8px)] right-0 z-20 -translate-y-1 whitespace-nowrap rounded-[16px] border border-black/10 bg-background/96 px-4 py-1 text-sm leading-6 text-foreground opacity-0 shadow-sm backdrop-blur transition-all duration-200 ease-in-out group-hover/new-chat:translate-y-0 group-hover/new-chat:opacity-100 group-focus-within/new-chat:translate-y-0 group-focus-within/new-chat:opacity-100">
+                  新建聊天
+                </span>
+                <button
+                  type="button"
+                  onClick={handleNewConversation}
+                  aria-label="新建对话"
+                  className="inline-flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border border-border/80 bg-background p-2 text-foreground transition-colors duration-100 hover:bg-secondary"
                 >
-                  <path
-                    d="M10 4V4C8.13623 4 7.20435 4 6.46927 4.30448C5.48915 4.71046 4.71046 5.48915 4.30448 6.46927C4 7.20435 4 8.13623 4 10V13.6C4 15.8402 4 16.9603 4.43597 17.816C4.81947 18.5686 5.43139 19.1805 6.18404 19.564C7.03968 20 8.15979 20 10.4 20H14C15.8638 20 16.7956 20 17.5307 19.6955C18.5108 19.2895 19.2895 18.5108 19.6955 17.5307C20 16.7956 20 15.8638 20 14V14"
-                    stroke="currentColor"
-                    strokeLinecap="square"
-                  />
-                  <path
-                    d="M12.4393 14.5607L19.5 7.5C20.3284 6.67157 20.3284 5.32843 19.5 4.5C18.6716 3.67157 17.3284 3.67157 16.5 4.5L9.43934 11.5607C9.15804 11.842 9 12.2235 9 12.6213V15H11.3787C11.7765 15 12.158 14.842 12.4393 14.5607Z"
-                    stroke="currentColor"
-                    strokeLinecap="square"
-                  />
-                </svg>
-              </button>
+                  <svg
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    xmlns="http://www.w3.org/2000/svg"
+                    className="stroke-[2]"
+                    strokeWidth="2"
+                  >
+                    <path
+                      d="M10 4V4C8.13623 4 7.20435 4 6.46927 4.30448C5.48915 4.71046 4.71046 5.48915 4.30448 6.46927C4 7.20435 4 8.13623 4 10V13.6C4 15.8402 4 16.9603 4.43597 17.816C4.81947 18.5686 5.43139 19.1805 6.18404 19.564C7.03968 20 8.15979 20 10.4 20H14C15.8638 20 16.7956 20 17.5307 19.6955C18.5108 19.2895 19.2895 18.5108 19.6955 17.5307C20 16.7956 20 15.8638 20 14V14"
+                      stroke="currentColor"
+                      strokeLinecap="square"
+                    />
+                    <path
+                      d="M12.4393 14.5607L19.5 7.5C20.3284 6.67157 20.3284 5.32843 19.5 4.5C18.6716 3.67157 17.3284 3.67157 16.5 4.5L9.43934 11.5607C9.15804 11.842 9 12.2235 9 12.6213V15H11.3787C11.7765 15 12.158 14.842 12.4393 14.5607Z"
+                      stroke="currentColor"
+                      strokeLinecap="square"
+                    />
+                  </svg>
+                </button>
+              </div>
             ) : null}
           </div>
         </header>
