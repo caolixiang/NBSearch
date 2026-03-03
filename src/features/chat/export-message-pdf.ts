@@ -210,37 +210,26 @@ function isCanvasMostlyUniform(canvas: HTMLCanvasElement): boolean {
     return true
   }
 
-  let minR = 255
-  let maxR = 0
-  let minG = 255
-  let maxG = 0
-  let minB = 255
-  let maxB = 0
-  let minA = 255
-  let maxA = 0
+  let minLuma = 255
+  let maxLuma = 0
+  let minAlpha = 255
+  let maxAlpha = 0
 
   for (let index = 0; index < data.length; index += 4) {
     const r = data[index]
     const g = data[index + 1]
     const b = data[index + 2]
     const a = data[index + 3]
-
-    if (r < minR) minR = r
-    if (r > maxR) maxR = r
-    if (g < minG) minG = g
-    if (g > maxG) maxG = g
-    if (b < minB) minB = b
-    if (b > maxB) maxB = b
-    if (a < minA) minA = a
-    if (a > maxA) maxA = a
+    const luma = Math.round(0.2126 * r + 0.7152 * g + 0.0722 * b)
+    if (luma < minLuma) minLuma = luma
+    if (luma > maxLuma) maxLuma = luma
+    if (a < minAlpha) minAlpha = a
+    if (a > maxAlpha) maxAlpha = a
   }
 
-  const rangeR = maxR - minR
-  const rangeG = maxG - minG
-  const rangeB = maxB - minB
-  const rangeA = maxA - minA
-
-  return rangeR <= 2 && rangeG <= 2 && rangeB <= 2 && rangeA <= 2
+  const lumaRange = maxLuma - minLuma
+  const alphaRange = maxAlpha - minAlpha
+  return lumaRange <= 12 && alphaRange <= 3
 }
 
 async function renderElementPageImages(element: HTMLElement): Promise<string[]> {
