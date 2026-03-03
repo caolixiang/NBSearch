@@ -11,7 +11,6 @@ import {
   Check,
   X,
 } from "lucide-react"
-import { GrokAvatar } from "./claude-logo"
 import { GrokLottieIcon, HoverAnimationProvider } from "./grok-lottie"
 import { cn } from "@/lib/utils"
 
@@ -285,13 +284,7 @@ export function ChatSidebar({
   return (
     <div className="flex h-full w-64 flex-col border-r border-border bg-sidebar">
       {/* Header */}
-      <div className="flex items-center justify-between px-3 py-3">
-        <div className="flex items-center gap-2">
-          <GrokAvatar size="sm" />
-          <span className="text-sm font-semibold text-sidebar-foreground">
-            NBSearch
-          </span>
-        </div>
+      <div className="flex items-center justify-end px-3 py-3">
         <div className="flex items-center gap-1">
           <NewConversationButton onNew={onNew} />
           <Button
