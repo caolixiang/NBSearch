@@ -65,6 +65,7 @@ export function MarkdownBody({ content, streaming = false }: { content: string; 
           const allGeneratedImages = imageCount > 0 && imageNodes.every((node) => isGeneratedImageNode(node))
           const isSingleGeneratedImage = imageCount === 1 && allGeneratedImages
           const isSingleNonGeneratedImage = imageCount === 1 && !allGeneratedImages
+          const isTwoNonGeneratedImages = imageCount === 2 && !allGeneratedImages
           const isNonGeneratedGallery = imageCount > 1 && !allGeneratedImages
 
           let gridClass = "grid-cols-1"
@@ -73,7 +74,12 @@ export function MarkdownBody({ content, streaming = false }: { content: string; 
           else if (imageCount >= 4) gridClass = "grid-cols-4"
 
           return (
-            <div className="my-2 w-full">
+            <div
+              className={cn(
+                "my-2",
+                isTwoNonGeneratedImages ? "clear-both mx-auto flex w-fit max-w-full flex-col justify-center gap-1" : "w-full"
+              )}
+            >
               <div
                 className={cn(
                   "grok-md-image-grid grid gap-2",
@@ -85,6 +91,7 @@ export function MarkdownBody({ content, streaming = false }: { content: string; 
                           : "w-full max-w-none mx-0 [&_a]:inline-block [&_a]:max-w-full [&_.grok-md-image]:w-auto! [&_.grok-md-image]:max-w-full! [&_.grok-md-image]:h-auto! [&_.grok-md-image]:max-h-[448px]! [&_.grok-md-image]:object-contain! [&_.grok-md-image]:rounded-lg! [&_.grok-md-image]:bg-transparent!"
                       )
                     : gridClass,
+                  isTwoNonGeneratedImages ? "mx-auto w-fit max-w-full grid-cols-2" : "",
                   isNonGeneratedGallery
                     ? "[&_.grok-md-image]:m-0! [&_.grok-md-image]:block! [&_.grok-md-image]:w-full! [&_.grok-md-image]:h-full! [&_.grok-md-image]:max-h-none! [&_.grok-md-image]:object-cover! [&_.grok-md-image]:rounded-lg! [&_.grok-md-image]:bg-transparent! [&_a]:block [&_a]:w-full [&_a]:h-full"
                     : "",
@@ -105,7 +112,9 @@ export function MarkdownBody({ content, streaming = false }: { content: string; 
                               : "flex w-full justify-center rounded-lg"
                           )
                         : isNonGeneratedGallery
-                          ? "h-52 w-full"
+                          ? isTwoNonGeneratedImages
+                            ? "h-full w-full max-h-56 max-w-80"
+                            : "h-52 w-full"
                         : "w-full",
                       ""
                     )}
