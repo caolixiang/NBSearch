@@ -192,6 +192,57 @@ function splitCanvasIntoPageDataUrls(canvas: HTMLCanvasElement): string[] {
   return pageDataUrls
 }
 
+function isCanvasMostlyUniform(canvas: HTMLCanvasElement): boolean {
+  if (canvas.width <= 0 || canvas.height <= 0) {
+    return true
+  }
+
+  const probe = document.createElement("canvas")
+  probe.width = 32
+  probe.height = 32
+  const context = probe.getContext("2d")
+  if (!context) {
+    return false
+  }
+  context.drawImage(canvas, 0, 0, probe.width, probe.height)
+  const { data } = context.getImageData(0, 0, probe.width, probe.height)
+  if (!data || data.length === 0) {
+    return true
+  }
+
+  let minR = 255
+  let maxR = 0
+  let minG = 255
+  let maxG = 0
+  let minB = 255
+  let maxB = 0
+  let minA = 255
+  let maxA = 0
+
+  for (let index = 0; index < data.length; index += 4) {
+    const r = data[index]
+    const g = data[index + 1]
+    const b = data[index + 2]
+    const a = data[index + 3]
+
+    if (r < minR) minR = r
+    if (r > maxR) maxR = r
+    if (g < minG) minG = g
+    if (g > maxG) maxG = g
+    if (b < minB) minB = b
+    if (b > maxB) maxB = b
+    if (a < minA) minA = a
+    if (a > maxA) maxA = a
+  }
+
+  const rangeR = maxR - minR
+  const rangeG = maxG - minG
+  const rangeB = maxB - minB
+  const rangeA = maxA - minA
+
+  return rangeR <= 2 && rangeG <= 2 && rangeB <= 2 && rangeA <= 2
+}
+
 async function renderElementPageImages(element: HTMLElement): Promise<string[]> {
   if (typeof document === "undefined" || typeof window === "undefined") {
     throw new Error("pdf_dom_capture_unavailable")
@@ -201,6 +252,16 @@ async function renderElementPageImages(element: HTMLElement): Promise<string[]> 
 
   const scale = Math.max(2, Math.min(window.devicePixelRatio || 1, 3))
   let canvas: HTMLCanvasElement | null = null
+  const rootStyles = window.getComputedStyle(document.documentElement)
+  const captureStyle = {
+    backgroundColor: "#FFFFFF",
+    color: rootStyles.getPropertyValue("--foreground").trim() || "#2D2B28",
+    "--foreground": rootStyles.getPropertyValue("--foreground").trim() || "#2D2B28",
+    "--muted-foreground": rootStyles.getPropertyValue("--muted-foreground").trim() || "#8C877D",
+    "--background": "#FFFFFF",
+    "--card": "#FFFFFF",
+    "--secondary": rootStyles.getPropertyValue("--secondary").trim() || "#ECE7DE",
+  } as Record<string, string>
   try {
     const htmlToImageModule = await import("html-to-image")
     canvas = await htmlToImageModule.toCanvas(element, {
@@ -208,9 +269,7 @@ async function renderElementPageImages(element: HTMLElement): Promise<string[]> 
       backgroundColor: "#FFFFFF",
       cacheBust: true,
       skipAutoScale: true,
-      style: {
-        backgroundColor: "#FFFFFF",
-      },
+      style: captureStyle,
       filter: (node) => {
         if (!(node instanceof HTMLElement)) {
           return true
@@ -222,7 +281,11 @@ async function renderElementPageImages(element: HTMLElement): Promise<string[]> 
     canvas = null
   }
 
-  if (!canvas) {
+  if (canvas && !isCanvasMostlyUniform(canvas)) {
+    return splitCanvasIntoPageDataUrls(canvas)
+  }
+
+  {
     const html2canvasModule = await import("html2canvas")
     const html2canvas = html2canvasModule.default
     canvas = await html2canvas(element, {
@@ -243,9 +306,38 @@ async function renderElementPageImages(element: HTMLElement): Promise<string[]> 
         return node.dataset.pdfExportIgnore === "true"
       },
     })
+    if (canvas && !isCanvasMostlyUniform(canvas)) {
+      return splitCanvasIntoPageDataUrls(canvas)
+    }
   }
 
-  return splitCanvasIntoPageDataUrls(canvas)
+  {
+    const html2canvasModule = await import("html2canvas")
+    const html2canvas = html2canvasModule.default
+    canvas = await html2canvas(element, {
+      backgroundColor: "#FFFFFF",
+      useCORS: true,
+      allowTaint: false,
+      logging: false,
+      scale,
+      imageTimeout: IMAGE_WAIT_TIMEOUT_MS,
+      removeContainer: true,
+      foreignObjectRendering: false,
+      windowWidth: Math.max(element.scrollWidth, element.clientWidth),
+      windowHeight: Math.max(element.scrollHeight, element.clientHeight),
+      ignoreElements: (node) => {
+        if (!(node instanceof HTMLElement)) {
+          return false
+        }
+        return node.dataset.pdfExportIgnore === "true"
+      },
+    })
+    if (canvas && !isCanvasMostlyUniform(canvas)) {
+      return splitCanvasIntoPageDataUrls(canvas)
+    }
+  }
+
+  throw new Error("pdf_dom_capture_blank")
 }
 
 async function buildPdfFromPageImages(pageImages: string[]): Promise<Uint8Array> {
