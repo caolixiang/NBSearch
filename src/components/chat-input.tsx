@@ -305,7 +305,7 @@ export function ChatInput({
           placeholder={isRecording ? "正在录音..." : "你想知道什么？"}
           rows={1}
           className={cn(
-            "w-full resize-none bg-transparent px-4 pt-4 pb-2 text-sm text-foreground outline-none placeholder:text-muted-foreground",
+            "w-full resize-none bg-transparent px-4 pt-4 pb-2 text-base text-foreground outline-none placeholder:text-muted-foreground",
             isRecording && "placeholder:text-red-400"
           )}
           style={{ minHeight: "44px", maxHeight: "200px" }}
