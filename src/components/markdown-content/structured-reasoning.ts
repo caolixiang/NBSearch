@@ -1,5 +1,10 @@
 import type { ChatReasoningEventDetail } from "@/domain/chat/types"
-import type { AgentDescriptor, StructuredReasoningEntry, StructuredReasoningSummary } from "./types"
+import type {
+  AgentDescriptor,
+  StructuredReasoningEntry,
+  StructuredReasoningSummary,
+  StructuredReasoningToolChainItem,
+} from "./types"
 import { AGENT_PIXEL_PALETTES } from "./types"
 import { isLikelyUrl, parseAgentMeta } from "./think-parser"
 
@@ -137,6 +142,9 @@ export function buildStructuredReasoningSummary(events: ChatReasoningEventDetail
   const entries: StructuredReasoningEntry[] = []
   const entryByKey = new Map<string, StructuredReasoningEntry>()
   const entryByToolUsageCardId = new Map<string, StructuredReasoningEntry[]>()
+  const toolUsageCardToName = new Map<string, string>()
+  const toolUsageCounts = new Map<string, number>()
+  const toolCompletedCounts = new Map<string, number>()
   const rolloutIds: string[] = []
   const rolloutSeen = new Set<string>()
 
@@ -166,6 +174,13 @@ export function buildStructuredReasoningSummary(events: ChatReasoningEventDetail
 
     if (detail.kind === "tool_usage") {
       appendRollout(detail.usage.rolloutId)
+      if (detail.usage.toolUsageCardId) {
+        toolUsageCardToName.set(detail.usage.toolUsageCardId, detail.usage.toolName)
+      }
+      if (!isChatroomSendToolName(detail.usage.toolName)) {
+        const currentUsageCount = toolUsageCounts.get(detail.usage.toolName) || 0
+        toolUsageCounts.set(detail.usage.toolName, currentUsageCount + 1)
+      }
 
       // chatroom_send is agent thinking — extract 'message' arg
       if (isChatroomSendToolName(detail.usage.toolName)) {
@@ -229,6 +244,11 @@ export function buildStructuredReasoningSummary(events: ChatReasoningEventDetail
       if (!toolUsageCardId) {
         continue
       }
+      const completedToolName = toolUsageCardToName.get(toolUsageCardId)
+      if (completedToolName && !isChatroomSendToolName(completedToolName)) {
+        const currentCompletedCount = toolCompletedCounts.get(completedToolName) || 0
+        toolCompletedCounts.set(completedToolName, currentCompletedCount + 1)
+      }
 
       const scopedEntries = entryByToolUsageCardId.get(toolUsageCardId)
       if (scopedEntries && scopedEntries.length > 0) {
@@ -272,9 +292,27 @@ export function buildStructuredReasoningSummary(events: ChatReasoningEventDetail
     rolloutIds.push("Grok")
   }
 
+  const toolChain: StructuredReasoningToolChainItem[] = []
+  for (const [toolName, usageCount] of toolUsageCounts) {
+    const completedCount = Math.min(toolCompletedCounts.get(toolName) || 0, usageCount)
+    toolChain.push({
+      toolName,
+      usageCount,
+      completedCount,
+      runningCount: Math.max(0, usageCount - completedCount),
+    })
+  }
+  toolChain.sort((a, b) => {
+    if (b.usageCount !== a.usageCount) {
+      return b.usageCount - a.usageCount
+    }
+    return a.toolName.localeCompare(b.toolName)
+  })
+
   return {
     entries,
     rolloutIds,
+    toolChain,
   }
 }
 

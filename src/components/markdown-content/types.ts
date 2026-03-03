@@ -102,9 +102,17 @@ export type StructuredReasoningEntry = {
   status: "running" | "completed"
 }
 
+export type StructuredReasoningToolChainItem = {
+  toolName: string
+  usageCount: number
+  completedCount: number
+  runningCount: number
+}
+
 export type StructuredReasoningSummary = {
   entries: StructuredReasoningEntry[]
   rolloutIds: string[]
+  toolChain: StructuredReasoningToolChainItem[]
 }
 
 export type ToolJsonLineRewrite =
