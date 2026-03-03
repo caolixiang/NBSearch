@@ -568,8 +568,8 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     // Keep enough trailing scroll range even when composer is auto-collapsed,
     // so the last lines can always be dragged above the bottom composer area.
     const effectiveInputHeight = chatInputHeight > 0 ? chatInputHeight : 140
-    const comfortBuffer = Math.round(effectiveInputHeight * 0.72 + 20)
-    return Math.max(base, Math.min(comfortBuffer, 180))
+    const comfortBuffer = Math.round(effectiveInputHeight * 0.62 + 14)
+    return Math.max(base, Math.min(comfortBuffer, 164))
   }, [chatInputHeight, isThinkingStreaming])
 
   const refreshModelOptions = useCallback(
