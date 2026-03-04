@@ -31,6 +31,19 @@ export type DeepSearchGroupedSection = {
   items: DeepSearchGroupedItem[]
 }
 
+export type DeepSearchTimelineItem =
+  | {
+      kind: "thought"
+      key: string
+      title: string
+      bullets: string[]
+    }
+  | {
+      kind: "tool"
+      key: string
+      entry: StructuredReasoningEntry
+    }
+
 function normalizeRolloutId(value: string | undefined): string {
   let trimmed = (value || "").trim()
   // Strip upstream "Chat Room" prefix (e.g., "Chat Room Grok" → "Grok")
@@ -518,6 +531,188 @@ export function buildDeepSearchGroupedSections(
 
   flush()
   return sections
+}
+
+const DEEPSEARCH_XML_ROW_PATTERN = /<\/?xai:[^>]*>/i
+
+function sanitizeDeepSearchRows(rows: string[]): string[] {
+  return rows
+    .flatMap((row) => row.split(/\r?\n/))
+    .map((row) => row.trim())
+    .filter((row) => Boolean(row) && !DEEPSEARCH_XML_ROW_PATTERN.test(row))
+    .map((row) => row.replace(/^[-*]\s+/, "").trim())
+    .filter(Boolean)
+}
+
+function createSyntheticTimelineToolEntry(
+  usage: NonNullable<ChatDeepSearchResearchStep["toolUsages"]>[number],
+  keyPrefix: string
+): StructuredReasoningEntry {
+  const textCandidates = readToolUsageQueries(usage.args || {})
+  const text = (textCandidates[0] || "").trim() || humanizeToolName(usage.toolName || "tool")
+  const toolUsageCardId = usage.toolUsageCardId.trim()
+  const resultsCountFromArgs = readRequestedResultsCount(usage.args || {})
+  const resultsCountFromRows = Array.isArray(usage.webSearchResults) ? usage.webSearchResults.length : undefined
+  return {
+    key: `${keyPrefix}:${toolUsageCardId}`,
+    toolUsageCardId,
+    rolloutId: "Grok",
+    text,
+    visited: isLikelyUrl(text),
+    toolName: (usage.toolName || "").trim() || "tool",
+    status: "completed",
+    resultsCount:
+      typeof resultsCountFromRows === "number" && resultsCountFromRows > 0
+        ? resultsCountFromRows
+        : resultsCountFromArgs,
+    webSearchResults:
+      Array.isArray(usage.webSearchResults) && usage.webSearchResults.length > 0
+        ? usage.webSearchResults
+        : undefined,
+  }
+}
+
+export function buildDeepSearchTimeline(
+  steps: ChatDeepSearchResearchStep[] | undefined,
+  entries: StructuredReasoningEntry[]
+): DeepSearchTimelineItem[] {
+  if (!Array.isArray(steps) || steps.length === 0) {
+    return []
+  }
+
+  const entriesByToolUsageCardId = new Map<string, StructuredReasoningEntry[]>()
+  for (const entry of entries) {
+    const key = entry.toolUsageCardId.trim()
+    if (!key) {
+      continue
+    }
+    const scoped = entriesByToolUsageCardId.get(key) || []
+    scoped.push(entry)
+    entriesByToolUsageCardId.set(key, scoped)
+  }
+
+  const timeline: DeepSearchTimelineItem[] = []
+  let thoughtIndex = 0
+  let toolIndex = 0
+  let currentThought: { title: string; bullets: string[] } | null = null
+
+  const flushThought = () => {
+    if (!currentThought) {
+      return
+    }
+    const title = currentThought.title.trim() || "思考过程"
+    const bullets = currentThought.bullets.map((row) => row.trim()).filter(Boolean)
+    timeline.push({
+      kind: "thought",
+      key: `deepsearch_thought_${thoughtIndex++}`,
+      title,
+      bullets,
+    })
+    currentThought = null
+  }
+
+  for (const step of steps) {
+    const tags = step.tags.map((tag) => tag.trim().toLowerCase()).filter(Boolean)
+    const hasHeaderTag = tags.includes("header")
+    const hasSummaryTag = tags.includes("summary")
+    const hasToolUsageTag = tags.includes("tool_usage_card")
+    const titleCandidate = (step.title || "").trim()
+    const rows = sanitizeDeepSearchRows(step.text)
+    const stepToolUsages = (step.toolUsages || []).filter((usage) => (usage.toolUsageCardId || "").trim())
+    const stepToolUsageIds = Array.from(
+      new Set([
+        ...(step.toolUsageCardIds || []).map((id) => id.trim()).filter(Boolean),
+        ...stepToolUsages.map((usage) => usage.toolUsageCardId.trim()),
+      ])
+    )
+
+    if (hasHeaderTag) {
+      flushThought()
+      const nextTitle = titleCandidate || rows[0] || "思考过程"
+      const remainingRows = titleCandidate ? rows : rows.slice(1)
+      currentThought = {
+        title: nextTitle,
+        bullets: remainingRows,
+      }
+      continue
+    }
+
+    if (hasSummaryTag) {
+      if (!currentThought) {
+        currentThought = {
+          title: titleCandidate || "思考过程",
+          bullets: [],
+        }
+      }
+      currentThought.bullets.push(...rows)
+      continue
+    }
+
+    if (hasToolUsageTag || stepToolUsageIds.length > 0 || stepToolUsages.length > 0) {
+      flushThought()
+      const usageById = new Map<string, NonNullable<ChatDeepSearchResearchStep["toolUsages"]>[number]>()
+      for (const usage of stepToolUsages) {
+        const key = usage.toolUsageCardId.trim()
+        if (!key || usageById.has(key)) {
+          continue
+        }
+        usageById.set(key, usage)
+      }
+
+      const renderedToolUsageIds = new Set<string>()
+      const appendToolEntry = (entry: StructuredReasoningEntry, usageId: string) => {
+        timeline.push({
+          kind: "tool",
+          key: `deepsearch_tool_${toolIndex++}`,
+          entry: {
+            ...entry,
+            status: entry.status || "completed",
+          },
+        })
+        renderedToolUsageIds.add(usageId)
+      }
+
+      for (const toolUsageCardId of stepToolUsageIds) {
+        const mappedEntries = entriesByToolUsageCardId.get(toolUsageCardId) || []
+        if (mappedEntries.length > 0) {
+          for (const mappedEntry of mappedEntries) {
+            appendToolEntry(mappedEntry, toolUsageCardId)
+          }
+          continue
+        }
+
+        const usage = usageById.get(toolUsageCardId)
+        if (usage) {
+          appendToolEntry(createSyntheticTimelineToolEntry(usage, `deepsearch_step_${toolIndex}`), toolUsageCardId)
+        }
+      }
+
+      for (const usage of stepToolUsages) {
+        const key = usage.toolUsageCardId.trim()
+        if (!key || renderedToolUsageIds.has(key)) {
+          continue
+        }
+        appendToolEntry(createSyntheticTimelineToolEntry(usage, `deepsearch_step_${toolIndex}`), key)
+      }
+      continue
+    }
+
+    if (rows.length > 0 || titleCandidate) {
+      if (!currentThought) {
+        const nextTitle = titleCandidate || rows[0] || "思考过程"
+        const remainingRows = titleCandidate ? rows : rows.slice(1)
+        currentThought = {
+          title: nextTitle,
+          bullets: remainingRows,
+        }
+      } else {
+        currentThought.bullets.push(...rows)
+      }
+    }
+  }
+
+  flushThought()
+  return timeline
 }
 
 function normalizeRolloutLabel(rolloutId: string): string {

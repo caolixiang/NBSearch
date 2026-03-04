@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test"
 import type { ChatDeepSearchResearchStep, ChatReasoningEventDetail } from "@/domain/chat/types"
-import { buildDeepSearchGroupedSections, buildStructuredReasoningSummary } from "./structured-reasoning"
+import { buildDeepSearchGroupedSections, buildDeepSearchTimeline, buildStructuredReasoningSummary } from "./structured-reasoning"
 
 describe("buildStructuredReasoningSummary toolChain", () => {
   it("aggregates tool usage and completion counts by toolName", () => {
@@ -169,6 +169,61 @@ describe("buildDeepSearchGroupedSections", () => {
       expect(grouped[0].items[0].entries[0]?.text).toBe("Gu Ailing nationality controversy")
       expect(grouped[0].items[0].entries[0]?.resultsCount).toBe(1)
       expect(grouped[0].items[0].entries[0]?.webSearchResults?.[0]?.url).toBe("https://example.com/a")
+    }
+  })
+})
+
+describe("buildDeepSearchTimeline", () => {
+  it("keeps deepsearch timeline order and filters xai xml rows", () => {
+    const steps: ChatDeepSearchResearchStep[] = [
+      {
+        tags: ["header"],
+        text: ["Exploring China's oil sources"],
+      },
+      {
+        tags: ["summary"],
+        text: [
+          "- China's oil mainly comes from domestic fields and imports from the Middle East.",
+          "<xai:tool_usage_card>",
+          "  <xai:tool_usage_card_id>tool_card_1</xai:tool_usage_card_id>",
+          "</xai:tool_usage_card>",
+          "- Prioritizing key info on domestic production.",
+        ],
+      },
+      {
+        tags: ["tool_usage_card"],
+        text: [
+          "<xai:tool_usage_card>\n  <xai:tool_usage_card_id>tool_card_1</xai:tool_usage_card_id>\n</xai:tool_usage_card>",
+        ],
+        toolUsageCardIds: ["tool_card_1"],
+        toolUsages: [
+          {
+            toolUsageCardId: "tool_card_1",
+            toolName: "web_search",
+            args: {
+              query: "China's oil sources imports domestic production 2025 2026",
+              num_results: 20,
+            },
+          },
+        ],
+      },
+    ]
+
+    const timeline = buildDeepSearchTimeline(steps, [])
+    expect(timeline).toHaveLength(2)
+    expect(timeline[0]?.kind).toBe("thought")
+    expect(timeline[1]?.kind).toBe("tool")
+    if (timeline[0]?.kind === "thought") {
+      expect(timeline[0].title).toBe("Exploring China's oil sources")
+      expect(timeline[0].bullets).toEqual([
+        "China's oil mainly comes from domestic fields and imports from the Middle East.",
+        "Prioritizing key info on domestic production.",
+      ])
+      expect(timeline[0].bullets.join(" ")).not.toContain("<xai:")
+    }
+    if (timeline[1]?.kind === "tool") {
+      expect(timeline[1].entry.text).toBe("China's oil sources imports domestic production 2025 2026")
+      expect(timeline[1].entry.resultsCount).toBe(20)
     }
   })
 })
