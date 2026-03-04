@@ -1,4 +1,5 @@
 import type {
+  ChatDeepSearchResearch,
   ChatDeepSearchDetail,
   ChatDeepSearchResearchStep,
   ChatReasoningEventDetail,
@@ -47,6 +48,15 @@ export type DeepSearchTimelineItem =
       key: string
       entry: StructuredReasoningEntry
     }
+
+export function hasDeepSearchContent(research: Pick<ChatDeepSearchResearch, "steps" | "details"> | undefined): boolean {
+  if (!research) {
+    return false
+  }
+  const steps = Array.isArray(research.steps) ? research.steps : []
+  const details = Array.isArray(research.details) ? research.details : []
+  return steps.length > 0 || details.length > 0
+}
 
 function normalizeRolloutId(value: string | undefined): string {
   let trimmed = (value || "").trim()

@@ -5,6 +5,7 @@ import {
   buildDeepSearchLegacyTimeline,
   buildDeepSearchTimeline,
   buildStructuredReasoningSummary,
+  hasDeepSearchContent,
 } from "./structured-reasoning"
 
 describe("buildStructuredReasoningSummary toolChain", () => {
@@ -344,5 +345,27 @@ describe("buildDeepSearchLegacyTimeline", () => {
       expect(thoughtItems[0].title).toBe("编译2025数据")
       expect(thoughtItems[0].title).not.toContain("<xai:")
     }
+  })
+})
+
+describe("hasDeepSearchContent", () => {
+  it("returns false when only generic reasoning entries exist without deepsearch research payload", () => {
+    expect(hasDeepSearchContent(undefined)).toBe(false)
+    expect(hasDeepSearchContent({ steps: [], details: [] })).toBe(false)
+  })
+
+  it("returns true when deepsearch details or steps exist", () => {
+    expect(
+      hasDeepSearchContent({
+        details: [{ title: "探索问题", bullets: ["- 要点"] }],
+        steps: [],
+      })
+    ).toBe(true)
+    expect(
+      hasDeepSearchContent({
+        details: [],
+        steps: [{ tags: ["header"], title: "Step", text: ["A"] }],
+      })
+    ).toBe(true)
   })
 })

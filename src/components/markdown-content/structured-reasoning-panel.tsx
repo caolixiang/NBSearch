@@ -13,6 +13,7 @@ import {
   buildStructuredReasoningSummary,
   collectRolloutAgents,
   groupEntriesByAgent,
+  hasDeepSearchContent,
   isChatroomSendToolName,
   isImageSearchToolName,
   isXSearchToolName,
@@ -501,12 +502,17 @@ export function StructuredReasoningPanel({
   const summary = useMemo(() => buildStructuredReasoningSummary(events), [events])
   const deepSearchSteps = deepSearchResearch?.steps || []
   const deepSearchDetails = deepSearchResearch?.details || []
+  const useDeepSearchView = hasDeepSearchContent(deepSearchResearch)
   const deepSearchTimeline = useMemo(
-    () =>
-      deepSearchSteps.length > 0
+    () => {
+      if (!useDeepSearchView) {
+        return []
+      }
+      return deepSearchSteps.length > 0
         ? buildDeepSearchTimeline(deepSearchSteps, summary.entries)
-        : buildDeepSearchLegacyTimeline(deepSearchDetails, summary.entries),
-    [deepSearchDetails, deepSearchSteps, summary.entries]
+        : buildDeepSearchLegacyTimeline(deepSearchDetails, summary.entries)
+    },
+    [deepSearchDetails, deepSearchSteps, summary.entries, useDeepSearchView]
   )
   const agents = useMemo(() => collectRolloutAgents(summary.rolloutIds), [summary.rolloutIds])
   const [activeTick, setActiveTick] = useState(0)
