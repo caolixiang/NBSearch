@@ -93,6 +93,39 @@ function hasAnyThinkTag(value: string): boolean {
   return lower.includes("<think") || lower.includes("</think>")
 }
 
+function resolveReasoningDurationFromResearch(research: ChatDeepSearchResearch | undefined): number {
+  if (!research) {
+    return 0
+  }
+  const startedAtMs = Date.parse((research.thinkingStartTime || "").trim())
+  const endedAtMs = Date.parse((research.thinkingEndTime || "").trim())
+  if (!Number.isFinite(startedAtMs) || !Number.isFinite(endedAtMs)) {
+    return 0
+  }
+  if (endedAtMs <= startedAtMs) {
+    return 0
+  }
+  return Math.max(1, Math.round((endedAtMs - startedAtMs) / 1000))
+}
+
+function resolveReasoningDurationFromLocalWindow(
+  reasoningStartedAtMs: number | null,
+  reasoningEndedAtMs: number | null,
+  nowMs: number
+): number {
+  if (!reasoningStartedAtMs || reasoningStartedAtMs <= 0) {
+    return 0
+  }
+  const endMs =
+    reasoningEndedAtMs && reasoningEndedAtMs > reasoningStartedAtMs
+      ? reasoningEndedAtMs
+      : nowMs
+  if (endMs <= reasoningStartedAtMs) {
+    return 0
+  }
+  return Math.max(1, Math.round((endMs - reasoningStartedAtMs) / 1000))
+}
+
 function readReasoningEventResponseId(detail: ChatReasoningEventDetail): string {
   if (detail.kind === "ui_layout") {
     return detail.responseId?.trim() || ""
@@ -1748,6 +1781,9 @@ export class GrokChatService implements ChatService {
       let collectedResearch: ChatDeepSearchResearch | undefined
       let hasStructuredGeneratedImages = false
       let hasModeratedGeneratedImages = false
+      let hasVisibleAssistantDelta = false
+      let reasoningStartedAtMs: number | null = null
+      let reasoningEndedAtMs: number | null = null
 
       // Track thinking state: image_search tools never send raw_function_result,
       // so we detect thinking->output transition and emit synthetic tool_results.
@@ -1950,6 +1986,10 @@ export class GrokChatService implements ChatService {
               const chunkIsThinking = extractChunkIsThinking(parsed)
               if (chunkIsThinking === true) {
                 wasThinking = true
+                if (!hasVisibleAssistantDelta && !reasoningStartedAtMs) {
+                  reasoningStartedAtMs = Date.now()
+                  reasoningEndedAtMs = null
+                }
               } else if (chunkIsThinking === false && wasThinking && pendingToolUsageCardIds.size > 0) {
                 for (const id of pendingToolUsageCardIds) {
                   chunkReasoningDetails.push({
@@ -1959,6 +1999,9 @@ export class GrokChatService implements ChatService {
                 }
                 pendingToolUsageCardIds.clear()
                 wasThinking = false
+                if (reasoningStartedAtMs && !reasoningEndedAtMs) {
+                  reasoningEndedAtMs = Date.now()
+                }
               }
 
               // Extract reasoning events
@@ -1969,6 +2012,10 @@ export class GrokChatService implements ChatService {
                 }
                 if (detail.kind === "tool_result" && detail.result.toolUsageCardId) {
                   pendingToolUsageCardIds.delete(detail.result.toolUsageCardId)
+                }
+                if (!hasVisibleAssistantDelta && !reasoningStartedAtMs) {
+                  reasoningStartedAtMs = Date.now()
+                  reasoningEndedAtMs = null
                 }
                 chunkReasoningDetails.push(detail)
               }
@@ -2020,6 +2067,12 @@ export class GrokChatService implements ChatService {
               emitReasoning(detail, readReasoningEventResponseId(detail))
             }
             if (chunkDelta) {
+              if (!hasVisibleAssistantDelta && chunkDelta.trim()) {
+                hasVisibleAssistantDelta = true
+                if (reasoningStartedAtMs && !reasoningEndedAtMs) {
+                  reasoningEndedAtMs = Date.now()
+                }
+              }
               emitDelta(chunkDelta, gatewayResponseId)
             }
           }
@@ -2086,7 +2139,17 @@ export class GrokChatService implements ChatService {
         webSearch: collectedWebSearchMeta,
         cards: collectedCards,
       })
-      const finalDurationSeconds = Math.max(1, Math.round((Date.now() - streamStartedAt) / 1000))
+      const nowMs = Date.now()
+      const durationFromResearch = resolveReasoningDurationFromResearch(collectedResearch)
+      const durationFromLocalWindow = resolveReasoningDurationFromLocalWindow(
+        reasoningStartedAtMs,
+        reasoningEndedAtMs,
+        nowMs
+      )
+      const finalDurationSeconds =
+        durationFromResearch ||
+        durationFromLocalWindow ||
+        Math.max(1, Math.round((nowMs - streamStartedAt) / 1000))
       const reasoningEventCount = normalizedReasoningEvents?.length || 0
       const shouldPersistReasoningDuration =
         reasoningEventCount > 0 || hasAnyThinkTag(assistantText)

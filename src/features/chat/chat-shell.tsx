@@ -174,6 +174,24 @@ function inferReasoningActive(events: ChatReasoningEventDetail[]): boolean {
   return explicitState === true
 }
 
+function resolveReasoningDurationSeconds(
+  reasoningStartedAtMs: number | null,
+  reasoningEndedAtMs: number | null,
+  nowMs: number = Date.now()
+): number {
+  if (!reasoningStartedAtMs || reasoningStartedAtMs <= 0) {
+    return 0
+  }
+  const endMs =
+    reasoningEndedAtMs && reasoningEndedAtMs > reasoningStartedAtMs
+      ? reasoningEndedAtMs
+      : nowMs
+  if (endMs <= reasoningStartedAtMs) {
+    return 0
+  }
+  return Math.max(1, Math.round((endMs - reasoningStartedAtMs) / 1000))
+}
+
 function normalizeConversationError(message: string): string {
   const text = message.trim()
   if (!text) {
@@ -900,6 +918,8 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       let reasoningActive = false
       let assistantOutputStarted = false
       let reasoningEverStarted = false
+      let reasoningStartedAtMs: number | null = null
+      let reasoningEndedAtMs: number | null = null
       let reasoningStopTimer: number | null = null
       let pendingCardAttachmentDetails: ChatReasoningEventDetail[] = []
       let cardAttachmentFlushTimer: number | null = null
@@ -960,8 +980,22 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
         }, 180)
       }
 
+      const markReasoningStarted = () => {
+        const now = Date.now()
+        if (!reasoningStartedAtMs) {
+          reasoningStartedAtMs = now
+        }
+        reasoningEndedAtMs = null
+      }
+
+      const markReasoningEnded = () => {
+        if (reasoningStartedAtMs && !reasoningEndedAtMs) {
+          reasoningEndedAtMs = Date.now()
+        }
+      }
+
       const durationTimer = window.setInterval(() => {
-        const nextDuration = Math.max(1, Math.round((Date.now() - startedAt) / 1000))
+        const nextDuration = resolveReasoningDurationSeconds(reasoningStartedAtMs, reasoningEndedAtMs)
         patchStreamingStateForConversation(conversationId, {
           reasoningDurationSeconds: nextDuration,
         })
@@ -1012,6 +1046,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
               ) {
                 clearReasoningStopTimer()
                 reasoningActive = false
+                markReasoningEnded()
               }
               syncStreamingState()
               return
@@ -1031,18 +1066,22 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
                 reasoningEverStarted = true
                 clearReasoningStopTimer()
                 reasoningActive = true
+                markReasoningStarted()
               } else if (assistantOutputStarted) {
                 clearReasoningStopTimer()
                 // Keep timeline collapsed after answer text starts.
                 reasoningActive = false
+                markReasoningEnded()
               } else if (reasoningEverStarted && !assistantText.trim()) {
                 clearReasoningStopTimer()
                 // Sticky thinking UX: avoid pre-answer flicker when reasoning has transient gaps.
                 reasoningActive = true
+                markReasoningStarted()
               } else if (reasoningStopTimer === null) {
                 reasoningStopTimer = window.setTimeout(() => {
                   reasoningActive = false
                   reasoningStopTimer = null
+                  markReasoningEnded()
                   syncStreamingState()
                 }, 700)
               }
@@ -1053,14 +1092,18 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
             if (event.type === "completed") {
               flushPendingCardAttachments(false)
               clearReasoningStopTimer()
+              markReasoningEnded()
               const completedAssistantMessage = event.result.assistantMessage
               const reasoningSnapshot = completedAssistantMessage.reasoningEvents || reasoningEvents
-              const finalDurationSeconds =
-                completedAssistantMessage.reasoningDurationSeconds ||
-                Math.max(1, Math.round((Date.now() - startedAt) / 1000))
+              const computedDurationSeconds = resolveReasoningDurationSeconds(reasoningStartedAtMs, reasoningEndedAtMs)
+              const upstreamDurationSeconds =
+                typeof completedAssistantMessage.reasoningDurationSeconds === "number" &&
+                completedAssistantMessage.reasoningDurationSeconds > 0
+                  ? Math.max(1, Math.round(completedAssistantMessage.reasoningDurationSeconds))
+                  : 0
+              const finalDurationSeconds = computedDurationSeconds || upstreamDurationSeconds
               const shouldPersistReasoningDuration =
-                (typeof completedAssistantMessage.reasoningDurationSeconds === "number" &&
-                  completedAssistantMessage.reasoningDurationSeconds > 0) ||
+                finalDurationSeconds > 0 ||
                 reasoningEverStarted ||
                 reasoningSnapshot.length > 0
               if (reasoningSnapshot.length > 0) {
@@ -1072,7 +1115,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
                     conversationId,
                     messageId,
                     responseId,
-                    finalDurationSeconds
+                    Math.max(1, finalDurationSeconds || 1)
                   )
                 }
               } else if (shouldPersistReasoningDuration) {
@@ -1082,7 +1125,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
                   conversationId,
                   messageId,
                   responseId,
-                  finalDurationSeconds
+                  Math.max(1, finalDurationSeconds || 1)
                 )
               }
               shouldAutoScrollRef.current = true
@@ -1230,6 +1273,8 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       let reasoningActive = false
       let assistantOutputStarted = false
       let reasoningEverStarted = false
+      let reasoningStartedAtMs: number | null = null
+      let reasoningEndedAtMs: number | null = null
       let reasoningStopTimer: number | null = null
       let pendingCardAttachmentDetails: ChatReasoningEventDetail[] = []
       let cardAttachmentFlushTimer: number | null = null
@@ -1290,8 +1335,22 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
         }, 180)
       }
 
+      const markReasoningStarted = () => {
+        const now = Date.now()
+        if (!reasoningStartedAtMs) {
+          reasoningStartedAtMs = now
+        }
+        reasoningEndedAtMs = null
+      }
+
+      const markReasoningEnded = () => {
+        if (reasoningStartedAtMs && !reasoningEndedAtMs) {
+          reasoningEndedAtMs = Date.now()
+        }
+      }
+
       const durationTimer = window.setInterval(() => {
-        const nextDuration = Math.max(1, Math.round((Date.now() - startedAt) / 1000))
+        const nextDuration = resolveReasoningDurationSeconds(reasoningStartedAtMs, reasoningEndedAtMs)
         patchStreamingStateForConversation(conversationId, {
           reasoningDurationSeconds: nextDuration,
         })
@@ -1345,6 +1404,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
               ) {
                 clearReasoningStopTimer()
                 reasoningActive = false
+                markReasoningEnded()
               }
               syncStreamingState()
               return
@@ -1364,16 +1424,20 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
                 reasoningEverStarted = true
                 clearReasoningStopTimer()
                 reasoningActive = true
+                markReasoningStarted()
               } else if (assistantOutputStarted) {
                 clearReasoningStopTimer()
                 reasoningActive = false
+                markReasoningEnded()
               } else if (reasoningEverStarted && !assistantText.trim()) {
                 clearReasoningStopTimer()
                 reasoningActive = true
+                markReasoningStarted()
               } else if (reasoningStopTimer === null) {
                 reasoningStopTimer = window.setTimeout(() => {
                   reasoningActive = false
                   reasoningStopTimer = null
+                  markReasoningEnded()
                   syncStreamingState()
                 }, 700)
               }
@@ -1384,14 +1448,18 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
             if (event.type === "completed") {
               flushPendingCardAttachments(false)
               clearReasoningStopTimer()
+              markReasoningEnded()
               const completedAssistantMessage = event.result.assistantMessage
               const reasoningSnapshot = completedAssistantMessage.reasoningEvents || reasoningEvents
-              const finalDurationSeconds =
-                completedAssistantMessage.reasoningDurationSeconds ||
-                Math.max(1, Math.round((Date.now() - startedAt) / 1000))
+              const computedDurationSeconds = resolveReasoningDurationSeconds(reasoningStartedAtMs, reasoningEndedAtMs)
+              const upstreamDurationSeconds =
+                typeof completedAssistantMessage.reasoningDurationSeconds === "number" &&
+                completedAssistantMessage.reasoningDurationSeconds > 0
+                  ? Math.max(1, Math.round(completedAssistantMessage.reasoningDurationSeconds))
+                  : 0
+              const finalDurationSeconds = computedDurationSeconds || upstreamDurationSeconds
               const shouldPersistReasoningDuration =
-                (typeof completedAssistantMessage.reasoningDurationSeconds === "number" &&
-                  completedAssistantMessage.reasoningDurationSeconds > 0) ||
+                finalDurationSeconds > 0 ||
                 reasoningEverStarted ||
                 reasoningSnapshot.length > 0
               if (reasoningSnapshot.length > 0) {
@@ -1403,7 +1471,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
                     conversationId,
                     messageId,
                     responseId,
-                    finalDurationSeconds
+                    Math.max(1, finalDurationSeconds || 1)
                   )
                 }
               } else if (shouldPersistReasoningDuration) {
@@ -1413,7 +1481,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
                   conversationId,
                   messageId,
                   responseId,
-                  finalDurationSeconds
+                  Math.max(1, finalDurationSeconds || 1)
                 )
               }
               shouldAutoScrollRef.current = true

@@ -606,7 +606,6 @@ export function StructuredReasoningPanel({
   const durationSuffix = durationSeconds > 0 ? ` ${durationSeconds}s` : ""
   const hasAnyRecords =
     summary.entries.length > 0 || deepSearchDetails.length > 0 || deepSearchTimeline.length > 0
-  const toolChainCount = summary.toolChain.length
   const showPanel = effectiveThinking || hasAnyRecords
 
   useEffect(() => {
@@ -650,7 +649,6 @@ export function StructuredReasoningPanel({
           </svg>
           <span className="text-sm font-medium whitespace-nowrap">
             {durationSeconds > 0 ? `思考了 ${durationSeconds}s` : "思考了"}
-            {toolChainCount > 0 ? ` · ${toolChainCount}个工具` : ""}
           </span>
         </button>
         {drawerOpen && (
