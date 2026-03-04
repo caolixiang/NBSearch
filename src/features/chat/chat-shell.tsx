@@ -37,6 +37,12 @@ function newConversationId(): string {
 
 const DRAFT_CONVERSATION_ID = "draft_new_conversation"
 const CHAT_INPUT_REVEAL_DELAY_MS = 500
+const MODEL_SYNC_NOTICE_DURATION_MS = 2200
+
+type ModelSyncNotice = {
+  message: string
+  tone: "success" | "error"
+}
 
 function toRenderMessage(message: DomainChatMessage): RenderChatMessage | null {
   if (message.role !== "user" && message.role !== "assistant") {
@@ -336,7 +342,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     setLastErrorForConversation,
     clearLastErrorForConversation,
   } = useChatConversationStore()
-  const [modelError, setModelError] = useState("")
+  const [modelSyncNotice, setModelSyncNotice] = useState<ModelSyncNotice | null>(null)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true)
   const [chatInputCollapsedByScroll, setChatInputCollapsedByScroll] = useState(false)
   const [chatInputHeight, setChatInputHeight] = useState(0)
@@ -357,7 +363,33 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
   const lastScrollTopRef = useRef(0)
   const programmaticScrollRef = useRef(false)
   const chatInputRevealTimerRef = useRef<number | null>(null)
+  const modelSyncNoticeTimerRef = useRef<number | null>(null)
   const bottomLockRef = useRef(false)
+
+  const clearModelSyncNoticeTimer = useCallback(() => {
+    if (modelSyncNoticeTimerRef.current !== null) {
+      window.clearTimeout(modelSyncNoticeTimerRef.current)
+      modelSyncNoticeTimerRef.current = null
+    }
+  }, [])
+
+  const showModelSyncNotice = useCallback(
+    (message: string, tone: "success" | "error") => {
+      clearModelSyncNoticeTimer()
+      setModelSyncNotice({ message, tone })
+      modelSyncNoticeTimerRef.current = window.setTimeout(() => {
+        setModelSyncNotice(null)
+        modelSyncNoticeTimerRef.current = null
+      }, MODEL_SYNC_NOTICE_DURATION_MS)
+    },
+    [clearModelSyncNoticeTimer]
+  )
+
+  useEffect(() => {
+    return () => {
+      clearModelSyncNoticeTimer()
+    }
+  }, [clearModelSyncNoticeTimer])
 
   useEffect(() => {
     activeConversationIdRef.current = activeConversationId
@@ -585,7 +617,6 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       setSelectedModel(fastModelId)
     }
     setDeepSearchEnabled(false)
-    setModelError("")
   }, [modelOptions, selectedModel])
 
   const handleDeepSearchEnabledChange = useCallback(
@@ -597,7 +628,6 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       const expertModelId = resolveDeepSearchExpertModelId(modelOptions, selectedModel)
       if (expertModelId && expertModelId !== selectedModel) {
         setSelectedModel(expertModelId)
-        setModelError("")
       }
     },
     [modelOptions, selectedModel]
@@ -624,9 +654,6 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
   const refreshModelOptions = useCallback(
     async (silent = false): Promise<void> => {
       setIsRefreshingModels(true)
-      if (!silent) {
-        setModelError("")
-      }
       try {
         const remoteModels = await fetchRemoteModelOptions(runtime.config)
         setModelOptions(remoteModels)
@@ -634,16 +661,18 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
         setSelectedModel((current) =>
           resolveSelectedModel(remoteModels, [current, readStoredSelectedModel(), runtime.config.defaultModel])
         )
-        setModelError("")
-      } catch (error) {
         if (!silent) {
-          setModelError(error instanceof Error ? error.message : "model_catalog_error")
+          showModelSyncNotice("已同步", "success")
+        }
+      } catch {
+        if (!silent) {
+          showModelSyncNotice("同步失败，请重试", "error")
         }
       } finally {
         setIsRefreshingModels(false)
       }
     },
-    [runtime.config]
+    [runtime.config, showModelSyncNotice]
   )
 
   useEffect(() => {
@@ -1678,15 +1707,16 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
             onModelChange={(modelId) => {
               setSelectedModel(modelId)
               setDeepSearchEnabled(false)
-              setModelError("")
             }}
             onRefresh={() => {
               void refreshModelOptions()
             }}
             isRefreshing={isRefreshingModels}
+            refreshStatusMessage={modelSyncNotice?.message}
+            refreshStatusTone={modelSyncNotice?.tone}
           />
           <div className="flex min-w-0 items-center gap-2">
-            {activeConnectionHealth || activeVisibleError || modelError ? (
+            {activeConnectionHealth || activeVisibleError ? (
               <div className="flex min-w-0 items-center gap-2">
                 {activeConnectionHealth ? (
                   <span
@@ -1702,9 +1732,9 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
                     {activeConnectionHealth.label}
                   </span>
                 ) : null}
-                {activeVisibleError || modelError ? (
+                {activeVisibleError ? (
                   <span className="truncate text-xs text-destructive">
-                    {activeVisibleError || modelError}
+                    {activeVisibleError}
                   </span>
                 ) : null}
               </div>

@@ -26,6 +26,8 @@ interface ModelSelectorProps {
   onModelChange: (modelId: string) => void
   onRefresh?: () => void
   isRefreshing?: boolean
+  refreshStatusMessage?: string
+  refreshStatusTone?: "success" | "error"
 }
 
 export function ModelSelector({
@@ -34,6 +36,8 @@ export function ModelSelector({
   onModelChange,
   onRefresh,
   isRefreshing = false,
+  refreshStatusMessage,
+  refreshStatusTone = "success",
 }: ModelSelectorProps) {
   const [isOpen, setIsOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
@@ -117,16 +121,30 @@ export function ModelSelector({
         )}
       </div>
       {onRefresh ? (
-        <button
-          type="button"
-          onClick={() => onRefresh()}
-          disabled={isRefreshing}
-          className="flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
-          aria-label="刷新模型列表"
-          title="刷新模型列表"
-        >
-          <RotateCw className={cn("size-4", isRefreshing && "animate-spin")} />
-        </button>
+        <>
+          <button
+            type="button"
+            onClick={() => onRefresh()}
+            disabled={isRefreshing}
+            className="flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+            aria-label="同步网关模型"
+            title="同步网关模型"
+          >
+            <RotateCw className={cn("size-4", isRefreshing && "animate-spin")} />
+          </button>
+          {refreshStatusMessage ? (
+            <span
+              className={cn(
+                "text-xs",
+                refreshStatusTone === "success"
+                  ? "text-emerald-700 dark:text-emerald-300"
+                  : "text-destructive"
+              )}
+            >
+              {refreshStatusMessage}
+            </span>
+          ) : null}
+        </>
       ) : null}
     </div>
   )
