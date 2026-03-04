@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import type { AppRuntime } from "@/app/contracts"
-import { applyGatewayConfigToRuntime } from "@/app/runtime"
+import type { AppFontSizeMode, AppRuntime, AppThemeMode } from "@/app/contracts"
+import { applyAppearanceSettings } from "@/app/appearance"
+import { applyAppearanceConfigToRuntime, applyGatewayConfigToRuntime } from "@/app/runtime"
 import type {
   ChatMessage as DomainChatMessage,
   ChatReasoningEventDetail,
@@ -686,6 +687,14 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       void refreshModelOptions(true)
     },
     [refreshModelOptions]
+  )
+
+  const handleAppearanceConfigChange = useCallback(
+    (next: { themeMode: AppThemeMode; fontSizeMode: AppFontSizeMode }) => {
+      applyAppearanceConfigToRuntime(next)
+      applyAppearanceSettings(next)
+    },
+    []
   )
 
   useEffect(() => {
@@ -1866,6 +1875,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
         onOpenChange={setSettingsOpen}
         runtime={runtime}
         onGatewayConfigChange={handleGatewayConfigChange}
+        onAppearanceConfigChange={handleAppearanceConfigChange}
       />
       <VoiceMode isOpen={voiceOpen} onClose={() => setVoiceOpen(false)} />
     </main>

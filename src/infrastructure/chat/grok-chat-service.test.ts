@@ -239,6 +239,8 @@ describe("listMessages asset url refresh", () => {
       apiKey: "test-key",
       defaultModel: "grok-4.1-fast",
       voiceEnabled: false,
+      themeMode: "light",
+      fontSizeMode: "default",
     })
 
     const expiredUrl = "https://s3.bitiful.net/grok/assets/image/2026/03/expired.jpg?X-Amz-Signature=old"
@@ -316,6 +318,8 @@ describe("listMessages asset url refresh", () => {
       apiKey: "test-key",
       defaultModel: "grok-4.1-fast",
       voiceEnabled: false,
+      themeMode: "light",
+      fontSizeMode: "default",
     })
 
     const proxy1 = "http://127.0.0.1:8787/images/p_a"
@@ -416,6 +420,8 @@ describe("listMessages asset url refresh", () => {
       apiKey: "test-key",
       defaultModel: "grok-4.1-fast",
       voiceEnabled: false,
+      themeMode: "light",
+      fontSizeMode: "default",
     })
 
     const upstreamUuidA = "50af3a1a-2536-4d8c-9c92-862006299ab0"
@@ -519,6 +525,8 @@ describe("listMessages asset url refresh", () => {
       apiKey: "test-key",
       defaultModel: "grok-4.1-fast",
       voiceEnabled: false,
+      themeMode: "light",
+      fontSizeMode: "default",
     })
 
     const upstreamUuid = "98aabd8f-a6a9-42a0-b154-5b637ce79e12"
@@ -593,6 +601,8 @@ describe("streamTurn heartbeats and timeout", () => {
       apiKey: "test-key",
       defaultModel: "grok-4.1-fast",
       voiceEnabled: false,
+      themeMode: "light",
+      fontSizeMode: "default",
     })
 
     const streamChunk = [
@@ -671,6 +681,8 @@ describe("streamTurn heartbeats and timeout", () => {
       apiKey: "test-key",
       defaultModel: "grok-4.1-fast",
       voiceEnabled: false,
+      themeMode: "light",
+      fontSizeMode: "default",
     })
 
     const mockedFetch = (async () => createPendingStreamingResponse()) as unknown as typeof fetch
@@ -718,6 +730,8 @@ describe("streamTurn heartbeats and timeout", () => {
       apiKey: "test-key",
       defaultModel: "grok-4.1-fast",
       voiceEnabled: false,
+      themeMode: "light",
+      fontSizeMode: "default",
     })
 
     const streamChunk = [
@@ -818,6 +832,8 @@ describe("streamTurn heartbeats and timeout", () => {
       apiKey: "test-key",
       defaultModel: "grok-4.1-fast",
       voiceEnabled: false,
+      themeMode: "light",
+      fontSizeMode: "default",
     })
 
     const streamChunk = [
@@ -895,6 +911,8 @@ describe("streamTurn heartbeats and timeout", () => {
       apiKey: "test-key",
       defaultModel: "grok-4.1-fast",
       voiceEnabled: false,
+      themeMode: "light",
+      fontSizeMode: "default",
     })
 
     const streamChunk = [

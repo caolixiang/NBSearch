@@ -8,8 +8,12 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
-import type { AppRuntime } from "@/app/contracts"
-import { loadAppConfig, saveGatewayConfigToToml } from "@/app/config"
+import type { AppFontSizeMode, AppRuntime, AppThemeMode } from "@/app/contracts"
+import {
+  loadAppConfig,
+  saveAppearanceConfigToToml,
+  saveGatewayConfigToToml,
+} from "@/app/config"
 import { hasTauriRuntime } from "@/app/runtime-info"
 import { cn } from "@/lib/utils"
 import { Globe, Key, Palette, Bell, Shield, Database } from "lucide-react"
@@ -19,6 +23,10 @@ interface SettingsDialogProps {
   onOpenChange: (open: boolean) => void
   runtime: AppRuntime
   onGatewayConfigChange: (next: { apiBaseUrl: string; apiKey: string }) => void
+  onAppearanceConfigChange: (next: {
+    themeMode: AppThemeMode
+    fontSizeMode: AppFontSizeMode
+  }) => void
 }
 
 const tabs = [
@@ -56,12 +64,17 @@ export function SettingsDialog({
   onOpenChange,
   runtime,
   onGatewayConfigChange,
+  onAppearanceConfigChange,
 }: SettingsDialogProps) {
   const [activeTab, setActiveTab] = useState<TabId>("gateway")
   const [baseUrl, setBaseUrl] = useState("")
   const [apiKey, setApiKey] = useState("")
+  const [themeMode, setThemeMode] = useState<AppThemeMode>("light")
+  const [fontSizeMode, setFontSizeMode] = useState<AppFontSizeMode>("default")
   const [gatewayBusy, setGatewayBusy] = useState(false)
   const [gatewayMessage, setGatewayMessage] = useState("")
+  const [appearanceBusy, setAppearanceBusy] = useState(false)
+  const [appearanceMessage, setAppearanceMessage] = useState("")
   const [imageCacheStats, setImageCacheStats] = useState<ImageCacheStats | null>(null)
   const [cacheBusy, setCacheBusy] = useState(false)
   const [cacheMessage, setCacheMessage] = useState("")
@@ -93,8 +106,17 @@ export function SettingsDialog({
     }
     setBaseUrl(runtime.config.apiBaseUrl || "")
     setApiKey(runtime.config.apiKey || "")
+    setThemeMode(runtime.config.themeMode)
+    setFontSizeMode(runtime.config.fontSizeMode)
     setGatewayMessage("")
-  }, [open, runtime.config.apiBaseUrl, runtime.config.apiKey])
+    setAppearanceMessage("")
+  }, [
+    open,
+    runtime.config.apiBaseUrl,
+    runtime.config.apiKey,
+    runtime.config.themeMode,
+    runtime.config.fontSizeMode,
+  ])
 
   const clearImageCache = async () => {
     if (!hasTauriRuntime() || cacheBusy) {
@@ -151,6 +173,37 @@ export function SettingsDialog({
     }
   }
 
+  const saveAppearanceConfig = async () => {
+    if (appearanceBusy) {
+      return
+    }
+    setAppearanceBusy(true)
+    setAppearanceMessage("")
+    try {
+      if (hasTauriRuntime()) {
+        const saved = await saveAppearanceConfigToToml({
+          themeMode,
+          fontSizeMode,
+        })
+        if (!saved) {
+          throw new Error("persist_appearance_config_failed")
+        }
+      }
+      const resolved = await loadAppConfig()
+      onAppearanceConfigChange({
+        themeMode: resolved.themeMode,
+        fontSizeMode: resolved.fontSizeMode,
+      })
+      setThemeMode(resolved.themeMode)
+      setFontSizeMode(resolved.fontSizeMode)
+      setAppearanceMessage("外观配置已保存")
+    } catch {
+      setAppearanceMessage("保存失败，请重试")
+    } finally {
+      setAppearanceBusy(false)
+    }
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-3xl">
@@ -159,7 +212,6 @@ export function SettingsDialog({
         </DialogHeader>
 
         <div className="flex min-h-[420px]">
-          {/* Sidebar tabs */}
           <nav className="w-44 shrink-0 border-r border-border bg-secondary/30 p-2">
             {tabs.map((tab) => (
               <button
@@ -178,7 +230,6 @@ export function SettingsDialog({
             ))}
           </nav>
 
-          {/* Content area */}
           <div className="flex-1 p-6">
             {activeTab === "gateway" && (
               <div className="space-y-5">
@@ -198,7 +249,7 @@ export function SettingsDialog({
                     <input
                       type="url"
                       value={baseUrl}
-                      onChange={(e) => setBaseUrl(e.target.value)}
+                      onChange={(event) => setBaseUrl(event.target.value)}
                       placeholder="https://api.openai.com/v1"
                       className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:border-ring focus:ring-1 focus:ring-ring transition-colors"
                     />
@@ -215,7 +266,7 @@ export function SettingsDialog({
                     <input
                       type="password"
                       value={apiKey}
-                      onChange={(e) => setApiKey(e.target.value)}
+                      onChange={(event) => setApiKey(event.target.value)}
                       placeholder="gw-..."
                       className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm font-mono text-foreground placeholder:text-muted-foreground outline-none focus:border-ring focus:ring-1 focus:ring-ring transition-colors"
                     />
@@ -227,7 +278,6 @@ export function SettingsDialog({
                   {gatewayMessage ? (
                     <p className="text-xs text-muted-foreground">{gatewayMessage}</p>
                   ) : null}
-
                 </div>
 
                 <div className="flex justify-end pt-2">
@@ -251,36 +301,63 @@ export function SettingsDialog({
                   <h3 className="text-sm font-medium text-foreground">外观设置</h3>
                   <p className="mt-0.5 text-xs text-muted-foreground">自定义界面主题和显示效果</p>
                 </div>
+
                 <div className="space-y-4">
                   <div className="space-y-1.5">
                     <label className="text-sm font-medium text-foreground">主题</label>
                     <div className="flex gap-2">
-                      {["浅色", "深色", "跟随系统"].map((theme) => (
+                      {[
+                        { label: "浅色", value: "light" as const },
+                        { label: "深色", value: "dark" as const },
+                        { label: "跟随系统", value: "system" as const },
+                      ].map((theme) => (
                         <button
-                          key={theme}
-                          className="rounded-lg border border-input bg-background px-4 py-2 text-sm text-foreground hover:bg-secondary transition-colors"
+                          key={theme.value}
+                          onClick={() => setThemeMode(theme.value)}
+                          className={cn(
+                            "rounded-lg border px-4 py-2 text-sm transition-colors",
+                            themeMode === theme.value
+                              ? "border-foreground/15 bg-foreground text-background"
+                              : "border-input bg-background text-foreground hover:bg-secondary"
+                          )}
                         >
-                          {theme}
+                          {theme.label}
                         </button>
                       ))}
                     </div>
                   </div>
+
                   <div className="space-y-1.5">
                     <label className="text-sm font-medium text-foreground">字体大小</label>
-                    <select className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground outline-none">
-                      <option>小</option>
-                      <option>默认</option>
-                      <option>大</option>
+                    <select
+                      value={fontSizeMode}
+                      onChange={(event) =>
+                        setFontSizeMode(event.target.value as AppFontSizeMode)
+                      }
+                      className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground outline-none"
+                    >
+                      <option value="small">小</option>
+                      <option value="default">默认</option>
+                      <option value="large">大</option>
                     </select>
                   </div>
-                  <div className="space-y-1.5">
-                    <label className="text-sm font-medium text-foreground">语言</label>
-                    <select className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground outline-none">
-                      <option>中文</option>
-                      <option>English</option>
-                      <option>日本語</option>
-                    </select>
-                  </div>
+
+                  {appearanceMessage ? (
+                    <p className="text-xs text-muted-foreground">{appearanceMessage}</p>
+                  ) : null}
+                </div>
+
+                <div className="flex justify-end pt-2">
+                  <Button
+                    size="sm"
+                    className="bg-foreground text-background hover:opacity-80"
+                    onClick={() => {
+                      void saveAppearanceConfig()
+                    }}
+                    disabled={appearanceBusy}
+                  >
+                    {appearanceBusy ? "保存中..." : "保存"}
+                  </Button>
                 </div>
               </div>
             )}
@@ -293,7 +370,10 @@ export function SettingsDialog({
                 </div>
                 <div className="space-y-3">
                   {["桌面通知", "声音提示", "邮件通知"].map((item) => (
-                    <div key={item} className="flex items-center justify-between rounded-lg border border-input p-3">
+                    <div
+                      key={item}
+                      className="flex items-center justify-between rounded-lg border border-input p-3"
+                    >
                       <span className="text-sm text-foreground">{item}</span>
                       <div className="h-5 w-9 rounded-full bg-muted" />
                     </div>
@@ -310,7 +390,10 @@ export function SettingsDialog({
                 </div>
                 <div className="space-y-3">
                   {["允许模型训练使用对话数据", "保存对话历史", "分享使用数据用于改进"].map((item) => (
-                    <div key={item} className="flex items-center justify-between rounded-lg border border-input p-3">
+                    <div
+                      key={item}
+                      className="flex items-center justify-between rounded-lg border border-input p-3"
+                    >
                       <span className="text-sm text-foreground">{item}</span>
                       <div className="h-5 w-9 rounded-full bg-muted" />
                     </div>
@@ -369,3 +452,4 @@ export function SettingsDialog({
     </Dialog>
   )
 }
+

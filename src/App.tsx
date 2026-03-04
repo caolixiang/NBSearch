@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react"
 import type { AppRuntime } from "./app/contracts"
+import { applyAppearanceSettings } from "./app/appearance"
 import { getAppRuntime } from "./app/runtime"
 import { ChatShell } from "./features/chat/chat-shell"
 
@@ -18,6 +19,16 @@ export function App() {
       cancelled = true
     }
   }, [])
+
+  useEffect(() => {
+    if (!runtime) {
+      return
+    }
+    applyAppearanceSettings({
+      themeMode: runtime.config.themeMode,
+      fontSizeMode: runtime.config.fontSizeMode,
+    })
+  }, [runtime])
 
   if (!runtime) {
     return null

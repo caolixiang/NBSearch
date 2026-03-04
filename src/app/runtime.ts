@@ -1,4 +1,4 @@
-import type { AppRuntime } from "./contracts"
+import type { AppFontSizeMode, AppRuntime, AppThemeMode } from "./contracts"
 import { loadAppConfig } from "./config"
 import { GrokChatService } from "../infrastructure/chat/grok-chat-service"
 import { getAppRepository } from "../infrastructure/storage/factory"
@@ -41,4 +41,15 @@ export function applyGatewayConfigToRuntime(next: { apiBaseUrl: string; apiKey: 
   const repository = runtimeSingleton.services.repository
   runtimeSingleton.services.chat = new GrokChatService(repository, runtimeSingleton.config)
   runtimeSingleton.services.voice = new GatewayVoiceService(runtimeSingleton.config)
+}
+
+export function applyAppearanceConfigToRuntime(next: {
+  themeMode: AppThemeMode
+  fontSizeMode: AppFontSizeMode
+}): void {
+  if (!runtimeSingleton) {
+    return
+  }
+  runtimeSingleton.config.themeMode = next.themeMode
+  runtimeSingleton.config.fontSizeMode = next.fontSizeMode
 }

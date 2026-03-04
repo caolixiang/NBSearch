@@ -11,8 +11,8 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tauri::Manager;
 use url::Url;
-use wreq::Client;
 use wreq::header::{HeaderMap, HeaderName, HeaderValue};
+use wreq::Client;
 use wreq_util::{Emulation, EmulationOS, EmulationOption};
 
 #[derive(Serialize)]
@@ -78,6 +78,8 @@ struct StoragePaths {
 struct GatewayConfigToml {
     #[serde(default)]
     gateway: GatewayConfigTomlSection,
+    #[serde(default)]
+    appearance: AppearanceConfigTomlSection,
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -88,11 +90,29 @@ struct GatewayConfigTomlSection {
     api_key: String,
 }
 
+#[derive(Serialize, Deserialize, Default)]
+struct AppearanceConfigTomlSection {
+    #[serde(default)]
+    theme: String,
+    #[serde(default)]
+    font_size: String,
+}
+
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct GatewayConfigPayload {
     api_base_url: String,
     api_key: String,
+    theme: String,
+    font_size: String,
+    config_path: String,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AppearanceConfigPayload {
+    theme: String,
+    font_size: String,
     config_path: String,
 }
 
@@ -190,9 +210,26 @@ fn read_gateway_config_toml(path: &Path) -> Result<GatewayConfigToml, String> {
 }
 
 fn write_gateway_config_toml(path: &Path, config: &GatewayConfigToml) -> Result<(), String> {
-    let encoded = toml::to_string_pretty(config).map_err(|e| format!("encode config.toml failed: {e}"))?;
+    let encoded =
+        toml::to_string_pretty(config).map_err(|e| format!("encode config.toml failed: {e}"))?;
     fs::write(path, encoded).map_err(|e| format!("write config.toml failed: {e}"))?;
     Ok(())
+}
+
+fn normalize_theme_mode(value: &str) -> String {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "dark" => "dark".to_string(),
+        "system" => "system".to_string(),
+        _ => "light".to_string(),
+    }
+}
+
+fn normalize_font_size_mode(value: &str) -> String {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "small" => "small".to_string(),
+        "large" => "large".to_string(),
+        _ => "default".to_string(),
+    }
 }
 
 fn sqlite_sidecar_path(base: &Path, suffix: &str) -> PathBuf {
@@ -206,7 +243,8 @@ fn copy_file_if_exists(from: &Path, to: &Path) -> Result<(), String> {
     if let Some(parent) = to.parent() {
         fs::create_dir_all(parent).map_err(|e| format!("prepare target dir failed: {e}"))?;
     }
-    fs::copy(from, to).map_err(|e| format!("copy {} -> {} failed: {e}", from.display(), to.display()))?;
+    fs::copy(from, to)
+        .map_err(|e| format!("copy {} -> {} failed: {e}", from.display(), to.display()))?;
     Ok(())
 }
 
@@ -294,9 +332,10 @@ fn read_image_cache(
         return Ok(None);
     }
 
-    let meta_bytes = fs::read(meta_path).map_err(|e| format!("read image cache meta failed: {e}"))?;
-    let meta: ImageCacheMeta =
-        serde_json::from_slice(&meta_bytes).map_err(|e| format!("parse image cache meta failed: {e}"))?;
+    let meta_bytes =
+        fs::read(meta_path).map_err(|e| format!("read image cache meta failed: {e}"))?;
+    let meta: ImageCacheMeta = serde_json::from_slice(&meta_bytes)
+        .map_err(|e| format!("parse image cache meta failed: {e}"))?;
 
     let expires_at = meta
         .cached_at_ms
@@ -324,7 +363,8 @@ fn write_image_cache(
     meta: &ImageCacheMeta,
 ) -> Result<(), String> {
     fs::write(body_path, body).map_err(|e| format!("write image cache body failed: {e}"))?;
-    let meta_json = serde_json::to_vec(meta).map_err(|e| format!("encode image cache meta failed: {e}"))?;
+    let meta_json =
+        serde_json::to_vec(meta).map_err(|e| format!("encode image cache meta failed: {e}"))?;
     fs::write(meta_path, meta_json).map_err(|e| format!("write image cache meta failed: {e}"))?;
     Ok(())
 }
@@ -336,14 +376,18 @@ fn compute_image_cache_stats(cache_dir: &Path) -> Result<(usize, u64), String> {
 
     let mut items: usize = 0;
     let mut bytes: u64 = 0;
-    let entries = fs::read_dir(cache_dir).map_err(|e| format!("read image cache dir failed: {e}"))?;
+    let entries =
+        fs::read_dir(cache_dir).map_err(|e| format!("read image cache dir failed: {e}"))?;
     for entry in entries {
         let entry = entry.map_err(|e| format!("read image cache entry failed: {e}"))?;
         let path = entry.path();
         if !path.is_file() {
             continue;
         }
-        let ext = path.extension().and_then(|v| v.to_str()).unwrap_or_default();
+        let ext = path
+            .extension()
+            .and_then(|v| v.to_str())
+            .unwrap_or_default();
         if ext.eq_ignore_ascii_case("bin") {
             items = items.saturating_add(1);
             let metadata = entry
@@ -760,6 +804,8 @@ fn read_gateway_config(app: tauri::AppHandle) -> Result<GatewayConfigPayload, St
     Ok(GatewayConfigPayload {
         api_base_url: parsed.gateway.api_base_url.trim().to_string(),
         api_key: parsed.gateway.api_key.trim().to_string(),
+        theme: normalize_theme_mode(parsed.appearance.theme.as_str()),
+        font_size: normalize_font_size_mode(parsed.appearance.font_size.as_str()),
         config_path: config_path.to_string_lossy().to_string(),
     })
 }
@@ -779,6 +825,27 @@ fn save_gateway_config(
     Ok(GatewayConfigPayload {
         api_base_url: parsed.gateway.api_base_url,
         api_key: parsed.gateway.api_key,
+        theme: normalize_theme_mode(parsed.appearance.theme.as_str()),
+        font_size: normalize_font_size_mode(parsed.appearance.font_size.as_str()),
+        config_path: config_path.to_string_lossy().to_string(),
+    })
+}
+
+#[tauri::command(rename_all = "camelCase")]
+fn save_appearance_config(
+    app: tauri::AppHandle,
+    theme: String,
+    font_size: String,
+) -> Result<AppearanceConfigPayload, String> {
+    let config_path = resolve_app_config_toml_path(&app)?;
+    let mut parsed = read_gateway_config_toml(&config_path).unwrap_or_default();
+    parsed.appearance.theme = normalize_theme_mode(theme.as_str());
+    parsed.appearance.font_size = normalize_font_size_mode(font_size.as_str());
+    write_gateway_config_toml(&config_path, &parsed)?;
+
+    Ok(AppearanceConfigPayload {
+        theme: parsed.appearance.theme,
+        font_size: parsed.appearance.font_size,
         config_path: config_path.to_string_lossy().to_string(),
     })
 }
@@ -866,7 +933,8 @@ async fn download_image_to_downloads(
     };
 
     if let Some(parent) = destination.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| format!("prepare destination dir failed: {e}"))?;
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("prepare destination dir failed: {e}"))?;
     }
 
     std::fs::write(&destination, &bytes).map_err(|e| format!("write file failed: {e}"))?;
@@ -893,6 +961,7 @@ fn main() {
             resolve_storage_paths,
             read_gateway_config,
             save_gateway_config,
+            save_appearance_config,
             fetch_image_with_tls_profile,
             fetch_image_with_cache,
             get_image_cache_stats,

@@ -5,6 +5,7 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
+  --app-font-size-px: 16px;
   /* Claude warm beige/cream theme */
   --background: #FAF9F6;
   --foreground: #2D2B28;
@@ -138,6 +139,9 @@
 @layer base {
   * {
     @apply border-border outline-ring/50;
+  }
+  html {
+    font-size: var(--app-font-size-px);
   }
   body {
     @apply bg-background text-foreground;
