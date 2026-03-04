@@ -224,98 +224,17 @@ function collectCitationTitleByUrl(events: ChatReasoningEventDetail[] | undefine
   return map
 }
 
-function extractInlineCitationsFromContent(content: string): ChatInlineCitation[] {
-  const source = content.trim()
-  if (!source) {
-    return []
-  }
-  const rows: ChatInlineCitation[] = []
-  const seen = new Set<string>()
-  const renderPattern =
-    /<grok:render\b([^>]*?)>([\s\S]*?)<\/grok:render>|<grok:render\b([^>]*?)\/>/gi
-  let matched: RegExpExecArray | null = renderPattern.exec(source)
-  while (matched) {
-    const attrs = matched[1] || matched[3] || ""
-    const body = matched[2] || ""
-    const cardType = attrs.match(/card_type="([^"]+)"/i)?.[1]?.toLowerCase() || ""
-    if (!cardType.includes("citation")) {
-      matched = renderPattern.exec(source)
-      continue
-    }
-    const cardId = attrs.match(/card_id="([^"]+)"/i)?.[1]?.trim() || ""
-    if (!cardId) {
-      matched = renderPattern.exec(source)
-      continue
-    }
-    const citationId =
-      body.match(/<argument\b[^>]*name="citation_id"[^>]*>([\s\S]*?)<\/argument>/i)?.[1]?.trim() || undefined
-    const key = `${cardId}\u0000${citationId || ""}`
-    if (!seen.has(key)) {
-      seen.add(key)
-      rows.push({
-        cardId,
-        citationId,
-      })
-    }
-    matched = renderPattern.exec(source)
-  }
-  return rows
-}
-
-function collectCitationCardsFromReasoningEvents(
-  events: ChatReasoningEventDetail[] | undefined
-): Array<{ cardId: string; url?: string }> {
-  if (!events || events.length === 0) {
-    return []
-  }
-  const rows: Array<{ cardId: string; url?: string }> = []
-  const seen = new Set<string>()
-  for (const detail of events) {
-    if (detail.kind !== "card_attachment") {
-      continue
-    }
-    const type = `${detail.card.cardType || ""} ${detail.card.type || ""}`.toLowerCase()
-    if (!type.includes("citation")) {
-      continue
-    }
-    const cardId = (detail.card.id || "").trim()
-    if (!cardId) {
-      continue
-    }
-    const url = detail.card.url || detail.card.image?.link || undefined
-    const key = `${cardId}\u0000${url || ""}`
-    if (seen.has(key)) {
-      continue
-    }
-    seen.add(key)
-    rows.push({
-      cardId,
-      url,
-    })
-  }
-  return rows
-}
-
 function buildCitationItems(
-  content: string,
   research: ChatDeepSearchResearch | undefined,
   events: ChatReasoningEventDetail[] | undefined
 ): CitationRenderItem[] {
-  const fallbackCitationCards = collectCitationCardsFromReasoningEvents(events)
-  const fallbackInline = extractInlineCitationsFromContent(content)
-  const effectiveResearch: ChatDeepSearchResearch = research || {
-    citationCards: fallbackCitationCards,
-    inlineCitations: fallbackInline,
-  }
-  if (
-    (!effectiveResearch.inlineCitations || effectiveResearch.inlineCitations.length === 0) &&
-    (!effectiveResearch.citationCards || effectiveResearch.citationCards.length === 0)
-  ) {
+  const inlineRows = Array.isArray(research?.inlineCitations) ? research.inlineCitations : []
+  if (inlineRows.length === 0) {
     return []
   }
 
   const citationCardUrlById = new Map<string, string>()
-  for (const row of effectiveResearch.citationCards || []) {
+  for (const row of research?.citationCards || []) {
     const cardId = row.cardId.trim()
     if (!cardId) {
       continue
@@ -333,13 +252,13 @@ function buildCitationItems(
   const rows: CitationRenderItem[] = []
   const seen = new Set<string>()
 
-  const append = (entry: ChatInlineCitation | { cardId: string; url?: string }, fallbackId: string) => {
+  const append = (entry: ChatInlineCitation) => {
     const directUrl = normalizeCitationUrl(entry.url || "")
     const mappedUrl = directUrl || citationCardUrlById.get(entry.cardId) || ""
     if (!mappedUrl) {
       return
     }
-    const key = `${entry.cardId}\u0000${("citationId" in entry ? entry.citationId : "") || fallbackId}\u0000${mappedUrl}`
+    const key = `${entry.cardId}\u0000${entry.citationId || ""}`
     if (seen.has(key)) {
       return
     }
@@ -352,14 +271,8 @@ function buildCitationItems(
     })
   }
 
-  if (Array.isArray(effectiveResearch.inlineCitations) && effectiveResearch.inlineCitations.length > 0) {
-    for (const row of effectiveResearch.inlineCitations) {
-      append(row, "")
-    }
-  } else if (Array.isArray(effectiveResearch.citationCards) && effectiveResearch.citationCards.length > 0) {
-    for (const row of effectiveResearch.citationCards) {
-      append({ cardId: row.cardId, url: row.url }, row.cardId)
-    }
+  for (const row of inlineRows) {
+    append(row)
   }
 
   return rows
@@ -432,7 +345,7 @@ export function ChatMessage({
   const sourceCount = !isUser && !isStreamingAssistant ? resolveSourceCount(message.reasoningEvents) : 0
   const citationItems =
     !isUser && !isStreamingAssistant
-      ? buildCitationItems(message.content, message.research, message.reasoningEvents)
+      ? buildCitationItems(message.research, message.reasoningEvents)
       : []
   const showSourceSummary = sourceCount > 0
   const reasoningPanelId = `reasoning-panel-${message.id}`
