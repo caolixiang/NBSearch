@@ -935,6 +935,20 @@ describe("extractDeepSearchResearchFromRawChunk", () => {
         bullets: ["谷爱凌国籍争议及中美双重身份，引发公众讨论。"],
       },
     ])
+    expect(research.steps).toEqual([
+      {
+        tags: ["header"],
+        title: undefined,
+        text: ["挖掘国籍细节"],
+        toolUsageCardIds: undefined,
+      },
+      {
+        tags: ["summary"],
+        title: undefined,
+        text: ["谷爱凌国籍争议及中美双重身份，引发公众讨论。"],
+        toolUsageCardIds: undefined,
+      },
+    ])
   })
 
   it("extracts citation cards from stream cardAttachment payload", () => {
@@ -972,6 +986,20 @@ describe("extractDeepSearchResearchFromRawChunk", () => {
       {
         title: "挖掘国籍细节",
         bullets: ["她出生在美国，母亲是中国人，2019年宣布加入中国国籍。"],
+      },
+    ])
+    expect(research.steps).toEqual([
+      {
+        tags: ["header"],
+        title: undefined,
+        text: ["挖掘国籍细节"],
+        toolUsageCardIds: undefined,
+      },
+      {
+        tags: ["summary"],
+        title: undefined,
+        text: ["她出生在美国，母亲是中国人，2019年宣布加入中国国籍。"],
+        toolUsageCardIds: undefined,
       },
     ])
   })

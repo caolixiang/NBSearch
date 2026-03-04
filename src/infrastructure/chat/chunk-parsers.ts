@@ -3,6 +3,7 @@ import type {
   ChatCitationCard,
   ChatDeepSearchDetail,
   ChatDeepSearchResearch,
+  ChatDeepSearchResearchStep,
   ChatAnchors,
   ChatInlineCitation,
   ChatMessage,
@@ -512,8 +513,120 @@ function parseInlineCitations(value: unknown): ChatInlineCitation[] {
   return rows
 }
 
-function parseResearchDetailsFromSteps(value: unknown): ChatDeepSearchDetail[] {
+const TOOL_USAGE_CARD_ID_XML_PATTERN =
+  /<xai:tool_usage_card_id>\s*([^<\s][^<]*?)\s*<\/xai:tool_usage_card_id>/gi
+
+function extractToolUsageCardIdsFromUnknown(value: unknown): string[] {
+  const results: string[] = []
+  const seen = new Set<string>()
+  const append = (input: string | undefined) => {
+    const normalized = (input || "").trim()
+    if (!normalized || seen.has(normalized)) {
+      return
+    }
+    seen.add(normalized)
+    results.push(normalized)
+  }
+
+  const parseText = (source: string) => {
+    TOOL_USAGE_CARD_ID_XML_PATTERN.lastIndex = 0
+    let matched: RegExpExecArray | null = TOOL_USAGE_CARD_ID_XML_PATTERN.exec(source)
+    while (matched) {
+      append(matched[1])
+      matched = TOOL_USAGE_CARD_ID_XML_PATTERN.exec(source)
+    }
+  }
+
+  if (typeof value === "string") {
+    parseText(value)
+    return results
+  }
   if (!Array.isArray(value)) {
+    return results
+  }
+
+  for (const row of value) {
+    if (typeof row === "string") {
+      parseText(row)
+      continue
+    }
+    if (!isRecord(row)) {
+      continue
+    }
+    append(readOptionalString(row.toolUsageCardId) || readOptionalString(row.tool_usage_card_id))
+    if (typeof row.xml === "string") {
+      parseText(row.xml)
+    }
+  }
+  return results
+}
+
+function parseResearchSteps(value: unknown): ChatDeepSearchResearchStep[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  const rows: ChatDeepSearchResearchStep[] = []
+  const seen = new Set<string>()
+
+  for (const item of value) {
+    if (!isRecord(item)) {
+      continue
+    }
+
+    const tags = readStringArray(item.tags)
+      .map((tag) => tag.trim())
+      .filter(Boolean)
+    const title =
+      readOptionalString(item.header) ||
+      readOptionalString(item.title) ||
+      readOptionalString(item.name) ||
+      readOptionalString(item.label)
+    const text = Array.from(
+      new Set([
+        ...readStringOrStringArray(item.summary),
+        ...readStringOrStringArray(item.text),
+        ...readStringOrStringArray(item.bullets),
+        ...readStringOrStringArray(item.points),
+      ])
+    )
+      .map((row) => row.trim())
+      .filter(Boolean)
+    const toolUsageCardIds = Array.from(
+      new Set([
+        ...extractToolUsageCardIdsFromUnknown(item.toolUsageCards),
+        ...extractToolUsageCardIdsFromUnknown(item.tool_usage_cards),
+        ...extractToolUsageCardIdsFromUnknown(item.toolUsageResults),
+        ...extractToolUsageCardIdsFromUnknown(item.tool_usage_results),
+        ...extractToolUsageCardIdsFromUnknown(text),
+      ])
+    )
+
+    const normalized: ChatDeepSearchResearchStep = {
+      tags,
+      title: title || undefined,
+      text,
+      toolUsageCardIds: toolUsageCardIds.length > 0 ? toolUsageCardIds : undefined,
+    }
+
+    const key = [
+      normalized.tags.join("\u0001"),
+      normalized.title || "",
+      normalized.text.join("\u0001"),
+      (normalized.toolUsageCardIds || []).join("\u0001"),
+    ].join("\u0002")
+    if (seen.has(key)) {
+      continue
+    }
+    seen.add(key)
+    rows.push(normalized)
+  }
+
+  return rows
+}
+
+function parseResearchDetailsFromSteps(steps: ChatDeepSearchResearchStep[]): ChatDeepSearchDetail[] {
+  if (steps.length === 0) {
     return []
   }
 
@@ -538,27 +651,12 @@ function parseResearchDetailsFromSteps(value: unknown): ChatDeepSearchDetail[] {
     current = null
   }
 
-  for (const step of value) {
-    if (!isRecord(step)) {
-      continue
-    }
-
-    const tags = readStringArray(step.tags).map((tag) => tag.toLowerCase())
+  for (const step of steps) {
+    const tags = step.tags.map((tag) => tag.toLowerCase())
     const hasHeaderTag = tags.includes("header")
     const hasSummaryTag = tags.includes("summary")
-    const titleCandidate =
-      readOptionalString(step.header) ||
-      readOptionalString(step.title) ||
-      readOptionalString(step.name) ||
-      readOptionalString(step.label)
-    const textRows = Array.from(
-      new Set([
-        ...readStringOrStringArray(step.summary),
-        ...readStringOrStringArray(step.text),
-        ...readStringOrStringArray(step.bullets),
-        ...readStringOrStringArray(step.points),
-      ])
-    )
+    const titleCandidate = step.title
+    const textRows = step.text
 
     if (hasHeaderTag) {
       pushCurrent()
@@ -634,7 +732,8 @@ function parseResearchObject(value: unknown): Partial<ChatDeepSearchResearch> {
         rolloutIds: readStringArray(uiLayoutRaw.rolloutIds),
       }
     : undefined
-  const details = parseResearchDetailsFromSteps(value.steps)
+  const steps = parseResearchSteps(value.steps)
+  const details = parseResearchDetailsFromSteps(steps)
   const citationCards = parseCitationCards(value.citation_cards || value.citationCards)
   const inlineCitations = parseInlineCitations(value.inline_citations || value.inlineCitations)
 
@@ -647,6 +746,7 @@ function parseResearchObject(value: unknown): Partial<ChatDeepSearchResearch> {
     thinkingEndTime:
       normalizeResearchIsoTime(value.thinking_end_time) || normalizeResearchIsoTime(value.thinkingEndTime),
     details: details.length > 0 ? details : undefined,
+    steps: steps.length > 0 ? steps : undefined,
     citationCards: citationCards.length > 0 ? citationCards : undefined,
     inlineCitations: inlineCitations.length > 0 ? inlineCitations : undefined,
   }
@@ -659,6 +759,7 @@ function hasResearchFragment(value: Partial<ChatDeepSearchResearch>): boolean {
       (value.deepsearchPreset || "").trim() ||
       (value.thinkingStartTime || "").trim() ||
       (value.thinkingEndTime || "").trim() ||
+      (Array.isArray(value.steps) && value.steps.length > 0) ||
       (Array.isArray(value.details) && value.details.length > 0) ||
       (Array.isArray(value.citationCards) && value.citationCards.length > 0) ||
       (Array.isArray(value.inlineCitations) && value.inlineCitations.length > 0)
@@ -716,6 +817,27 @@ function mergeResearchFragments(
   }
   if (detailByKey.size > 0) {
     merged.details = Array.from(detailByKey.values())
+  }
+
+  const stepByKey = new Map<string, ChatDeepSearchResearchStep>()
+  for (const step of [...(previous.steps || []), ...(next.steps || [])]) {
+    const tags = step.tags.map((row) => row.trim()).filter(Boolean)
+    const text = step.text.map((row) => row.trim()).filter(Boolean)
+    const toolUsageCardIds = (step.toolUsageCardIds || []).map((row) => row.trim()).filter(Boolean)
+    const title = (step.title || "").trim()
+    const key = `${tags.join("\u0001")}\u0000${title}\u0000${text.join("\u0001")}\u0000${toolUsageCardIds.join("\u0001")}`
+    if (stepByKey.has(key)) {
+      continue
+    }
+    stepByKey.set(key, {
+      tags,
+      title: title || undefined,
+      text,
+      toolUsageCardIds: toolUsageCardIds.length > 0 ? toolUsageCardIds : undefined,
+    })
+  }
+  if (stepByKey.size > 0) {
+    merged.steps = Array.from(stepByKey.values())
   }
 
   return merged

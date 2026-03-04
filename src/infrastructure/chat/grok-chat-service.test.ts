@@ -903,6 +903,20 @@ describe("streamTurn heartbeats and timeout", () => {
         bullets: ["谷爱凌国籍争议及中美双重身份，引发公众讨论。"],
       },
     ])
+    expect(assistant?.research?.steps).toEqual([
+      {
+        tags: ["header"],
+        title: undefined,
+        text: ["挖掘国籍细节"],
+        toolUsageCardIds: undefined,
+      },
+      {
+        tags: ["summary"],
+        title: undefined,
+        text: ["谷爱凌国籍争议及中美双重身份，引发公众讨论。"],
+        toolUsageCardIds: undefined,
+      },
+    ])
     expect(assistant?.research?.thinkingStartTime).toBe(new Date("2026-03-03T10:00:00Z").toISOString())
     expect(assistant?.research?.thinkingEndTime).toBe(new Date("2026-03-03T10:00:09Z").toISOString())
   })

@@ -48,7 +48,8 @@ export function MarkdownContent({
   const hasStructuredReasoning =
     reasoningEvents.length > 0 ||
     reasoningDurationSeconds > 0 ||
-    (Array.isArray(research?.details) && research.details.length > 0)
+    (Array.isArray(research?.details) && research.details.length > 0) ||
+    (Array.isArray(research?.steps) && research.steps.length > 0)
   const shouldShowStructuredReasoning = hasStructuredReasoning
   const shouldRenderLegacyThink = !hasStructuredReasoning
   const sections = useMemo(
@@ -82,7 +83,7 @@ export function MarkdownContent({
           isThinking={reasoningActive}
           isStreaming={streaming}
           durationSeconds={reasoningDurationSeconds}
-          deepSearchDetails={research?.details}
+          deepSearchResearch={research}
         />
       ) : null}
       {streaming && !content.trim() && !shouldShowStructuredReasoning ? (

@@ -1,4 +1,4 @@
-import type { ChatReasoningEventDetail } from "@/domain/chat/types"
+import type { ChatDeepSearchResearchStep, ChatReasoningEventDetail } from "@/domain/chat/types"
 import type {
   AgentDescriptor,
   StructuredReasoningEntry,
@@ -11,6 +11,24 @@ import { isLikelyUrl, parseAgentMeta } from "./think-parser"
 export type AgentGroupedEntries = {
   agent: AgentDescriptor
   entries: StructuredReasoningEntry[]
+}
+
+export type DeepSearchGroupedItem =
+  | {
+      kind: "summary"
+      key: string
+      rows: string[]
+    }
+  | {
+      kind: "tool"
+      key: string
+      entries: StructuredReasoningEntry[]
+    }
+
+export type DeepSearchGroupedSection = {
+  key: string
+  title: string
+  items: DeepSearchGroupedItem[]
 }
 
 function normalizeRolloutId(value: string | undefined): string {
@@ -314,6 +332,128 @@ export function buildStructuredReasoningSummary(events: ChatReasoningEventDetail
     rolloutIds,
     toolChain,
   }
+}
+
+export function buildDeepSearchGroupedSections(
+  steps: ChatDeepSearchResearchStep[] | undefined,
+  entries: StructuredReasoningEntry[]
+): DeepSearchGroupedSection[] {
+  if (!Array.isArray(steps) || steps.length === 0) {
+    return []
+  }
+
+  const entriesByToolUsageCardId = new Map<string, StructuredReasoningEntry[]>()
+  for (const entry of entries) {
+    const cardId = entry.toolUsageCardId.trim()
+    if (!cardId) {
+      continue
+    }
+    const scoped = entriesByToolUsageCardId.get(cardId) || []
+    scoped.push(entry)
+    entriesByToolUsageCardId.set(cardId, scoped)
+  }
+
+  const sections: DeepSearchGroupedSection[] = []
+  let current: { title: string; items: DeepSearchGroupedItem[] } | null = null
+  let sectionIndex = 0
+  let itemIndex = 0
+
+  const ensureCurrent = (fallbackTitle = "深度挖掘细节") => {
+    if (!current) {
+      current = {
+        title: fallbackTitle,
+        items: [],
+      }
+    }
+  }
+
+  const pushSummaryRows = (rows: string[]) => {
+    const normalizedRows = rows.map((row) => row.trim()).filter(Boolean)
+    if (normalizedRows.length === 0) {
+      return
+    }
+    ensureCurrent()
+    current!.items.push({
+      kind: "summary",
+      key: `summary_${itemIndex++}`,
+      rows: normalizedRows,
+    })
+  }
+
+  const flush = () => {
+    if (!current || current.items.length === 0) {
+      current = null
+      return
+    }
+    sections.push({
+      key: `section_${sectionIndex++}`,
+      title: current.title || "深度挖掘细节",
+      items: current.items,
+    })
+    current = null
+  }
+
+  for (const step of steps) {
+    const tags = step.tags.map((tag) => tag.trim().toLowerCase()).filter(Boolean)
+    const hasHeaderTag = tags.includes("header")
+    const hasToolUsageCardTag = tags.includes("tool_usage_card")
+    const textRows = step.text.map((row) => row.trim()).filter(Boolean)
+    const titleCandidate = (step.title || "").trim()
+    const toolUsageCardIds = (step.toolUsageCardIds || []).map((id) => id.trim()).filter(Boolean)
+
+    if (hasHeaderTag) {
+      flush()
+      const nextTitle = titleCandidate || textRows[0] || "深度挖掘细节"
+      const remainingRows =
+        titleCandidate || textRows.length === 0
+          ? textRows
+          : textRows.slice(1)
+      current = {
+        title: nextTitle,
+        items: [],
+      }
+      pushSummaryRows(remainingRows)
+      continue
+    }
+
+    if (hasToolUsageCardTag || toolUsageCardIds.length > 0) {
+      ensureCurrent(titleCandidate || "深度挖掘细节")
+      const mappedEntries: StructuredReasoningEntry[] = []
+      const mappedSeen = new Set<string>()
+      for (const toolUsageCardId of toolUsageCardIds) {
+        const scopedEntries = entriesByToolUsageCardId.get(toolUsageCardId) || []
+        for (const entry of scopedEntries) {
+          if (mappedSeen.has(entry.key)) {
+            continue
+          }
+          mappedSeen.add(entry.key)
+          mappedEntries.push(entry)
+        }
+      }
+
+      if (mappedEntries.length > 0) {
+        current!.items.push({
+          kind: "tool",
+          key: `tool_${itemIndex++}`,
+          entries: mappedEntries,
+        })
+      } else {
+        pushSummaryRows(textRows)
+      }
+      continue
+    }
+
+    if (titleCandidate && !current) {
+      current = {
+        title: titleCandidate,
+        items: [],
+      }
+    }
+    pushSummaryRows(textRows)
+  }
+
+  flush()
+  return sections
 }
 
 function normalizeRolloutLabel(rolloutId: string): string {

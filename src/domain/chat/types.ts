@@ -58,6 +58,13 @@ export interface ChatDeepSearchDetail {
   bullets: string[]
 }
 
+export interface ChatDeepSearchResearchStep {
+  tags: string[]
+  title?: string
+  text: string[]
+  toolUsageCardIds?: string[]
+}
+
 export interface ChatDeepSearchResearch {
   requestMetadata?: Record<string, unknown>
   uiLayout?: ChatReasoningLayout
@@ -65,6 +72,7 @@ export interface ChatDeepSearchResearch {
   thinkingStartTime?: string
   thinkingEndTime?: string
   details?: ChatDeepSearchDetail[]
+  steps?: ChatDeepSearchResearchStep[]
   citationCards?: ChatCitationCard[]
   inlineCitations?: ChatInlineCitation[]
 }

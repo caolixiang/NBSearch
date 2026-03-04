@@ -177,12 +177,34 @@ function mergeResearchPayload(
     merged.details = Array.from(detailMap.values())
   }
 
+  const stepMap = new Map<string, NonNullable<ChatDeepSearchResearch["steps"]>[number]>()
+  for (const step of [...(base.steps || []), ...(incoming.steps || [])]) {
+    const tags = step.tags.map((row) => row.trim()).filter(Boolean)
+    const text = step.text.map((row) => row.trim()).filter(Boolean)
+    const toolUsageCardIds = (step.toolUsageCardIds || []).map((row) => row.trim()).filter(Boolean)
+    const title = (step.title || "").trim()
+    const key = `${tags.join("\u0001")}\u0000${title}\u0000${text.join("\u0001")}\u0000${toolUsageCardIds.join("\u0001")}`
+    if (stepMap.has(key)) {
+      continue
+    }
+    stepMap.set(key, {
+      tags,
+      title: title || undefined,
+      text,
+      toolUsageCardIds: toolUsageCardIds.length > 0 ? toolUsageCardIds : undefined,
+    })
+  }
+  if (stepMap.size > 0) {
+    merged.steps = Array.from(stepMap.values())
+  }
+
   const hasPayload = Boolean(
     merged.requestMetadata ||
       merged.uiLayout ||
       (merged.deepsearchPreset || "").trim() ||
       (merged.thinkingStartTime || "").trim() ||
       (merged.thinkingEndTime || "").trim() ||
+      (merged.steps && merged.steps.length > 0) ||
       (merged.citationCards && merged.citationCards.length > 0) ||
       (merged.inlineCitations && merged.inlineCitations.length > 0) ||
       (merged.details && merged.details.length > 0)

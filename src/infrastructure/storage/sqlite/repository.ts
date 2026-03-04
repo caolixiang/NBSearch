@@ -18,9 +18,10 @@ function hasResearchPayload(research: ChatDeepSearchResearch | undefined): boole
     return false
   }
   return Boolean(
-    (research.deepsearchPreset || "").trim() ||
+      (research.deepsearchPreset || "").trim() ||
       (research.thinkingStartTime || "").trim() ||
       (research.thinkingEndTime || "").trim() ||
+      (Array.isArray(research.steps) && research.steps.length > 0) ||
       (Array.isArray(research.details) && research.details.length > 0) ||
       (Array.isArray(research.citationCards) && research.citationCards.length > 0) ||
       (Array.isArray(research.inlineCitations) && research.inlineCitations.length > 0) ||
