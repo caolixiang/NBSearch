@@ -29,6 +29,7 @@ import {
   readStoredSelectedModel,
   resolveSelectedModel,
 } from "@/infrastructure/models/catalog"
+import { resolveDeepSearchExpertModelId, resolveFastModelId } from "./model-selection"
 
 function newConversationId(): string {
   return `conv_${crypto.randomUUID()}`
@@ -239,46 +240,6 @@ function resolveStreamingConnectionHealth(
     level: "waiting",
     label: `等待数据 · ${Math.max(1, Math.round(idleMs / 1000))}s`,
   }
-}
-
-function resolveDeepSearchExpertModelId(models: ModelOption[], fallbackModelId: string): string {
-  const fallback = fallbackModelId || models[0]?.id || ""
-  if (models.length === 0) {
-    return fallback
-  }
-
-  const pickPreferred = (list: ModelOption[]): string => {
-    if (list.length === 0) {
-      return ""
-    }
-    const grok = list.find((item) => item.id.toLowerCase().includes("grok"))
-    return (grok || list[0]).id
-  }
-
-  const withExpertKeyword = models.filter((item) => {
-    const text = `${item.id} ${item.name} ${item.shortName} ${item.description}`.toLowerCase()
-    return text.includes("expert")
-  })
-  const expertId = pickPreferred(withExpertKeyword)
-  if (expertId) {
-    return expertId
-  }
-
-  const reasoningModels = models.filter((item) => item.visualKind === "reasoning")
-  const reasoningId = pickPreferred(reasoningModels)
-  if (reasoningId) {
-    return reasoningId
-  }
-
-  const grokNonFast = models.find((item) => {
-    const id = item.id.toLowerCase()
-    return id.includes("grok") && !id.includes("fast")
-  })
-  if (grokNonFast) {
-    return grokNonFast.id
-  }
-
-  return fallback
 }
 
 function appendReasoningEvent(
@@ -615,6 +576,15 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     activeStreamingState?.startedAt,
   ])
   const shouldShowHeaderNewConversationButton = conversations.length > 0
+
+  const resetComposerForNewConversation = useCallback(() => {
+    const fastModelId = resolveFastModelId(modelOptions, selectedModel)
+    if (fastModelId && fastModelId !== selectedModel) {
+      setSelectedModel(fastModelId)
+    }
+    setDeepSearchEnabled(false)
+    setModelError("")
+  }, [modelOptions, selectedModel])
 
   const handleDeepSearchEnabledChange = useCallback(
     (enabled: boolean) => {
@@ -1012,6 +982,11 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
 
       const controller = new AbortController()
       abortControllerByConversationIdRef.current[conversationId] = controller
+      const resetDeepSearchAfterTurn = () => {
+        if (deepSearch) {
+          setDeepSearchEnabled(false)
+        }
+      }
 
       try {
         await chatService.streamTurn(
@@ -1143,6 +1118,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
                   }
                 }
               })
+              resetDeepSearchAfterTurn()
               return
             }
 
@@ -1151,6 +1127,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
               pendingCardAttachmentDetails = []
               clearStreamingState()
               setLastErrorForConversation(conversationId, event.message)
+              resetDeepSearchAfterTurn()
             }
           },
           controller.signal
@@ -1162,6 +1139,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
           return
         }
         setLastErrorForConversation(conversationId, error instanceof Error ? error.message : "chat_stream_error")
+        resetDeepSearchAfterTurn()
       }
     },
     [
@@ -1549,6 +1527,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
         return
       }
       if (conversationId === DRAFT_CONVERSATION_ID) {
+        resetComposerForNewConversation()
         setHasDraftConversation(true)
         setDraftConversationUpdatedAt(draftConversationUpdatedAt || Date.now())
         setActiveConversationId(DRAFT_CONVERSATION_ID)
@@ -1561,10 +1540,20 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
         await loadMessages(conversationId)
       }
     },
-    [clearMessagesForConversation, draftConversationUpdatedAt, loadMessages, setActiveConversationId, setDraftConversationUpdatedAt, setHasDraftConversation, streamingStateByConversationId]
+    [
+      clearMessagesForConversation,
+      draftConversationUpdatedAt,
+      loadMessages,
+      resetComposerForNewConversation,
+      setActiveConversationId,
+      setDraftConversationUpdatedAt,
+      setHasDraftConversation,
+      streamingStateByConversationId,
+    ]
   )
 
   const handleNewConversation = useCallback(() => {
+    resetComposerForNewConversation()
     if (activeConversationIdRef.current === DRAFT_CONVERSATION_ID) {
       clearMessagesForConversation(DRAFT_CONVERSATION_ID)
       return
@@ -1573,7 +1562,13 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     setDraftConversationUpdatedAt(Date.now())
     setActiveConversationId(DRAFT_CONVERSATION_ID)
     clearMessagesForConversation(DRAFT_CONVERSATION_ID)
-  }, [clearMessagesForConversation, setActiveConversationId, setDraftConversationUpdatedAt, setHasDraftConversation])
+  }, [
+    clearMessagesForConversation,
+    resetComposerForNewConversation,
+    setActiveConversationId,
+    setDraftConversationUpdatedAt,
+    setHasDraftConversation,
+  ])
 
   const handleRenameConversation = useCallback(
     async (conversationId: string, title: string): Promise<void> => {
