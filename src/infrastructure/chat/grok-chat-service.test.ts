@@ -825,6 +825,103 @@ describe("streamTurn heartbeats and timeout", () => {
     expect(parsedRequestBodies.every((payload) => payload["previous_response_id"] === "resp_prev_42")).toBe(true)
   })
 
+  it("retries once without previous_response_id on session anchor conflict", async () => {
+    const repository = new MemoryAppRepository()
+    const service = new GrokChatService(repository, {
+      apiBaseUrl: "http://127.0.0.1:8787",
+      apiKey: "test-key",
+      defaultModel: "grok-4.1-fast",
+      voiceEnabled: false,
+      themeMode: "light",
+      fontSizeMode: "default",
+    })
+
+    const streamChunk = [
+      JSON.stringify({
+        type: "response.created",
+        response: {
+          id: "resp_anchor_retry_1",
+        },
+      }),
+      JSON.stringify({
+        type: "response.output_text.delta",
+        delta: "Recovered",
+      }),
+      JSON.stringify({
+        type: "response.completed",
+        response: {
+          id: "resp_anchor_retry_1",
+          output: [
+            {
+              type: "message",
+              content: [
+                {
+                  type: "output_text",
+                  text: "Recovered",
+                },
+              ],
+            },
+          ],
+        },
+      }),
+    ].join("")
+
+    let fetchCallCount = 0
+    const requestBodies: string[] = []
+    const mockedFetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      fetchCallCount += 1
+      requestBodies.push(typeof init?.body === "string" ? init.body : "")
+      if (fetchCallCount === 1) {
+        return new Response(
+          JSON.stringify({
+            error: {
+              code: "session_anchor_conflict",
+              message: "previous_response_id does not match session anchor",
+              type: "invalid_request_error",
+            },
+          }),
+          {
+            status: 400,
+            headers: {
+              "Content-Type": "application/json",
+            },
+          }
+        )
+      }
+      return createStreamingResponse([streamChunk])
+    }) as unknown as typeof fetch
+    ;(mockedFetch as unknown as { preconnect: (url: string) => void }).preconnect = () => {}
+    ;(service as unknown as { runtimeFetch: typeof fetch }).runtimeFetch = mockedFetch
+
+    const events: Array<{ type: string; code?: string; result?: { assistantMessage?: { content: string } } }> = []
+    await service.streamTurn(
+      {
+        model: "grok-4.1-fast",
+        text: "retry please",
+        anchors: {
+          conversationId: "conv_anchor_retry_1",
+          sessionId: "sess_anchor_retry_1",
+          lastResponseId: "resp_prev_anchor_42",
+        },
+      },
+      (event) => {
+        events.push(event)
+      }
+    )
+
+    expect(fetchCallCount).toBe(2)
+    expect(events.some((event) => event.type === "failed")).toBe(false)
+    expect(events.some((event) => event.type === "completed")).toBe(true)
+    const completed = events.find((event) => event.type === "completed")
+    expect(completed?.result?.assistantMessage?.content).toContain("Recovered")
+
+    expect(requestBodies).toHaveLength(2)
+    const firstBody = JSON.parse(requestBodies[0] || "{}") as Record<string, unknown>
+    const secondBody = JSON.parse(requestBodies[1] || "{}") as Record<string, unknown>
+    expect(firstBody["previous_response_id"]).toBe("resp_prev_anchor_42")
+    expect(secondBody["previous_response_id"]).toBeUndefined()
+  })
+
   it("does not send previous_response_id when session anchor is missing", async () => {
     const repository = new MemoryAppRepository()
     const service = new GrokChatService(repository, {

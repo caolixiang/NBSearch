@@ -38,6 +38,7 @@ import {
 } from "./chunk-parsers"
 
 const GENERATED_IMAGE_MODERATED_NOTICE = "内容已管理。请尝试一个不同的想法。"
+const ANCHOR_RECOVERY_ERROR_CODES = new Set(["session_anchor_conflict", "invalid_previous_response_id"])
 
 function normalizeApiBaseUrl(input: string): string {
   const trimmed = input.trim().replace(/\/+$/, "")
@@ -108,6 +109,23 @@ function fallbackConversationTitleFromPrompt(prompt: string): string {
     return firstLine
   }
   return `${firstLine.slice(0, maxLength).trim()}...`
+}
+
+function extractGatewayErrorCode(errorText: string): string {
+  const raw = errorText.trim()
+  if (!raw) {
+    return ""
+  }
+  try {
+    const parsed = JSON.parse(raw)
+    if (!isRecord(parsed) || !isRecord(parsed.error)) {
+      return ""
+    }
+    const code = typeof parsed.error.code === "string" ? parsed.error.code.trim() : ""
+    return code || ""
+  } catch {
+    return ""
+  }
 }
 
 function resolveReasoningDurationFromResearch(research: ChatDeepSearchResearch | undefined): number {
@@ -1939,8 +1957,6 @@ export class GrokChatService implements ChatService {
           }
         }
       }
-      const requestBody = JSON.stringify(requestBodyPayload)
-
       let upstreamConversationTitle = ""
       let assistantText = ""
       let gatewayFinalMessage = ""
@@ -2062,7 +2078,9 @@ export class GrokChatService implements ChatService {
       }
 
       let idleRetryAttempts = 0
+      let anchorRecoveryAttempts = 0
       while (true) {
+        const requestBody = JSON.stringify(requestBodyPayload)
         const response = await this.runtimeFetch(this.apiUrl, {
           method: "POST",
           headers: {
@@ -2075,6 +2093,21 @@ export class GrokChatService implements ChatService {
 
         if (!response.ok) {
           const errorText = await response.text().catch(() => "")
+          const errorCode = extractGatewayErrorCode(errorText)
+          const currentPreviousResponseId =
+            typeof requestBodyPayload["previous_response_id"] === "string"
+              ? requestBodyPayload["previous_response_id"].trim()
+              : ""
+          const shouldRetryFromAnchorConflict =
+            !isRegenerate &&
+            currentPreviousResponseId.length > 0 &&
+            anchorRecoveryAttempts < 1 &&
+            ANCHOR_RECOVERY_ERROR_CODES.has(errorCode)
+          if (shouldRetryFromAnchorConflict) {
+            delete requestBodyPayload["previous_response_id"]
+            anchorRecoveryAttempts += 1
+            continue
+          }
           emitFailed(`http_${response.status}`, errorText || `HTTP ${response.status}`)
           return
         }
