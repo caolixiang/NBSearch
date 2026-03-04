@@ -8,6 +8,7 @@ import { openExternalUrl } from "@/lib/open-external-url"
 import { cn } from "@/lib/utils"
 import type { StructuredReasoningEntry, StructuredReasoningToolChainItem } from "./types"
 import {
+  buildDeepSearchLegacyTimeline,
   buildDeepSearchTimeline,
   buildStructuredReasoningSummary,
   collectRolloutAgents,
@@ -380,8 +381,11 @@ export function StructuredReasoningPanel({
   const deepSearchSteps = deepSearchResearch?.steps || []
   const deepSearchDetails = deepSearchResearch?.details || []
   const deepSearchTimeline = useMemo(
-    () => buildDeepSearchTimeline(deepSearchSteps, summary.entries),
-    [deepSearchSteps, summary.entries]
+    () =>
+      deepSearchSteps.length > 0
+        ? buildDeepSearchTimeline(deepSearchSteps, summary.entries)
+        : buildDeepSearchLegacyTimeline(deepSearchDetails, summary.entries),
+    [deepSearchDetails, deepSearchSteps, summary.entries]
   )
   const agents = useMemo(() => collectRolloutAgents(summary.rolloutIds), [summary.rolloutIds])
   const [activeTick, setActiveTick] = useState(0)

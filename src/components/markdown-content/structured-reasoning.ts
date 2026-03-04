@@ -1,4 +1,8 @@
-import type { ChatDeepSearchResearchStep, ChatReasoningEventDetail } from "@/domain/chat/types"
+import type {
+  ChatDeepSearchDetail,
+  ChatDeepSearchResearchStep,
+  ChatReasoningEventDetail,
+} from "@/domain/chat/types"
 import type {
   AgentDescriptor,
   StructuredReasoningEntry,
@@ -712,6 +716,72 @@ export function buildDeepSearchTimeline(
   }
 
   flushThought()
+  return timeline
+}
+
+export function buildDeepSearchLegacyTimeline(
+  details: ChatDeepSearchDetail[] | undefined,
+  entries: StructuredReasoningEntry[]
+): DeepSearchTimelineItem[] {
+  const normalizedDetails = Array.isArray(details) ? details : []
+  if (normalizedDetails.length === 0 && entries.length === 0) {
+    return []
+  }
+
+  const timeline: DeepSearchTimelineItem[] = []
+  const thoughtItems: Array<{ title: string; bullets: string[] }> = []
+
+  for (const detail of normalizedDetails) {
+    const title = (detail.title || "").trim()
+    const bullets = sanitizeDeepSearchRows(Array.isArray(detail.bullets) ? detail.bullets : [])
+    if (!title && bullets.length === 0) {
+      continue
+    }
+    thoughtItems.push({
+      title: title || "思考过程",
+      bullets,
+    })
+  }
+
+  let toolIndex = 0
+  let thoughtIndex = 0
+  let entryIndex = 0
+
+  for (const thought of thoughtItems) {
+    timeline.push({
+      kind: "thought",
+      key: `deepsearch_legacy_thought_${thoughtIndex++}`,
+      title: thought.title,
+      bullets: thought.bullets,
+    })
+
+    // Legacy payload lacks step-level linkage. Interleave one tool after each thought
+    // to preserve chronological readability instead of falling back to agent grouping.
+    if (entryIndex < entries.length) {
+      timeline.push({
+        kind: "tool",
+        key: `deepsearch_legacy_tool_${toolIndex++}`,
+        entry: {
+          ...entries[entryIndex]!,
+          status: entries[entryIndex]!.status || "completed",
+        },
+      })
+      entryIndex += 1
+    }
+  }
+
+  while (entryIndex < entries.length) {
+    timeline.push({
+      kind: "tool",
+      key: `deepsearch_legacy_tool_${toolIndex++}`,
+      entry: {
+        ...entries[entryIndex]!,
+        status: entries[entryIndex]!.status || "completed",
+      },
+    })
+    entryIndex += 1
+  }
+
   return timeline
 }
 

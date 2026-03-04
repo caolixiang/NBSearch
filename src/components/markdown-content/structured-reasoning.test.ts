@@ -1,6 +1,11 @@
 import { describe, expect, it } from "bun:test"
-import type { ChatDeepSearchResearchStep, ChatReasoningEventDetail } from "@/domain/chat/types"
-import { buildDeepSearchGroupedSections, buildDeepSearchTimeline, buildStructuredReasoningSummary } from "./structured-reasoning"
+import type { ChatDeepSearchDetail, ChatDeepSearchResearchStep, ChatReasoningEventDetail } from "@/domain/chat/types"
+import {
+  buildDeepSearchGroupedSections,
+  buildDeepSearchLegacyTimeline,
+  buildDeepSearchTimeline,
+  buildStructuredReasoningSummary,
+} from "./structured-reasoning"
 
 describe("buildStructuredReasoningSummary toolChain", () => {
   it("aggregates tool usage and completion counts by toolName", () => {
@@ -219,6 +224,57 @@ describe("buildDeepSearchTimeline", () => {
         "China's oil mainly comes from domestic fields and imports from the Middle East.",
         "Prioritizing key info on domestic production.",
       ])
+      expect(timeline[0].bullets.join(" ")).not.toContain("<xai:")
+    }
+    if (timeline[1]?.kind === "tool") {
+      expect(timeline[1].entry.text).toBe("China's oil sources imports domestic production 2025 2026")
+      expect(timeline[1].entry.resultsCount).toBe(20)
+    }
+  })
+})
+
+describe("buildDeepSearchLegacyTimeline", () => {
+  it("builds timeline from legacy details when steps are missing", () => {
+    const details: ChatDeepSearchDetail[] = [
+      {
+        title: "Exploring China's oil sources",
+        bullets: [
+          "- China's oil mainly comes from domestic fields and imports from the Middle East.",
+          "<xai:tool_usage_card>",
+          "  <xai:tool_usage_card_id>legacy_1</xai:tool_usage_card_id>",
+          "</xai:tool_usage_card>",
+        ],
+      },
+      {
+        title: "Detailing domestic oil production",
+        bullets: ["- Domestic output hit 215 million tonnes in 2025."],
+      },
+    ]
+    const events: ChatReasoningEventDetail[] = [
+      {
+        kind: "tool_usage",
+        usage: {
+          toolUsageCardId: "legacy_1",
+          toolName: "web_search",
+          args: { query: "China's oil sources imports domestic production 2025 2026", num_results: 20 },
+        },
+      },
+      {
+        kind: "tool_result",
+        result: {
+          toolUsageCardId: "legacy_1",
+          webSearchResultsCount: 20,
+        },
+      },
+    ]
+    const summary = buildStructuredReasoningSummary(events)
+    const timeline = buildDeepSearchLegacyTimeline(details, summary.entries)
+
+    expect(timeline.length).toBeGreaterThanOrEqual(3)
+    expect(timeline[0]?.kind).toBe("thought")
+    expect(timeline[1]?.kind).toBe("tool")
+    if (timeline[0]?.kind === "thought") {
+      expect(timeline[0].title).toBe("Exploring China's oil sources")
       expect(timeline[0].bullets.join(" ")).not.toContain("<xai:")
     }
     if (timeline[1]?.kind === "tool") {
