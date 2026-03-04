@@ -5,6 +5,40 @@ import { ChevronDown, Check, Zap, Brain, Sparkles, Cpu, RotateCw, Bot } from "lu
 import { cn } from "@/lib/utils"
 import type { ModelOption } from "@/domain/models/types"
 
+function isHiddenMiniModel(model: ModelOption): boolean {
+  const id = model.id.trim().toLowerCase()
+  const name = model.name.trim().toLowerCase()
+  if (id === "grok-4.1-mini" || id.includes("grok-4.1-mini")) {
+    return true
+  }
+  return name === "grok 4.1 mini" || name.includes("grok 4.1 mini")
+}
+
+function resolveModelDisplayName(model: ModelOption): string {
+  const id = model.id.trim().toLowerCase()
+  const name = model.name.trim().toLowerCase()
+
+  if (id.includes("grok-4.1-fast") || name.includes("grok 4.1 fast")) {
+    return "NBSearch Fast"
+  }
+  if (id.includes("grok-4.1-expert") || name.includes("grok 4.1 expert")) {
+    return "NBSearch Thinker"
+  }
+  if (
+    id.includes("grok-4.20") ||
+    id.includes("grok-4-20") ||
+    name.includes("grok 4.20 beta")
+  ) {
+    return "NBSearch Max"
+  }
+  return model.name
+}
+
+function resolveModelDisplayShortName(model: ModelOption): string {
+  const displayName = resolveModelDisplayName(model)
+  return displayName || model.shortName || model.name
+}
+
 function renderModelIcon(model: ModelOption): React.ReactNode {
   switch (model.visualKind) {
     case "speed":
@@ -42,7 +76,11 @@ export function ModelSelector({
   const [isOpen, setIsOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
-  const selected = models.find((m) => m.id === selectedModel) || models[0]
+  const visibleModels = models.filter((model) => !isHiddenMiniModel(model))
+  const selectableModels = visibleModels.length > 0 ? visibleModels : models
+  const selectedFromAll = models.find((model) => model.id === selectedModel)
+  const selectedFromVisible = selectableModels.find((model) => model.id === selectedModel)
+  const selected = selectedFromVisible || selectedFromAll || selectableModels[0]
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -53,6 +91,17 @@ export function ModelSelector({
     document.addEventListener("mousedown", handleClickOutside)
     return () => document.removeEventListener("mousedown", handleClickOutside)
   }, [])
+
+  useEffect(() => {
+    if (!selectedFromAll || !isHiddenMiniModel(selectedFromAll)) {
+      return
+    }
+    const fallback = selectableModels[0]
+    if (!fallback || fallback.id === selectedFromAll.id) {
+      return
+    }
+    onModelChange(fallback.id)
+  }, [onModelChange, selectableModels, selectedFromAll])
 
   return (
     <div className="flex items-center gap-2">
@@ -66,7 +115,7 @@ export function ModelSelector({
             isOpen && "bg-secondary"
           )}
         >
-          <span>{selected?.shortName || "选择模型"}</span>
+          <span>{selected ? resolveModelDisplayShortName(selected) : "选择模型"}</span>
           <ChevronDown
             className={cn(
               "size-4 text-muted-foreground transition-transform",
@@ -79,7 +128,7 @@ export function ModelSelector({
         {isOpen && (
           <div className="absolute left-0 top-full z-50 mt-1 w-72 overflow-hidden rounded-xl border border-border bg-card shadow-lg">
             <div className="p-1.5">
-              {models.map((model) => (
+              {selectableModels.map((model) => (
                 <button
                   key={model.id}
                   onClick={() => {
@@ -105,7 +154,7 @@ export function ModelSelector({
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="text-sm font-medium text-foreground">
-                      {model.name}
+                      {resolveModelDisplayName(model)}
                     </div>
                     <p className="text-xs text-muted-foreground">
                       {model.description}
