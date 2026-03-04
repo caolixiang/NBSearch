@@ -732,7 +732,7 @@ export function buildDeepSearchLegacyTimeline(
   const thoughtItems: Array<{ title: string; bullets: string[] }> = []
 
   for (const detail of normalizedDetails) {
-    const title = (detail.title || "").trim()
+    const title = sanitizeDeepSearchRows([(detail.title || "").trim()])[0] || ""
     const bullets = sanitizeDeepSearchRows(Array.isArray(detail.bullets) ? detail.bullets : [])
     if (!title && bullets.length === 0) {
       continue

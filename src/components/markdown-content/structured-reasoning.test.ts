@@ -282,4 +282,27 @@ describe("buildDeepSearchLegacyTimeline", () => {
       expect(timeline[1].entry.resultsCount).toBe(20)
     }
   })
+
+  it("drops legacy thought cards whose title is pure xai xml", () => {
+    const details: ChatDeepSearchDetail[] = [
+      {
+        title:
+          "<xai:tool_usage_card>\n  <xai:tool_usage_card_id>legacy_xml_1</xai:tool_usage_card_id>\n</xai:tool_usage_card>",
+        bullets: [],
+      },
+      {
+        title: "编译2025数据",
+        bullets: ["- 核对主要进口来源与占比。"],
+      },
+    ]
+
+    const timeline = buildDeepSearchLegacyTimeline(details, [])
+    const thoughtItems = timeline.filter((item) => item.kind === "thought")
+
+    expect(thoughtItems).toHaveLength(1)
+    if (thoughtItems[0]?.kind === "thought") {
+      expect(thoughtItems[0].title).toBe("编译2025数据")
+      expect(thoughtItems[0].title).not.toContain("<xai:")
+    }
+  })
 })
