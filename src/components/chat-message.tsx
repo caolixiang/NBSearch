@@ -647,6 +647,7 @@ export function ChatMessage({
 
   const exportStatusPinned = pdfExportState !== "idle"
   const actionBarPinned = exportStatusPinned || actionsAlwaysVisible
+  const rightAlignActionBar = hidePdfExport
   const exportStatusLabel =
     pdfExportState === "loading"
       ? "导出中"
@@ -698,7 +699,8 @@ export function ChatMessage({
       {!isStreamingAssistant && (onRegenerate || canExportPdf || showSourceSummary) ? (
         <div
           className={cn(
-            "mt-2 flex w-full items-center justify-end gap-1 transition-opacity duration-100",
+            "mt-2 flex w-full items-center gap-1 transition-opacity duration-100",
+            rightAlignActionBar ? "justify-end" : "justify-start",
             actionBarPinned
               ? "opacity-100"
               : "opacity-0 group-hover/message:opacity-100 group-focus-within/message:opacity-100"
