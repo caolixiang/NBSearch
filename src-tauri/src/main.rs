@@ -189,24 +189,9 @@ fn resolve_nbsearch_db_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(resolve_nbsearch_data_dir(app)?.join("chat-app.db"))
 }
 
-fn resolve_legacy_app_config_toml_path(app: &tauri::AppHandle) -> Option<PathBuf> {
-    app.path()
-        .app_config_dir()
-        .ok()
-        .map(|dir| dir.join("config.toml"))
-}
-
 fn resolve_app_config_toml_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let root = resolve_nbsearch_root(app)?;
-    let target = root.join("config.toml");
-
-    if !target.exists() {
-        if let Some(legacy) = resolve_legacy_app_config_toml_path(app) {
-            copy_file_if_exists(&legacy, &target)?;
-        }
-    }
-
-    Ok(target)
+    Ok(root.join("config.toml"))
 }
 
 fn read_gateway_config_toml(path: &Path) -> Result<GatewayConfigToml, String> {
@@ -241,46 +226,6 @@ fn normalize_font_size_mode(value: &str) -> String {
         "large" => "large".to_string(),
         _ => "default".to_string(),
     }
-}
-
-fn sqlite_sidecar_path(base: &Path, suffix: &str) -> PathBuf {
-    PathBuf::from(format!("{}{}", base.to_string_lossy(), suffix))
-}
-
-fn copy_file_if_exists(from: &Path, to: &Path) -> Result<(), String> {
-    if !from.exists() {
-        return Ok(());
-    }
-    if let Some(parent) = to.parent() {
-        fs::create_dir_all(parent).map_err(|e| format!("prepare target dir failed: {e}"))?;
-    }
-    fs::copy(from, to)
-        .map_err(|e| format!("copy {} -> {} failed: {e}", from.display(), to.display()))?;
-    Ok(())
-}
-
-fn migrate_legacy_db_if_needed(app: &tauri::AppHandle, target_db: &Path) -> Result<(), String> {
-    if target_db.exists() {
-        return Ok(());
-    }
-
-    let legacy_dir = match app.path().app_config_dir() {
-        Ok(dir) => dir,
-        Err(_) => return Ok(()),
-    };
-    let legacy_db = legacy_dir.join("chat-app.db");
-    if !legacy_db.exists() {
-        return Ok(());
-    }
-
-    copy_file_if_exists(&legacy_db, target_db)?;
-    let legacy_wal = sqlite_sidecar_path(&legacy_db, "-wal");
-    let legacy_shm = sqlite_sidecar_path(&legacy_db, "-shm");
-    let target_wal = sqlite_sidecar_path(target_db, "-wal");
-    let target_shm = sqlite_sidecar_path(target_db, "-shm");
-    copy_file_if_exists(&legacy_wal, &target_wal)?;
-    copy_file_if_exists(&legacy_shm, &target_shm)?;
-    Ok(())
 }
 
 fn canonicalize_image_cache_key(url: &str) -> String {
@@ -797,7 +742,6 @@ fn resolve_storage_paths(app: tauri::AppHandle) -> Result<StoragePaths, String> 
     let root = resolve_nbsearch_root(&app)?;
     let data = resolve_nbsearch_data_dir(&app)?;
     let db = resolve_nbsearch_db_path(&app)?;
-    migrate_legacy_db_if_needed(&app, &db)?;
     let image_cache = resolve_image_cache_dir(&app)?;
 
     Ok(StoragePaths {
