@@ -3,6 +3,7 @@ import type {
   ChatCitationCard,
   ChatDeepSearchDetail,
   ChatDeepSearchResearch,
+  ChatDeepSearchResearchStepToolUsage,
   ChatDeepSearchResearchStep,
   ChatAnchors,
   ChatInlineCitation,
@@ -515,6 +516,17 @@ function parseInlineCitations(value: unknown): ChatInlineCitation[] {
 
 const TOOL_USAGE_CARD_ID_XML_PATTERN =
   /<xai:tool_usage_card_id>\s*([^<\s][^<]*?)\s*<\/xai:tool_usage_card_id>/gi
+const TOOL_USAGE_CARD_BLOCK_XML_PATTERN =
+  /<xai:tool_usage_card>[\s\S]*?<\/xai:tool_usage_card>/gi
+const TOOL_USAGE_CARD_NAME_XML_PATTERN = /<xai:tool_name>\s*([^<\s][^<]*?)\s*<\/xai:tool_name>/i
+const TOOL_USAGE_CARD_ARGS_XML_PATTERN =
+  /<xai:tool_args>\s*<!\[CDATA\[([\s\S]*?)\]\]>\s*<\/xai:tool_args>/i
+
+type StepToolUsageCard = {
+  toolUsageCardId: string
+  toolName: string
+  args: Record<string, unknown>
+}
 
 function extractToolUsageCardIdsFromUnknown(value: unknown): string[] {
   const results: string[] = []
@@ -561,6 +573,133 @@ function extractToolUsageCardIdsFromUnknown(value: unknown): string[] {
   return results
 }
 
+function parseToolUsageCardsFromStep(value: unknown): StepToolUsageCard[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  const byId = new Map<string, StepToolUsageCard>()
+  for (const row of value) {
+    if (!isRecord(row)) {
+      continue
+    }
+    const toolUsageCardId =
+      readOptionalString(row.toolUsageCardId) || readOptionalString(row.tool_usage_card_id) || ""
+    if (!toolUsageCardId) {
+      continue
+    }
+
+    let toolName = readOptionalString(row.toolName) || readOptionalString(row.tool_name) || ""
+    let args: Record<string, unknown> = {}
+    for (const [key, nested] of Object.entries(row)) {
+      if (key === "toolUsageCardId" || key === "tool_usage_card_id") {
+        continue
+      }
+      if (!isRecord(nested)) {
+        continue
+      }
+      const nestedArgs = isRecord(nested.args) ? nested.args : {}
+      if (!toolName) {
+        toolName = key
+      }
+      if (Object.keys(args).length === 0 && Object.keys(nestedArgs).length > 0) {
+        args = nestedArgs
+      }
+    }
+
+    const existing = byId.get(toolUsageCardId)
+    if (existing) {
+      const mergedToolName = existing.toolName || toolName || "tool"
+      const mergedArgs =
+        Object.keys(existing.args).length > 0
+          ? existing.args
+          : Object.keys(args).length > 0
+            ? args
+            : {}
+      byId.set(toolUsageCardId, {
+        toolUsageCardId,
+        toolName: mergedToolName,
+        args: mergedArgs,
+      })
+      continue
+    }
+
+    byId.set(toolUsageCardId, {
+      toolUsageCardId,
+      toolName: toolName || "tool",
+      args,
+    })
+  }
+
+  return Array.from(byId.values())
+}
+
+function parseToolUsageCardsFromXmlText(textRows: string[]): StepToolUsageCard[] {
+  const byId = new Map<string, StepToolUsageCard>()
+
+  for (const row of textRows) {
+    TOOL_USAGE_CARD_BLOCK_XML_PATTERN.lastIndex = 0
+    let blockMatched: RegExpExecArray | null = TOOL_USAGE_CARD_BLOCK_XML_PATTERN.exec(row)
+    while (blockMatched) {
+      const block = blockMatched[0] || ""
+      TOOL_USAGE_CARD_ID_XML_PATTERN.lastIndex = 0
+      const idMatched = TOOL_USAGE_CARD_ID_XML_PATTERN.exec(block)
+      const toolUsageCardId = (idMatched?.[1] || "").trim()
+      if (!toolUsageCardId) {
+        blockMatched = TOOL_USAGE_CARD_BLOCK_XML_PATTERN.exec(row)
+        continue
+      }
+
+      const nameMatched = TOOL_USAGE_CARD_NAME_XML_PATTERN.exec(block)
+      const argsMatched = TOOL_USAGE_CARD_ARGS_XML_PATTERN.exec(block)
+      const args = parseFunctionArguments((argsMatched?.[1] || "").trim()) || {}
+      const toolName = (nameMatched?.[1] || "").trim() || "tool"
+      const existing = byId.get(toolUsageCardId)
+      if (existing) {
+        byId.set(toolUsageCardId, {
+          toolUsageCardId,
+          toolName: existing.toolName || toolName,
+          args: Object.keys(existing.args).length > 0 ? existing.args : args,
+        })
+      } else {
+        byId.set(toolUsageCardId, {
+          toolUsageCardId,
+          toolName,
+          args,
+        })
+      }
+      blockMatched = TOOL_USAGE_CARD_BLOCK_XML_PATTERN.exec(row)
+    }
+  }
+
+  return Array.from(byId.values())
+}
+
+function parseToolUsageResultsFromStep(value: unknown): Map<string, WebSearchResultItem[]> {
+  const result = new Map<string, WebSearchResultItem[]>()
+  if (!Array.isArray(value)) {
+    return result
+  }
+
+  for (const row of value) {
+    if (!isRecord(row)) {
+      continue
+    }
+    const toolUsageCardId =
+      readOptionalString(row.toolUsageCardId) || readOptionalString(row.tool_usage_card_id) || ""
+    if (!toolUsageCardId) {
+      continue
+    }
+    const webSearchResults = readWebSearchResults(row.webSearchResults)
+    if (!Array.isArray(webSearchResults) || webSearchResults.length === 0) {
+      continue
+    }
+    result.set(toolUsageCardId, webSearchResults)
+  }
+
+  return result
+}
+
 function parseResearchSteps(value: unknown): ChatDeepSearchResearchStep[] {
   if (!Array.isArray(value)) {
     return []
@@ -592,21 +731,64 @@ function parseResearchSteps(value: unknown): ChatDeepSearchResearchStep[] {
     )
       .map((row) => row.trim())
       .filter(Boolean)
+    const stepToolUsageCards = [
+      ...parseToolUsageCardsFromStep(item.toolUsageCards),
+      ...parseToolUsageCardsFromStep(item.tool_usage_cards),
+      ...parseToolUsageCardsFromXmlText(text),
+    ]
+    const stepToolUsageResults = new Map<string, WebSearchResultItem[]>([
+      ...parseToolUsageResultsFromStep(item.toolUsageResults).entries(),
+      ...parseToolUsageResultsFromStep(item.tool_usage_results).entries(),
+    ])
     const toolUsageCardIds = Array.from(
       new Set([
         ...extractToolUsageCardIdsFromUnknown(item.toolUsageCards),
         ...extractToolUsageCardIdsFromUnknown(item.tool_usage_cards),
         ...extractToolUsageCardIdsFromUnknown(item.toolUsageResults),
         ...extractToolUsageCardIdsFromUnknown(item.tool_usage_results),
+        ...stepToolUsageCards.map((row) => row.toolUsageCardId),
+        ...Array.from(stepToolUsageResults.keys()),
         ...extractToolUsageCardIdsFromUnknown(text),
       ])
     )
+    const toolUsageById = new Map<string, ChatDeepSearchResearchStepToolUsage>()
+    for (const card of stepToolUsageCards) {
+      toolUsageById.set(card.toolUsageCardId, {
+        toolUsageCardId: card.toolUsageCardId,
+        toolName: card.toolName || "tool",
+        args: card.args,
+        webSearchResults: stepToolUsageResults.get(card.toolUsageCardId),
+      })
+    }
+    for (const [toolUsageCardId, webSearchResults] of stepToolUsageResults.entries()) {
+      if (!toolUsageById.has(toolUsageCardId)) {
+        toolUsageById.set(toolUsageCardId, {
+          toolUsageCardId,
+          toolName: "web_search",
+          args: {},
+          webSearchResults,
+        })
+      }
+    }
+    for (const toolUsageCardId of toolUsageCardIds) {
+      if (!toolUsageById.has(toolUsageCardId)) {
+        toolUsageById.set(toolUsageCardId, {
+          toolUsageCardId,
+          toolName: "tool",
+          args: {},
+        })
+      }
+    }
+    const toolUsagesOrdered = toolUsageCardIds
+      .map((toolUsageCardId) => toolUsageById.get(toolUsageCardId))
+      .filter((row): row is ChatDeepSearchResearchStepToolUsage => Boolean(row))
 
     const normalized: ChatDeepSearchResearchStep = {
       tags,
       title: title || undefined,
       text,
       toolUsageCardIds: toolUsageCardIds.length > 0 ? toolUsageCardIds : undefined,
+      toolUsages: toolUsagesOrdered.length > 0 ? toolUsagesOrdered : undefined,
     }
 
     const key = [
@@ -614,6 +796,14 @@ function parseResearchSteps(value: unknown): ChatDeepSearchResearchStep[] {
       normalized.title || "",
       normalized.text.join("\u0001"),
       (normalized.toolUsageCardIds || []).join("\u0001"),
+      (normalized.toolUsages || [])
+        .map(
+          (usage) =>
+            `${usage.toolUsageCardId}\u0000${usage.toolName}\u0000${JSON.stringify(usage.args || {})}\u0000${(usage.webSearchResults || [])
+              .map((row) => `${row.url || ""}\u0001${row.title || ""}`)
+              .join("\u0002")}`
+        )
+        .join("\u0003"),
     ].join("\u0002")
     if (seen.has(key)) {
       continue
@@ -824,8 +1014,35 @@ function mergeResearchFragments(
     const tags = step.tags.map((row) => row.trim()).filter(Boolean)
     const text = step.text.map((row) => row.trim()).filter(Boolean)
     const toolUsageCardIds = (step.toolUsageCardIds || []).map((row) => row.trim()).filter(Boolean)
+    const toolUsages: ChatDeepSearchResearchStepToolUsage[] = []
+    for (const usage of step.toolUsages || []) {
+      const toolUsageCardId = (usage.toolUsageCardId || "").trim()
+      if (!toolUsageCardId) {
+        continue
+      }
+      toolUsages.push({
+        toolUsageCardId,
+        toolName: (usage.toolName || "").trim() || "tool",
+        args: isRecord(usage.args) ? usage.args : {},
+        webSearchResults: Array.isArray(usage.webSearchResults)
+          ? usage.webSearchResults.map((row) => ({
+              title: (row.title || "").trim() || undefined,
+              url: (row.url || "").trim() || undefined,
+              preview: (row.preview || "").trim() || undefined,
+              favicon: (row.favicon || "").trim() || undefined,
+            }))
+          : undefined,
+      })
+    }
     const title = (step.title || "").trim()
-    const key = `${tags.join("\u0001")}\u0000${title}\u0000${text.join("\u0001")}\u0000${toolUsageCardIds.join("\u0001")}`
+    const key = `${tags.join("\u0001")}\u0000${title}\u0000${text.join("\u0001")}\u0000${toolUsageCardIds.join("\u0001")}\u0000${toolUsages
+      .map(
+        (usage) =>
+          `${usage.toolUsageCardId}\u0001${usage.toolName}\u0001${JSON.stringify(usage.args)}\u0001${(usage.webSearchResults || [])
+            .map((row) => `${row.url || ""}\u0002${row.title || ""}`)
+            .join("\u0003")}`
+      )
+      .join("\u0004")}`
     if (stepByKey.has(key)) {
       continue
     }
@@ -834,6 +1051,7 @@ function mergeResearchFragments(
       title: title || undefined,
       text,
       toolUsageCardIds: toolUsageCardIds.length > 0 ? toolUsageCardIds : undefined,
+      toolUsages: toolUsages.length > 0 ? toolUsages : undefined,
     })
   }
   if (stepByKey.size > 0) {

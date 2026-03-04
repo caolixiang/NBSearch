@@ -128,4 +128,47 @@ describe("buildDeepSearchGroupedSections", () => {
       expect(grouped[0].items[1].entries[0]?.toolUsageCardId).toBe("tool_card_1")
     }
   })
+
+  it("creates tool entries from step toolUsages when reasoning events are missing", () => {
+    const steps: ChatDeepSearchResearchStep[] = [
+      {
+        tags: ["header"],
+        text: ["挖掘国籍细节"],
+      },
+      {
+        tags: ["tool_usage_card"],
+        text: [
+          "<xai:tool_usage_card>...</xai:tool_usage_card>",
+        ],
+        toolUsageCardIds: ["tool_card_only_steps"],
+        toolUsages: [
+          {
+            toolUsageCardId: "tool_card_only_steps",
+            toolName: "web_search",
+            args: {
+              query: "Gu Ailing nationality controversy",
+            },
+            webSearchResults: [
+              {
+                url: "https://example.com/a",
+                title: "Example A",
+              },
+            ],
+          },
+        ],
+      },
+    ]
+
+    const grouped = buildDeepSearchGroupedSections(steps, [])
+    expect(grouped).toHaveLength(1)
+    expect(grouped[0]?.title).toBe("挖掘国籍细节")
+    expect(grouped[0]?.items).toHaveLength(1)
+    expect(grouped[0]?.items[0]?.kind).toBe("tool")
+    if (grouped[0]?.items[0]?.kind === "tool") {
+      expect(grouped[0].items[0].entries).toHaveLength(1)
+      expect(grouped[0].items[0].entries[0]?.text).toBe("Gu Ailing nationality controversy")
+      expect(grouped[0].items[0].entries[0]?.resultsCount).toBe(1)
+      expect(grouped[0].items[0].entries[0]?.webSearchResults?.[0]?.url).toBe("https://example.com/a")
+    }
+  })
 })

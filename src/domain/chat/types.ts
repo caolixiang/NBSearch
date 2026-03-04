@@ -63,6 +63,14 @@ export interface ChatDeepSearchResearchStep {
   title?: string
   text: string[]
   toolUsageCardIds?: string[]
+  toolUsages?: ChatDeepSearchResearchStepToolUsage[]
+}
+
+export interface ChatDeepSearchResearchStepToolUsage {
+  toolUsageCardId: string
+  toolName: string
+  args: Record<string, unknown>
+  webSearchResults?: WebSearchResultItem[]
 }
 
 export interface ChatDeepSearchResearch {

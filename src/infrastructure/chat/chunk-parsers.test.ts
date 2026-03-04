@@ -1003,6 +1003,75 @@ describe("extractDeepSearchResearchFromRawChunk", () => {
       },
     ])
   })
+
+  it("extracts step tool usage metadata from toolUsageCards and toolUsageResults", () => {
+    const research = extractDeepSearchResearchFromRawChunk({
+      x_grok: {
+        research: {
+          steps: [
+            {
+              tags: ["tool_usage_card"],
+              text: [
+                "<xai:tool_usage_card>\n  <xai:tool_usage_card_id>card_1</xai:tool_usage_card_id>\n  <xai:tool_name>web_search</xai:tool_name>\n  <xai:tool_args><![CDATA[{\"query\":\"Gu Ailing nationality controversy\",\"num_results\":20}]]></xai:tool_args>\n</xai:tool_usage_card>",
+              ],
+              toolUsageCards: [
+                {
+                  toolUsageCardId: "card_1",
+                  webSearch: {
+                    args: {
+                      query: "Gu Ailing nationality controversy",
+                    },
+                  },
+                },
+              ],
+              toolUsageResults: [
+                {
+                  toolUsageCardId: "card_1",
+                  webSearchResults: {
+                    results: [
+                      {
+                        url: "https://example.com/a",
+                        title: "Example A",
+                      },
+                    ],
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      },
+    })
+
+    expect(research.steps).toEqual([
+      {
+        tags: ["tool_usage_card"],
+        title: undefined,
+        text: [
+          "<xai:tool_usage_card>\n  <xai:tool_usage_card_id>card_1</xai:tool_usage_card_id>\n  <xai:tool_name>web_search</xai:tool_name>\n  <xai:tool_args><![CDATA[{\"query\":\"Gu Ailing nationality controversy\",\"num_results\":20}]]></xai:tool_args>\n</xai:tool_usage_card>",
+        ],
+        toolUsageCardIds: ["card_1"],
+        toolUsages: [
+          {
+            toolUsageCardId: "card_1",
+            toolName: "web_search",
+            args: {
+              query: "Gu Ailing nationality controversy",
+              num_results: 20,
+            },
+            webSearchResults: [
+              {
+                url: "https://example.com/a",
+                title: "Example A",
+                preview: undefined,
+                favicon: undefined,
+              },
+            ],
+          },
+        ],
+      },
+    ])
+  })
 })
 
 describe("resolveConversationTitle", () => {

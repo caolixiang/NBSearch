@@ -357,6 +357,7 @@ export function buildDeepSearchGroupedSections(
   let current: { title: string; items: DeepSearchGroupedItem[] } | null = null
   let sectionIndex = 0
   let itemIndex = 0
+  const XML_TOOL_USAGE_ROW_PATTERN = /<xai:tool_usage_card\b/i
 
   const ensureCurrent = (fallbackTitle = "深度挖掘细节") => {
     if (!current) {
@@ -368,7 +369,12 @@ export function buildDeepSearchGroupedSections(
   }
 
   const pushSummaryRows = (rows: string[]) => {
-    const normalizedRows = rows.map((row) => row.trim()).filter(Boolean)
+    const normalizedRows = rows
+      .flatMap((row) => row.split(/\r?\n/))
+      .map((row) => row.trim())
+      .filter((row) => Boolean(row) && !XML_TOOL_USAGE_ROW_PATTERN.test(row))
+      .map((row) => row.replace(/^[-*]\s+/, "").trim())
+      .filter(Boolean)
     if (normalizedRows.length === 0) {
       return
     }
@@ -391,6 +397,32 @@ export function buildDeepSearchGroupedSections(
       items: current.items,
     })
     current = null
+  }
+
+  const createSyntheticEntry = (
+    usage: NonNullable<ChatDeepSearchResearchStep["toolUsages"]>[number],
+    fallbackKeyPrefix: string
+  ): StructuredReasoningEntry => {
+    const candidates = readToolUsageQueries(usage.args || {})
+    const text = (candidates[0] || "").trim() || humanizeToolName(usage.toolName || "tool")
+    const normalizedToolName = (usage.toolName || "").trim() || "tool"
+    const toolUsageCardId = usage.toolUsageCardId.trim()
+    return {
+      key: `${fallbackKeyPrefix}:${toolUsageCardId}`,
+      toolUsageCardId,
+      rolloutId: "Grok",
+      text,
+      visited: isLikelyUrl(text),
+      toolName: normalizedToolName,
+      resultsCount: Array.isArray(usage.webSearchResults) && usage.webSearchResults.length > 0
+        ? usage.webSearchResults.length
+        : undefined,
+      webSearchResults:
+        Array.isArray(usage.webSearchResults) && usage.webSearchResults.length > 0
+          ? usage.webSearchResults
+          : undefined,
+      status: "completed",
+    }
   }
 
   for (const step of steps) {
@@ -416,11 +448,22 @@ export function buildDeepSearchGroupedSections(
       continue
     }
 
-    if (hasToolUsageCardTag || toolUsageCardIds.length > 0) {
+    if (hasToolUsageCardTag || toolUsageCardIds.length > 0 || (step.toolUsages || []).length > 0) {
       ensureCurrent(titleCandidate || "深度挖掘细节")
       const mappedEntries: StructuredReasoningEntry[] = []
       const mappedSeen = new Set<string>()
+      const seenToolUsageCardIds = new Set<string>()
+      const stepToolUsageById = new Map<string, NonNullable<ChatDeepSearchResearchStep["toolUsages"]>[number]>()
+      for (const usage of step.toolUsages || []) {
+        const normalizedId = (usage.toolUsageCardId || "").trim()
+        if (!normalizedId || stepToolUsageById.has(normalizedId)) {
+          continue
+        }
+        stepToolUsageById.set(normalizedId, usage)
+      }
+
       for (const toolUsageCardId of toolUsageCardIds) {
+        seenToolUsageCardIds.add(toolUsageCardId)
         const scopedEntries = entriesByToolUsageCardId.get(toolUsageCardId) || []
         for (const entry of scopedEntries) {
           if (mappedSeen.has(entry.key)) {
@@ -428,6 +471,27 @@ export function buildDeepSearchGroupedSections(
           }
           mappedSeen.add(entry.key)
           mappedEntries.push(entry)
+        }
+        if (scopedEntries.length === 0) {
+          const usage = stepToolUsageById.get(toolUsageCardId)
+          if (usage) {
+            const fallbackEntry = createSyntheticEntry(usage, `step_${sectionIndex}_${itemIndex}`)
+            if (!mappedSeen.has(fallbackEntry.key)) {
+              mappedSeen.add(fallbackEntry.key)
+              mappedEntries.push(fallbackEntry)
+            }
+          }
+        }
+      }
+
+      for (const [toolUsageCardId, usage] of stepToolUsageById.entries()) {
+        if (seenToolUsageCardIds.has(toolUsageCardId)) {
+          continue
+        }
+        const fallbackEntry = createSyntheticEntry(usage, `step_${sectionIndex}_${itemIndex}`)
+        if (!mappedSeen.has(fallbackEntry.key)) {
+          mappedSeen.add(fallbackEntry.key)
+          mappedEntries.push(fallbackEntry)
         }
       }
 

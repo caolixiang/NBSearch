@@ -182,8 +182,35 @@ function mergeResearchPayload(
     const tags = step.tags.map((row) => row.trim()).filter(Boolean)
     const text = step.text.map((row) => row.trim()).filter(Boolean)
     const toolUsageCardIds = (step.toolUsageCardIds || []).map((row) => row.trim()).filter(Boolean)
+    const toolUsages: NonNullable<NonNullable<ChatDeepSearchResearch["steps"]>[number]["toolUsages"]> = []
+    for (const usage of step.toolUsages || []) {
+      const toolUsageCardId = (usage.toolUsageCardId || "").trim()
+      if (!toolUsageCardId) {
+        continue
+      }
+      toolUsages.push({
+        toolUsageCardId,
+        toolName: (usage.toolName || "").trim() || "tool",
+        args: isRecord(usage.args) ? usage.args : {},
+        webSearchResults: Array.isArray(usage.webSearchResults)
+          ? usage.webSearchResults.map((row) => ({
+              title: (row.title || "").trim() || undefined,
+              url: (row.url || "").trim() || undefined,
+              preview: (row.preview || "").trim() || undefined,
+              favicon: (row.favicon || "").trim() || undefined,
+            }))
+          : undefined,
+      })
+    }
     const title = (step.title || "").trim()
-    const key = `${tags.join("\u0001")}\u0000${title}\u0000${text.join("\u0001")}\u0000${toolUsageCardIds.join("\u0001")}`
+    const key = `${tags.join("\u0001")}\u0000${title}\u0000${text.join("\u0001")}\u0000${toolUsageCardIds.join("\u0001")}\u0000${toolUsages
+      .map(
+        (usage) =>
+          `${usage.toolUsageCardId}\u0001${usage.toolName}\u0001${JSON.stringify(usage.args)}\u0001${(usage.webSearchResults || [])
+            .map((row) => `${row.url || ""}\u0002${row.title || ""}`)
+            .join("\u0003")}`
+      )
+      .join("\u0004")}`
     if (stepMap.has(key)) {
       continue
     }
@@ -192,6 +219,7 @@ function mergeResearchPayload(
       title: title || undefined,
       text,
       toolUsageCardIds: toolUsageCardIds.length > 0 ? toolUsageCardIds : undefined,
+      toolUsages: toolUsages.length > 0 ? toolUsages : undefined,
     })
   }
   if (stepMap.size > 0) {
