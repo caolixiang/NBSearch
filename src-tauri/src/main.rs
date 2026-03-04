@@ -74,6 +74,28 @@ struct StoragePaths {
     image_cache_path: String,
 }
 
+#[derive(Serialize, Deserialize, Default)]
+struct GatewayConfigToml {
+    #[serde(default)]
+    gateway: GatewayConfigTomlSection,
+}
+
+#[derive(Serialize, Deserialize, Default)]
+struct GatewayConfigTomlSection {
+    #[serde(default)]
+    api_base_url: String,
+    #[serde(default)]
+    api_key: String,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GatewayConfigPayload {
+    api_base_url: String,
+    api_key: String,
+    config_path: String,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ImageCacheStats {
@@ -145,6 +167,32 @@ fn resolve_nbsearch_data_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> 
 
 fn resolve_nbsearch_db_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(resolve_nbsearch_data_dir(app)?.join("chat-app.db"))
+}
+
+fn resolve_app_config_toml_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let config_dir = app
+        .path()
+        .app_config_dir()
+        .map_err(|e| format!("resolve app config dir failed: {e}"))?;
+    fs::create_dir_all(&config_dir).map_err(|e| format!("create app config dir failed: {e}"))?;
+    Ok(config_dir.join("config.toml"))
+}
+
+fn read_gateway_config_toml(path: &Path) -> Result<GatewayConfigToml, String> {
+    if !path.exists() {
+        return Ok(GatewayConfigToml::default());
+    }
+    let raw = fs::read_to_string(path).map_err(|e| format!("read config.toml failed: {e}"))?;
+    if raw.trim().is_empty() {
+        return Ok(GatewayConfigToml::default());
+    }
+    toml::from_str::<GatewayConfigToml>(&raw).map_err(|e| format!("parse config.toml failed: {e}"))
+}
+
+fn write_gateway_config_toml(path: &Path, config: &GatewayConfigToml) -> Result<(), String> {
+    let encoded = toml::to_string_pretty(config).map_err(|e| format!("encode config.toml failed: {e}"))?;
+    fs::write(path, encoded).map_err(|e| format!("write config.toml failed: {e}"))?;
+    Ok(())
 }
 
 fn sqlite_sidecar_path(base: &Path, suffix: &str) -> PathBuf {
@@ -706,6 +754,36 @@ fn resolve_storage_paths(app: tauri::AppHandle) -> Result<StoragePaths, String> 
 }
 
 #[tauri::command(rename_all = "camelCase")]
+fn read_gateway_config(app: tauri::AppHandle) -> Result<GatewayConfigPayload, String> {
+    let config_path = resolve_app_config_toml_path(&app)?;
+    let parsed = read_gateway_config_toml(&config_path)?;
+    Ok(GatewayConfigPayload {
+        api_base_url: parsed.gateway.api_base_url.trim().to_string(),
+        api_key: parsed.gateway.api_key.trim().to_string(),
+        config_path: config_path.to_string_lossy().to_string(),
+    })
+}
+
+#[tauri::command(rename_all = "camelCase")]
+fn save_gateway_config(
+    app: tauri::AppHandle,
+    api_base_url: String,
+    api_key: String,
+) -> Result<GatewayConfigPayload, String> {
+    let config_path = resolve_app_config_toml_path(&app)?;
+    let mut parsed = read_gateway_config_toml(&config_path).unwrap_or_default();
+    parsed.gateway.api_base_url = api_base_url.trim().to_string();
+    parsed.gateway.api_key = api_key.trim().to_string();
+    write_gateway_config_toml(&config_path, &parsed)?;
+
+    Ok(GatewayConfigPayload {
+        api_base_url: parsed.gateway.api_base_url,
+        api_key: parsed.gateway.api_key,
+        config_path: config_path.to_string_lossy().to_string(),
+    })
+}
+
+#[tauri::command(rename_all = "camelCase")]
 async fn download_image_to_downloads(
     app: tauri::AppHandle,
     url: String,
@@ -813,6 +891,8 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             runtime_info,
             resolve_storage_paths,
+            read_gateway_config,
+            save_gateway_config,
             fetch_image_with_tls_profile,
             fetch_image_with_cache,
             get_image_cache_stats,

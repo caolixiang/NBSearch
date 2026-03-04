@@ -8,6 +8,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
+import type { AppRuntime } from "@/app/contracts"
+import { loadAppConfig, saveGatewayConfigToToml } from "@/app/config"
 import { hasTauriRuntime } from "@/app/runtime-info"
 import { cn } from "@/lib/utils"
 import { Globe, Key, Palette, Bell, Shield, Database } from "lucide-react"
@@ -15,6 +17,8 @@ import { Globe, Key, Palette, Bell, Shield, Database } from "lucide-react"
 interface SettingsDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  runtime: AppRuntime
+  onGatewayConfigChange: (next: { apiBaseUrl: string; apiKey: string }) => void
 }
 
 const tabs = [
@@ -47,10 +51,17 @@ function formatBytes(bytes: number): string {
   return `${value >= 100 || index === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[index]}`
 }
 
-export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
+export function SettingsDialog({
+  open,
+  onOpenChange,
+  runtime,
+  onGatewayConfigChange,
+}: SettingsDialogProps) {
   const [activeTab, setActiveTab] = useState<TabId>("gateway")
   const [baseUrl, setBaseUrl] = useState("")
   const [apiKey, setApiKey] = useState("")
+  const [gatewayBusy, setGatewayBusy] = useState(false)
+  const [gatewayMessage, setGatewayMessage] = useState("")
   const [imageCacheStats, setImageCacheStats] = useState<ImageCacheStats | null>(null)
   const [cacheBusy, setCacheBusy] = useState(false)
   const [cacheMessage, setCacheMessage] = useState("")
@@ -76,6 +87,15 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
     void loadImageCacheStats()
   }, [activeTab, loadImageCacheStats, open])
 
+  useEffect(() => {
+    if (!open) {
+      return
+    }
+    setBaseUrl(runtime.config.apiBaseUrl || "")
+    setApiKey(runtime.config.apiKey || "")
+    setGatewayMessage("")
+  }, [open, runtime.config.apiBaseUrl, runtime.config.apiKey])
+
   const clearImageCache = async () => {
     if (!hasTauriRuntime() || cacheBusy) {
       return
@@ -93,6 +113,41 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
       setCacheMessage("清除图片缓存失败")
     } finally {
       setCacheBusy(false)
+    }
+  }
+
+  const saveGatewayConfig = async () => {
+    if (gatewayBusy) {
+      return
+    }
+    setGatewayBusy(true)
+    setGatewayMessage("")
+
+    try {
+      const nextBaseUrl = baseUrl.trim()
+      const nextApiKey = apiKey.trim()
+      if (hasTauriRuntime()) {
+        const saved = await saveGatewayConfigToToml({
+          apiBaseUrl: nextBaseUrl,
+          apiKey: nextApiKey,
+        })
+        if (!saved) {
+          throw new Error("persist_gateway_config_failed")
+        }
+      }
+      const resolved = await loadAppConfig()
+      onGatewayConfigChange({
+        apiBaseUrl: resolved.apiBaseUrl,
+        apiKey: resolved.apiKey,
+      })
+      setBaseUrl(resolved.apiBaseUrl)
+      setApiKey(resolved.apiKey)
+      setGatewayMessage("网关配置已保存")
+      onOpenChange(false)
+    } catch {
+      setGatewayMessage("保存失败，请重试")
+    } finally {
+      setGatewayBusy(false)
     }
   }
 
@@ -161,7 +216,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                       type="password"
                       value={apiKey}
                       onChange={(e) => setApiKey(e.target.value)}
-                      placeholder="sk-..."
+                      placeholder="gw-..."
                       className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm font-mono text-foreground placeholder:text-muted-foreground outline-none focus:border-ring focus:ring-1 focus:ring-ring transition-colors"
                     />
                     <p className="text-xs text-muted-foreground">
@@ -169,6 +224,9 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                     </p>
                   </div>
 
+                  {gatewayMessage ? (
+                    <p className="text-xs text-muted-foreground">{gatewayMessage}</p>
+                  ) : null}
 
                 </div>
 
@@ -176,9 +234,12 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                   <Button
                     size="sm"
                     className="bg-foreground text-background hover:opacity-80"
-                    onClick={() => onOpenChange(false)}
+                    onClick={() => {
+                      void saveGatewayConfig()
+                    }}
+                    disabled={gatewayBusy}
                   >
-                    保存
+                    {gatewayBusy ? "保存中..." : "保存"}
                   </Button>
                 </div>
               </div>

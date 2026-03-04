@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { AppRuntime } from "@/app/contracts"
+import { applyGatewayConfigToRuntime } from "@/app/runtime"
 import type {
   ChatMessage as DomainChatMessage,
   ChatReasoningEventDetail,
@@ -678,6 +679,14 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
   useEffect(() => {
     void refreshModelOptions(true)
   }, [refreshModelOptions])
+
+  const handleGatewayConfigChange = useCallback(
+    (next: { apiBaseUrl: string; apiKey: string }) => {
+      applyGatewayConfigToRuntime(next)
+      void refreshModelOptions(true)
+    },
+    [refreshModelOptions]
+  )
 
   useEffect(() => {
     if (!selectedModel.trim()) {
@@ -1852,7 +1861,12 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
         </div>
       </div>
 
-      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
+      <SettingsDialog
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+        runtime={runtime}
+        onGatewayConfigChange={handleGatewayConfigChange}
+      />
       <VoiceMode isOpen={voiceOpen} onClose={() => setVoiceOpen(false)} />
     </main>
   )

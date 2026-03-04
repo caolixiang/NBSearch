@@ -5,10 +5,18 @@ import { getAppRepository } from "../infrastructure/storage/factory"
 import { GatewayVoiceService } from "../infrastructure/voice/gateway-voice-service"
 
 let runtimeSingleton: AppRuntime | null = null
+let runtimeLoadingPromise: Promise<AppRuntime> | null = null
 
-export function getAppRuntime(): AppRuntime {
-  if (!runtimeSingleton) {
-    const config = loadAppConfig()
+export async function getAppRuntime(): Promise<AppRuntime> {
+  if (runtimeSingleton) {
+    return runtimeSingleton
+  }
+  if (runtimeLoadingPromise) {
+    return runtimeLoadingPromise
+  }
+
+  runtimeLoadingPromise = (async () => {
+    const config = await loadAppConfig()
     const repository = getAppRepository()
     runtimeSingleton = {
       config,
@@ -18,6 +26,19 @@ export function getAppRuntime(): AppRuntime {
         voice: new GatewayVoiceService(config),
       },
     }
+    return runtimeSingleton
+  })()
+
+  return runtimeLoadingPromise
+}
+
+export function applyGatewayConfigToRuntime(next: { apiBaseUrl: string; apiKey: string }): void {
+  if (!runtimeSingleton) {
+    return
   }
-  return runtimeSingleton
+  runtimeSingleton.config.apiBaseUrl = next.apiBaseUrl
+  runtimeSingleton.config.apiKey = next.apiKey
+  const repository = runtimeSingleton.services.repository
+  runtimeSingleton.services.chat = new GrokChatService(repository, runtimeSingleton.config)
+  runtimeSingleton.services.voice = new GatewayVoiceService(runtimeSingleton.config)
 }
