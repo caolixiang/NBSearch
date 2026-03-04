@@ -46,9 +46,13 @@ function normalizeFontSizeMode(value: string | undefined): AppFontSizeMode {
 }
 
 function readEnvAppConfig(): AppConfig {
+  const useEnvGatewayDefaults = import.meta.env.DEV
+  const envApiBaseUrl = import.meta.env.VITE_APP_API_BASE_URL?.trim() || ""
+  const envApiKey = import.meta.env.VITE_APP_API_KEY?.trim() || ""
   return {
-    apiBaseUrl: import.meta.env.VITE_APP_API_BASE_URL?.trim() || "http://localhost:8787",
-    apiKey: import.meta.env.VITE_APP_API_KEY?.trim() || "",
+    // Never embed gateway defaults in production bundles to avoid leaking local keys/endpoints.
+    apiBaseUrl: useEnvGatewayDefaults ? envApiBaseUrl || "http://localhost:8787" : "",
+    apiKey: useEnvGatewayDefaults ? envApiKey : "",
     defaultModel: import.meta.env.VITE_APP_DEFAULT_MODEL?.trim() || "grok-4.1-fast",
     voiceEnabled: parseBool(import.meta.env.VITE_APP_VOICE_ENABLED, true),
     themeMode: normalizeThemeMode(import.meta.env.VITE_APP_THEME_MODE),

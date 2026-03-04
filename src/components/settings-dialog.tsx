@@ -16,7 +16,7 @@ import {
 } from "@/app/config"
 import { hasTauriRuntime } from "@/app/runtime-info"
 import { cn } from "@/lib/utils"
-import { Globe, Key, Palette, Bell, Shield, Database } from "lucide-react"
+import { Bell, Database, Eye, EyeOff, Globe, Key, Palette, Shield } from "lucide-react"
 
 interface SettingsDialogProps {
   open: boolean
@@ -71,6 +71,7 @@ export function SettingsDialog({
   const [apiKey, setApiKey] = useState("")
   const [themeMode, setThemeMode] = useState<AppThemeMode>("light")
   const [fontSizeMode, setFontSizeMode] = useState<AppFontSizeMode>("default")
+  const [showApiKey, setShowApiKey] = useState(false)
   const [gatewayBusy, setGatewayBusy] = useState(false)
   const [gatewayMessage, setGatewayMessage] = useState("")
   const [appearanceMessage, setAppearanceMessage] = useState("")
@@ -108,6 +109,7 @@ export function SettingsDialog({
     setApiKey(runtime.config.apiKey || "")
     setThemeMode(runtime.config.themeMode)
     setFontSizeMode(runtime.config.fontSizeMode)
+    setShowApiKey(false)
     setGatewayMessage("")
     setAppearanceMessage("")
   }, [
@@ -296,13 +298,23 @@ export function SettingsDialog({
                       <Key className="size-3.5 text-muted-foreground" />
                       API Key
                     </label>
-                    <input
-                      type="password"
-                      value={apiKey}
-                      onChange={(event) => setApiKey(event.target.value)}
-                      placeholder="gw-..."
-                      className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm font-mono text-foreground placeholder:text-muted-foreground outline-none focus:border-ring focus:ring-1 focus:ring-ring transition-colors"
-                    />
+                    <div className="relative">
+                      <input
+                        type={showApiKey ? "text" : "password"}
+                        value={apiKey}
+                        onChange={(event) => setApiKey(event.target.value)}
+                        placeholder="gw-..."
+                        className="w-full rounded-lg border border-input bg-background px-3 py-2 pr-10 text-sm font-mono text-foreground placeholder:text-muted-foreground outline-none focus:border-ring focus:ring-1 focus:ring-ring transition-colors"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowApiKey((prev) => !prev)}
+                        aria-label={showApiKey ? "隐藏 API Key" : "显示 API Key"}
+                        className="absolute inset-y-0 right-2 inline-flex items-center text-muted-foreground transition-colors hover:text-foreground"
+                      >
+                        {showApiKey ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                      </button>
+                    </div>
                     <p className="text-xs text-muted-foreground">
                       你的 API 密钥将安全存储在本地
                     </p>
