@@ -167,6 +167,11 @@ type CitationRenderItem = {
   label: string
 }
 
+type ParsedTailCitation = {
+  url: string
+  label: string
+}
+
 function normalizeCitationUrl(input: string): string {
   const trimmed = input.trim()
   if (!trimmed) {
@@ -198,6 +203,123 @@ function fallbackCitationLabel(url: string): string {
   }
 }
 
+function cleanCitationLabel(input: string): string {
+  return input
+    .replace(/^[\s\-–—:：;；,.，。]+/, "")
+    .replace(/[\s\-–—:：;；,.，。]+$/, "")
+    .replace(/\s+/g, " ")
+    .trim()
+}
+
+function isKeyCitationsHeading(line: string): boolean {
+  const normalized = line
+    .trim()
+    .replace(/^#{1,6}\s*/, "")
+    .replace(/^[*_`~\s]+|[*_`~\s]+$/g, "")
+    .replace(/[：:]\s*$/, "")
+    .trim()
+    .toLowerCase()
+  return normalized === "key citations" || normalized === "key citation"
+}
+
+function parseTailCitationLine(line: string): ParsedTailCitation | null {
+  const body = line
+    .trim()
+    .replace(/^[-*+]\s+/, "")
+    .trim()
+  if (!body) {
+    return null
+  }
+
+  const markdownLinkMatch = body.match(/\[([^\]]+)]\((https?:\/\/[^)\s]+)\)/i)
+  if (markdownLinkMatch) {
+    const url = markdownLinkMatch[2] || ""
+    const labelFromLink = cleanCitationLabel(markdownLinkMatch[1] || "")
+    const labelFromLine = cleanCitationLabel(body.replace(markdownLinkMatch[0], ""))
+    return {
+      url,
+      label: labelFromLink || labelFromLine,
+    }
+  }
+
+  const parenthesizedUrlMatch = body.match(/[（(]\s*(https?:\/\/[^)\s]+)\s*[）)]/i)
+  if (parenthesizedUrlMatch) {
+    const url = parenthesizedUrlMatch[1] || ""
+    return {
+      url,
+      label: cleanCitationLabel(body.replace(parenthesizedUrlMatch[0], "")),
+    }
+  }
+
+  const bareUrlMatch = body.match(/https?:\/\/\S+/i)
+  if (bareUrlMatch) {
+    const rawUrl = bareUrlMatch[0] || ""
+    const sanitizedUrl = rawUrl.replace(/[)>）.,，。;；!！?？]+$/g, "")
+    return {
+      url: sanitizedUrl,
+      label: cleanCitationLabel(body.replace(rawUrl, "")),
+    }
+  }
+
+  return null
+}
+
+export function extractTrailingKeyCitationEntries(content: string): ParsedTailCitation[] {
+  if (!content) {
+    return []
+  }
+
+  const lines = content.split(/\r?\n/)
+  let headingIndex = -1
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    if (isKeyCitationsHeading(lines[index] || "")) {
+      headingIndex = index
+      break
+    }
+  }
+  if (headingIndex < 0) {
+    return []
+  }
+
+  const tailLines = lines.slice(headingIndex + 1)
+  if (tailLines.length === 0 || !tailLines.some((line) => /https?:\/\//i.test(line))) {
+    return []
+  }
+
+  const entries: ParsedTailCitation[] = []
+  let pendingLabel = ""
+
+  for (const line of tailLines) {
+    const trimmed = line.trim()
+    if (!trimmed) {
+      continue
+    }
+
+    const parsed = parseTailCitationLine(trimmed)
+    if (parsed) {
+      const normalizedUrl = normalizeCitationUrl(parsed.url)
+      if (!normalizedUrl) {
+        pendingLabel = ""
+        continue
+      }
+      const candidateLabel = cleanCitationLabel(parsed.label || pendingLabel)
+      entries.push({
+        url: normalizedUrl,
+        label: candidateLabel || fallbackCitationLabel(normalizedUrl),
+      })
+      pendingLabel = ""
+      continue
+    }
+
+    const plainText = cleanCitationLabel(trimmed.replace(/^[-*+]\s+/, ""))
+    if (plainText) {
+      pendingLabel = pendingLabel ? `${pendingLabel} ${plainText}` : plainText
+    }
+  }
+
+  return entries
+}
+
 function collectCitationTitleByUrl(events: ChatReasoningEventDetail[] | undefined): Map<string, string> {
   const map = new Map<string, string>()
   if (!events || events.length === 0) {
@@ -224,14 +346,12 @@ function collectCitationTitleByUrl(events: ChatReasoningEventDetail[] | undefine
   return map
 }
 
-function buildCitationItems(
+export function buildCitationItems(
   research: ChatDeepSearchResearch | undefined,
-  events: ChatReasoningEventDetail[] | undefined
+  events: ChatReasoningEventDetail[] | undefined,
+  rawContent: string | undefined
 ): CitationRenderItem[] {
   const inlineRows = Array.isArray(research?.inlineCitations) ? research.inlineCitations : []
-  if (inlineRows.length === 0) {
-    return []
-  }
 
   const citationCardUrlById = new Map<string, string>()
   for (const row of research?.citationCards || []) {
@@ -250,7 +370,8 @@ function buildCitationItems(
 
   const titleByUrl = collectCitationTitleByUrl(events)
   const rows: CitationRenderItem[] = []
-  const seen = new Set<string>()
+  const seenInlineKeys = new Set<string>()
+  const seenUrls = new Set<string>()
 
   const append = (entry: ChatInlineCitation) => {
     const directUrl = normalizeCitationUrl(entry.url || "")
@@ -259,10 +380,11 @@ function buildCitationItems(
       return
     }
     const key = `${entry.cardId}\u0000${entry.citationId || ""}`
-    if (seen.has(key)) {
+    if (seenInlineKeys.has(key)) {
       return
     }
-    seen.add(key)
+    seenInlineKeys.add(key)
+    seenUrls.add(mappedUrl)
     const label = titleByUrl.get(mappedUrl) || fallbackCitationLabel(mappedUrl)
     rows.push({
       key,
@@ -273,6 +395,23 @@ function buildCitationItems(
 
   for (const row of inlineRows) {
     append(row)
+  }
+
+  const tailEntries = extractTrailingKeyCitationEntries(rawContent || "")
+  for (let index = 0; index < tailEntries.length; index += 1) {
+    const entry = tailEntries[index]
+    if (!entry) {
+      continue
+    }
+    if (seenUrls.has(entry.url)) {
+      continue
+    }
+    seenUrls.add(entry.url)
+    rows.push({
+      key: `tail\u0000${index}\u0000${entry.url}`,
+      url: entry.url,
+      label: entry.label || titleByUrl.get(entry.url) || fallbackCitationLabel(entry.url),
+    })
   }
 
   return rows
@@ -345,7 +484,7 @@ export function ChatMessage({
   const sourceCount = !isUser && !isStreamingAssistant ? resolveSourceCount(message.reasoningEvents) : 0
   const citationItems =
     !isUser && !isStreamingAssistant
-      ? buildCitationItems(message.research, message.reasoningEvents)
+      ? buildCitationItems(message.research, message.reasoningEvents, message.content)
       : []
   const showSourceSummary = sourceCount > 0
   const reasoningPanelId = `reasoning-panel-${message.id}`
