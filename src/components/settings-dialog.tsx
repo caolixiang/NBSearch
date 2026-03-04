@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import {
   Dialog,
   DialogContent,
@@ -73,11 +73,11 @@ export function SettingsDialog({
   const [fontSizeMode, setFontSizeMode] = useState<AppFontSizeMode>("default")
   const [gatewayBusy, setGatewayBusy] = useState(false)
   const [gatewayMessage, setGatewayMessage] = useState("")
-  const [appearanceBusy, setAppearanceBusy] = useState(false)
   const [appearanceMessage, setAppearanceMessage] = useState("")
   const [imageCacheStats, setImageCacheStats] = useState<ImageCacheStats | null>(null)
   const [cacheBusy, setCacheBusy] = useState(false)
   const [cacheMessage, setCacheMessage] = useState("")
+  const appearanceSaveSequenceRef = useRef(0)
 
   const loadImageCacheStats = useCallback(async () => {
     if (!hasTauriRuntime()) {
@@ -164,7 +164,6 @@ export function SettingsDialog({
       })
       setBaseUrl(resolved.apiBaseUrl)
       setApiKey(resolved.apiKey)
-      setGatewayMessage("网关配置已保存")
     } catch {
       setGatewayMessage("保存失败，请重试")
     } finally {
@@ -172,36 +171,71 @@ export function SettingsDialog({
     }
   }
 
-  const saveAppearanceConfig = async () => {
-    if (appearanceBusy) {
-      return
-    }
-    setAppearanceBusy(true)
-    setAppearanceMessage("")
-    try {
-      if (hasTauriRuntime()) {
-        const saved = await saveAppearanceConfigToToml({
-          themeMode,
-          fontSizeMode,
-        })
-        if (!saved) {
-          throw new Error("persist_appearance_config_failed")
+  const applyAndPersistAppearance = useCallback(
+    async (next: { themeMode: AppThemeMode; fontSizeMode: AppFontSizeMode }) => {
+      setThemeMode(next.themeMode)
+      setFontSizeMode(next.fontSizeMode)
+      onAppearanceConfigChange(next)
+      setAppearanceMessage("")
+      const sequence = appearanceSaveSequenceRef.current + 1
+      appearanceSaveSequenceRef.current = sequence
+
+      try {
+        if (hasTauriRuntime()) {
+          const saved = await saveAppearanceConfigToToml({
+            themeMode: next.themeMode,
+            fontSizeMode: next.fontSizeMode,
+          })
+          if (!saved) {
+            throw new Error("persist_appearance_config_failed")
+          }
         }
+        const resolved = await loadAppConfig()
+        if (appearanceSaveSequenceRef.current !== sequence) {
+          return
+        }
+        const resolvedAppearance = {
+          themeMode: resolved.themeMode,
+          fontSizeMode: resolved.fontSizeMode,
+        }
+        setThemeMode(resolvedAppearance.themeMode)
+        setFontSizeMode(resolvedAppearance.fontSizeMode)
+        onAppearanceConfigChange(resolvedAppearance)
+      } catch {
+        if (appearanceSaveSequenceRef.current !== sequence) {
+          return
+        }
+        setAppearanceMessage("自动保存失败，请重试")
       }
-      const resolved = await loadAppConfig()
-      onAppearanceConfigChange({
-        themeMode: resolved.themeMode,
-        fontSizeMode: resolved.fontSizeMode,
+    },
+    [onAppearanceConfigChange]
+  )
+
+  const handleThemeModeChange = useCallback(
+    (nextThemeMode: AppThemeMode) => {
+      if (themeMode === nextThemeMode) {
+        return
+      }
+      void applyAndPersistAppearance({
+        themeMode: nextThemeMode,
+        fontSizeMode,
       })
-      setThemeMode(resolved.themeMode)
-      setFontSizeMode(resolved.fontSizeMode)
-      setAppearanceMessage("外观配置已保存")
-    } catch {
-      setAppearanceMessage("保存失败，请重试")
-    } finally {
-      setAppearanceBusy(false)
-    }
-  }
+    },
+    [applyAndPersistAppearance, fontSizeMode, themeMode]
+  )
+
+  const handleFontSizeModeChange = useCallback(
+    (nextFontSizeMode: AppFontSizeMode) => {
+      if (fontSizeMode === nextFontSizeMode) {
+        return
+      }
+      void applyAndPersistAppearance({
+        themeMode,
+        fontSizeMode: nextFontSizeMode,
+      })
+    },
+    [applyAndPersistAppearance, fontSizeMode, themeMode]
+  )
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -312,7 +346,9 @@ export function SettingsDialog({
                       ].map((theme) => (
                         <button
                           key={theme.value}
-                          onClick={() => setThemeMode(theme.value)}
+                          onClick={() => {
+                            handleThemeModeChange(theme.value)
+                          }}
                           className={cn(
                             "rounded-lg border px-4 py-2 text-sm transition-colors",
                             themeMode === theme.value
@@ -328,35 +364,67 @@ export function SettingsDialog({
 
                   <div className="space-y-1.5">
                     <label className="text-sm font-medium text-foreground">字体大小</label>
-                    <select
-                      value={fontSizeMode}
-                      onChange={(event) =>
-                        setFontSizeMode(event.target.value as AppFontSizeMode)
-                      }
-                      className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground outline-none"
-                    >
-                      <option value="small">小</option>
-                      <option value="default">默认</option>
-                      <option value="large">大</option>
-                    </select>
+                    <div className="grid grid-cols-3 gap-2">
+                      {[
+                        {
+                          label: "小",
+                          value: "small" as const,
+                          hint: "紧凑",
+                          previewClassName: "text-xs",
+                        },
+                        {
+                          label: "默认",
+                          value: "default" as const,
+                          hint: "平衡",
+                          previewClassName: "text-sm",
+                        },
+                        {
+                          label: "大",
+                          value: "large" as const,
+                          hint: "易读",
+                          previewClassName: "text-base",
+                        },
+                      ].map((size) => (
+                        <button
+                          key={size.value}
+                          onClick={() => {
+                            handleFontSizeModeChange(size.value)
+                          }}
+                          className={cn(
+                            "rounded-xl border px-3 py-2.5 text-left transition-colors",
+                            fontSizeMode === size.value
+                              ? "border-foreground/15 bg-foreground text-background"
+                              : "border-input bg-background text-foreground hover:bg-secondary"
+                          )}
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm font-medium">{size.label}</span>
+                            <span
+                              className={cn(
+                                "font-semibold leading-none",
+                                fontSizeMode === size.value ? "text-background/90" : "text-foreground/90",
+                                size.previewClassName
+                              )}
+                            >
+                              Aa
+                            </span>
+                          </div>
+                          <p
+                            className={cn(
+                              "mt-1 text-xs",
+                              fontSizeMode === size.value ? "text-background/70" : "text-muted-foreground"
+                            )}
+                          >
+                            {size.hint}
+                          </p>
+                        </button>
+                      ))}
+                    </div>
                   </div>
 
                   {appearanceMessage ? (
-                    <p className="text-xs text-muted-foreground">{appearanceMessage}</p>
+                    <p className="text-xs text-destructive">{appearanceMessage}</p>
                   ) : null}
-                </div>
-
-                <div className="flex justify-end pt-2">
-                  <Button
-                    size="sm"
-                    className="bg-foreground text-background hover:opacity-80"
-                    onClick={() => {
-                      void saveAppearanceConfig()
-                    }}
-                    disabled={appearanceBusy}
-                  >
-                    {appearanceBusy ? "保存中..." : "保存"}
-                  </Button>
                 </div>
               </div>
             )}
