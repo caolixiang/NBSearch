@@ -43,4 +43,12 @@ export const SQLITE_MIGRATIONS: SqlMigration[] = [
        ON voice_sessions(conversation_id, started_at)`,
     ],
   },
+  {
+    version: 2,
+    name: "add_conversation_has_deep_search_flag",
+    statements: [
+      `ALTER TABLE conversations
+       ADD COLUMN has_deep_search INTEGER NOT NULL DEFAULT 0`,
+    ],
+  },
 ]

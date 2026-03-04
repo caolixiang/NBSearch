@@ -77,13 +77,14 @@ function createConversationRecord(
   conversationId: string,
   title: string,
   anchors: Partial<ChatAnchors>,
-  now: number
+  now: number,
+  hasDeepSearch = false
 ): ConversationRecord {
   return {
     id: conversationId,
     title,
     anchors,
-    hasDeepSearch: false,
+    hasDeepSearch,
     createdAt: now,
     updatedAt: now,
   }
@@ -2177,13 +2178,16 @@ export class GrokChatService implements ChatService {
         lastResponseId: gatewayResponseId || input.anchors.lastResponseId || "",
       }
       const existingConversations = await this.repository.listConversations()
-      const currentTitle = existingConversations.find((item) => item.id === conversationId)?.title || ""
+      const currentConversation = existingConversations.find((item) => item.id === conversationId)
+      const currentTitle = currentConversation?.title || ""
+      const nextHasDeepSearch = Boolean(currentConversation?.hasDeepSearch || isDeepSearch)
       await this.repository.upsertConversation(
         createConversationRecord(
           conversationId,
           resolveConversationTitle(upstreamConversationTitle, currentTitle),
           anchors,
-          Date.now()
+          Date.now(),
+          nextHasDeepSearch
         )
       )
 

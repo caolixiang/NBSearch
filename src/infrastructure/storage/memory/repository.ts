@@ -10,35 +10,8 @@ export class MemoryAppRepository implements AppRepository {
   private messages = new Map<string, ChatMessage[]>()
   private voiceSessions = new Map<string, VoiceSessionRecord>()
 
-  private conversationHasDeepSearch(conversationId: string): boolean {
-    const messages = this.messages.get(conversationId) || []
-    return messages.some((message) => {
-      if (message.role !== "assistant") {
-        return false
-      }
-      const research = message.research
-      if (!research) {
-        return false
-      }
-      return Boolean(
-        (research.deepsearchPreset || "").trim() ||
-          (research.thinkingStartTime || "").trim() ||
-          (research.thinkingEndTime || "").trim() ||
-          (Array.isArray(research.steps) && research.steps.length > 0) ||
-          (Array.isArray(research.details) && research.details.length > 0) ||
-          (Array.isArray(research.citationCards) && research.citationCards.length > 0) ||
-          (Array.isArray(research.inlineCitations) && research.inlineCitations.length > 0)
-      )
-    })
-  }
-
   async listConversations(): Promise<ConversationRecord[]> {
-    return Array.from(this.conversations.values())
-      .map((conversation) => ({
-        ...conversation,
-        hasDeepSearch: this.conversationHasDeepSearch(conversation.id),
-      }))
-      .sort((a, b) => b.updatedAt - a.updatedAt)
+    return Array.from(this.conversations.values()).sort((a, b) => b.updatedAt - a.updatedAt)
   }
 
   async upsertConversation(record: ConversationRecord): Promise<void> {

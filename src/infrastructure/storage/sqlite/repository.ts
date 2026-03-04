@@ -118,22 +118,9 @@ export class SqliteAppRepository implements AppRepository {
         updated_at: number
       }>
     >(
-      `SELECT c.id,
-              c.title,
-              c.session_id,
-              c.conversation_id,
-              c.last_response_id,
-              EXISTS(
-                SELECT 1
-                FROM messages m
-                WHERE m.conversation_id = c.id
-                  AND m.role = 'assistant'
-                  AND m.content_json LIKE '%"research":%'
-              ) AS has_deep_search,
-              c.created_at,
-              c.updated_at
-       FROM conversations c
-       ORDER BY c.updated_at DESC`
+      `SELECT id, title, session_id, conversation_id, last_response_id, has_deep_search, created_at, updated_at
+       FROM conversations
+       ORDER BY updated_at DESC`
     )
 
     return rows.map((row) => ({
@@ -156,13 +143,14 @@ export class SqliteAppRepository implements AppRepository {
   async upsertConversation(record: ConversationRecord): Promise<void> {
     const db = await getDatabase()
     await db.execute(
-      `INSERT INTO conversations(id, title, session_id, conversation_id, last_response_id, created_at, updated_at)
-       VALUES($1, $2, $3, $4, $5, $6, $7)
+      `INSERT INTO conversations(id, title, session_id, conversation_id, last_response_id, has_deep_search, created_at, updated_at)
+       VALUES($1, $2, $3, $4, $5, $6, $7, $8)
        ON CONFLICT(id) DO UPDATE SET
          title=excluded.title,
          session_id=excluded.session_id,
          conversation_id=excluded.conversation_id,
          last_response_id=excluded.last_response_id,
+         has_deep_search=excluded.has_deep_search,
          updated_at=excluded.updated_at`,
       [
         record.id,
@@ -170,6 +158,7 @@ export class SqliteAppRepository implements AppRepository {
         record.anchors.sessionId || "",
         record.anchors.conversationId || "",
         record.anchors.lastResponseId || "",
+        record.hasDeepSearch ? 1 : 0,
         record.createdAt,
         record.updatedAt,
       ]
