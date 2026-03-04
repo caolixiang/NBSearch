@@ -269,7 +269,10 @@ export function extractTrailingKeyCitationEntries(content: string): ParsedTailCi
     return []
   }
 
-  const lines = content.split(/\r?\n/)
+  // Ignore machine metadata blocks that may contain many internal URLs.
+  // They are not user-facing citations and should not leak into Key Citations.
+  const sanitizedContent = content.replace(/<tool-meta>[\s\S]*?<\/tool-meta>/gi, "")
+  const lines = sanitizedContent.split(/\r?\n/)
   let headingIndex = -1
   for (let index = lines.length - 1; index >= 0; index -= 1) {
     if (isKeyCitationsHeading(lines[index] || "")) {

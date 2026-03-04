@@ -29,6 +29,19 @@ describe("extractTrailingKeyCitationEntries", () => {
     const entries = extractTrailingKeyCitationEntries("普通正文，不带 Key Citations 标题。\nhttps://example.com")
     expect(entries).toEqual([])
   })
+
+  it("ignores tool-meta blocks inside trailing key citations area", () => {
+    const entries = extractTrailingKeyCitationEntries(
+      [
+        "结论段落。",
+        "",
+        "**Key Citations**",
+        "<tool-meta>{\"webSearch\":[],\"cards\":[{\"id\":\"473ab9\",\"cardType\":\"image_card\",\"type\":\"render_searched_image\",\"image\":{\"thumbnail\":\"https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSO4Z6uWwlc9d7mv94sa4ji2JSfWGTycm86PQ&s\",\"original\":\"http://image.sciencenet.cn/home/202504/20/222857dxivmmjbxpuijiwb.jpg\",\"title\":\"科学网\",\"link\":\"https://wap.sciencenet.cn/blog-107667-1482744.html?mobile=1\",\"source\":\"科学网\"}}]}</tool-meta>",
+      ].join("\n")
+    )
+
+    expect(entries).toEqual([])
+  })
 })
 
 describe("buildCitationItems", () => {
