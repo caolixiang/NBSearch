@@ -128,7 +128,7 @@ function ToolEntryRow({ entry }: { entry: StructuredReasoningEntry }) {
       {open && (
         <>
           {isXSearch ? (
-            <div className="mt-1.5 ml-7 rounded-xl border border-foreground/4 bg-secondary/30 p-2.5 space-y-2">
+            <div className="mt-1.5 ml-7 overflow-hidden rounded-xl border border-foreground/8 bg-background/40 divide-y divide-foreground/8">
               {resultRows.map((res, i) => {
                 const authorName = (res.authorName || "").trim() || "X 用户"
                 const authorHandle = (res.authorHandle || "").trim()
@@ -140,8 +140,8 @@ function ToolEntryRow({ entry }: { entry: StructuredReasoningEntry }) {
                     key={i}
                     type="button"
                     className={cn(
-                      "w-full rounded-xl px-3 py-2.5 text-left transition-colors",
-                      clickable ? "cursor-pointer bg-secondary/40 hover:bg-secondary/60" : "cursor-default bg-secondary/25"
+                      "group block w-full px-4 py-3 text-left transition-colors",
+                      clickable ? "cursor-pointer hover:bg-secondary/35" : "cursor-default"
                     )}
                     onClick={() => {
                       if (res.url) {
@@ -150,7 +150,7 @@ function ToolEntryRow({ entry }: { entry: StructuredReasoningEntry }) {
                     }}
                   >
                     <span className="flex items-start gap-2.5">
-                      <span className="mt-0.5 inline-flex size-9 shrink-0 items-center justify-center rounded-full border border-foreground/8 bg-background/80 text-muted-foreground">
+                      <span className="mt-0.5 inline-flex size-10 shrink-0 items-center justify-center rounded-full border border-foreground/8 bg-background/80 text-muted-foreground">
                         <UserRound className="size-4" />
                       </span>
                       <span className="min-w-0 flex-1">
@@ -172,7 +172,7 @@ function ToolEntryRow({ entry }: { entry: StructuredReasoningEntry }) {
                           ) : null}
                         </span>
                         {postText ? (
-                          <p className="mt-1 text-[14px] leading-6 text-foreground/90 whitespace-pre-wrap line-clamp-4">
+                          <p className="mt-2 text-sm leading-6 text-foreground whitespace-pre-wrap break-words">
                             {postText}
                           </p>
                         ) : null}
@@ -184,7 +184,7 @@ function ToolEntryRow({ entry }: { entry: StructuredReasoningEntry }) {
               {!hasResults && xSearchUrl ? (
                 <button
                   type="button"
-                  className="w-full rounded-xl border border-foreground/8 bg-background/70 px-3 py-2.5 text-left text-[13px] text-foreground hover:bg-background"
+                  className="group block w-full px-4 py-3 text-left text-sm text-foreground transition-colors hover:bg-secondary/35"
                   onClick={() => {
                     void openExternalUrl(xSearchUrl)
                   }}
