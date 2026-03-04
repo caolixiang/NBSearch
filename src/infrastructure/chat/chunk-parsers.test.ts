@@ -47,6 +47,18 @@ describe("extractResponseNewTitleFromRawChunk", () => {
 
     expect(title).toBe("刘美贤冬奥金牌照片")
   })
+
+  it("extracts string title from conversation payload and strips eos", () => {
+    const title = extractResponseNewTitleFromRawChunk({
+      result: {
+        conversation: {
+          title: "友好问候<eos>",
+        },
+      },
+    })
+
+    expect(title).toBe("友好问候")
+  })
 })
 
 describe("gateway raw chunk extractors", () => {
@@ -104,6 +116,20 @@ describe("gateway raw chunk extractors", () => {
     }
 
     expect(extractGatewayResponseIdFromRawChunk(rawChunk)).toBe("resp_created_1")
+  })
+
+  it("extracts uuid response id from modelResponse payload", () => {
+    const rawChunk = {
+      result: {
+        response: {
+          modelResponse: {
+            responseId: "6f1e2fb9-5cd8-4afd-81d1-35de913cb26a",
+          },
+        },
+      },
+    }
+
+    expect(extractGatewayResponseIdFromRawChunk(rawChunk)).toBe("6f1e2fb9-5cd8-4afd-81d1-35de913cb26a")
   })
 
   it("extracts token and responseId from wrapped gateway token payload", () => {
@@ -1164,6 +1190,47 @@ describe("extractDeepSearchResearchFromRawChunk", () => {
       },
     ])
   })
+
+  it("extracts deepsearch steps from streaming messageTag header/summary tokens", () => {
+    const header = extractDeepSearchResearchFromRawChunk({
+      result: {
+        response: {
+          messageTag: "header",
+          token: "Exploring China's oil sources",
+          messageStepId: 1,
+          responseId: "resp_deep_2",
+        },
+      },
+    })
+    const summary = extractDeepSearchResearchFromRawChunk({
+      result: {
+        response: {
+          messageTag: "summary",
+          token: "- Imports reached record levels in 2025.\n- Top sources include Russia and Saudi Arabia.",
+          messageStepId: 1,
+          responseId: "resp_deep_2",
+        },
+      },
+    })
+
+    expect(header.steps).toEqual([
+      {
+        tags: ["header"],
+        title: "Exploring China's oil sources",
+        text: ["Exploring China's oil sources"],
+        toolUsageCardIds: undefined,
+      },
+    ])
+    expect(summary.steps).toEqual([
+      {
+        tags: ["summary"],
+        title: undefined,
+        text: ["Imports reached record levels in 2025.", "Top sources include Russia and Saudi Arabia."],
+        toolUsageCardIds: undefined,
+        toolUsages: undefined,
+      },
+    ])
+  })
 })
 
 describe("resolveConversationTitle", () => {
@@ -1174,6 +1241,11 @@ describe("resolveConversationTitle", () => {
 
   it("keeps existing title when upstream title is missing", () => {
     const title = resolveConversationTitle("", "已存在标题")
+    expect(title).toBe("已存在标题")
+  })
+
+  it("ignores placeholder title and keeps existing title", () => {
+    const title = resolveConversationTitle("New conversation", "已存在标题")
     expect(title).toBe("已存在标题")
   })
 

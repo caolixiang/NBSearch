@@ -3,6 +3,7 @@ import type { AppFontSizeMode, AppRuntime, AppThemeMode } from "@/app/contracts"
 import { applyAppearanceSettings } from "@/app/appearance"
 import { applyAppearanceConfigToRuntime, applyGatewayConfigToRuntime } from "@/app/runtime"
 import type {
+  ChatAnchors,
   ChatMessage as DomainChatMessage,
   ChatReasoningEventDetail,
 } from "@/domain/chat/types"
@@ -917,10 +918,27 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       const optimisticContent = buildUserMessageContent(content, selectedAttachments)
       clearLastErrorForConversation(conversationId)
       const current = conversations.find((item) => item.id === conversationId)
-      const anchors =
-        current?.anchors && Object.keys(current.anchors).length > 0
-          ? current.anchors
-          : { conversationId }
+      const currentMessages = messagesByConversationId[conversationId] || []
+      const sessionId = (current?.anchors.sessionId || "").trim()
+      let lastResponseId = (current?.anchors.lastResponseId || "").trim()
+      if (!lastResponseId) {
+        for (let index = currentMessages.length - 1; index >= 0; index -= 1) {
+          const candidate = currentMessages[index]
+          if (candidate?.role !== "assistant") {
+            continue
+          }
+          const responseId = (candidate.responseId || "").trim()
+          if (responseId) {
+            lastResponseId = responseId
+            break
+          }
+        }
+      }
+      const anchors: Partial<ChatAnchors> = {
+        conversationId,
+        ...(sessionId ? { sessionId } : {}),
+        ...(sessionId && lastResponseId ? { lastResponseId } : {}),
+      }
 
       const optimisticMessage: DomainChatMessage = {
         id: `tmp_usr_${crypto.randomUUID()}`,
@@ -1118,6 +1136,35 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
               flushPendingCardAttachments(false)
               clearReasoningStopTimer()
               markReasoningEnded()
+              setConversations((previous) => {
+                const now = Date.now()
+                const targetIndex = previous.findIndex((item) => item.id === conversationId)
+                if (targetIndex >= 0) {
+                  const currentConversation = previous[targetIndex]
+                  const next = [...previous]
+                  next[targetIndex] = {
+                    ...currentConversation,
+                    anchors: {
+                      ...currentConversation.anchors,
+                      ...event.result.anchors,
+                    },
+                    hasDeepSearch: Boolean(currentConversation.hasDeepSearch || deepSearch),
+                    updatedAt: now,
+                  }
+                  return next
+                }
+                return [
+                  {
+                    id: conversationId,
+                    title: "",
+                    anchors: event.result.anchors,
+                    hasDeepSearch: deepSearch,
+                    createdAt: now,
+                    updatedAt: now,
+                  },
+                  ...previous,
+                ]
+              })
               const completedAssistantMessage = event.result.assistantMessage
               const reasoningSnapshot = completedAssistantMessage.reasoningEvents || reasoningEvents
               const computedDurationSeconds = resolveReasoningDurationSeconds(reasoningStartedAtMs, reasoningEndedAtMs)
@@ -1199,10 +1246,12 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       conversations,
       ensureConversation,
       loadMessages,
+      messagesByConversationId,
       patchStreamingStateForConversation,
       removeStreamingStateForConversation,
       setProgrammaticScrollTop,
       setStreamingStateForConversation,
+      setConversations,
       setLastErrorForConversation,
       refreshConversations,
       selectedModel,

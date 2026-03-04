@@ -825,6 +825,73 @@ describe("streamTurn heartbeats and timeout", () => {
     expect(parsedRequestBodies.every((payload) => payload["previous_response_id"] === "resp_prev_42")).toBe(true)
   })
 
+  it("does not send previous_response_id when session anchor is missing", async () => {
+    const repository = new MemoryAppRepository()
+    const service = new GrokChatService(repository, {
+      apiBaseUrl: "http://127.0.0.1:8787",
+      apiKey: "test-key",
+      defaultModel: "grok-4.1-fast",
+      voiceEnabled: false,
+      themeMode: "light",
+      fontSizeMode: "default",
+    })
+
+    const streamChunk = [
+      JSON.stringify({
+        type: "response.created",
+        response: {
+          id: "resp_no_session_1",
+        },
+      }),
+      JSON.stringify({
+        type: "response.output_text.delta",
+        delta: "Answer",
+      }),
+      JSON.stringify({
+        type: "response.completed",
+        response: {
+          id: "resp_no_session_1",
+          output: [
+            {
+              type: "message",
+              content: [
+                {
+                  type: "output_text",
+                  text: "Answer",
+                },
+              ],
+            },
+          ],
+        },
+      }),
+    ].join("")
+
+    const requestBodies: string[] = []
+    const mockedFetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      requestBodies.push(typeof init?.body === "string" ? init.body : "")
+      return createStreamingResponse([streamChunk])
+    }) as unknown as typeof fetch
+    ;(mockedFetch as unknown as { preconnect: (url: string) => void }).preconnect = () => {}
+    ;(service as unknown as { runtimeFetch: typeof fetch }).runtimeFetch = mockedFetch
+
+    await service.streamTurn(
+      {
+        model: "grok-4.1-fast",
+        text: "hello",
+        anchors: {
+          conversationId: "conv_no_session_1",
+          lastResponseId: "resp_prev_should_not_send",
+        },
+      },
+      () => {}
+    )
+
+    expect(requestBodies).toHaveLength(1)
+    const body = JSON.parse(requestBodies[0] || "{}") as Record<string, unknown>
+    expect(typeof body["session_id"]).toBe("string")
+    expect(body["previous_response_id"]).toBeUndefined()
+  })
+
   it("sends x_grok regenerate payload without appending a new user message", async () => {
     const repository = new MemoryAppRepository()
     const service = new GrokChatService(repository, {

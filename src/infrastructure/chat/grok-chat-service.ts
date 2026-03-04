@@ -95,6 +95,21 @@ function hasAnyThinkTag(value: string): boolean {
   return lower.includes("<think") || lower.includes("</think>")
 }
 
+function fallbackConversationTitleFromPrompt(prompt: string): string {
+  const firstLine = prompt
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => line.length > 0)
+  if (!firstLine) {
+    return ""
+  }
+  const maxLength = 48
+  if (firstLine.length <= maxLength) {
+    return firstLine
+  }
+  return `${firstLine.slice(0, maxLength).trim()}...`
+}
+
 function resolveReasoningDurationFromResearch(research: ChatDeepSearchResearch | undefined): number {
   if (!research) {
     return 0
@@ -1823,7 +1838,8 @@ export class GrokChatService implements ChatService {
     signal?: AbortSignal
   ): Promise<void> {
     const conversationId = buildConversationId(input.anchors)
-    const sessionId = input.anchors.sessionId?.trim() || `sess_${crypto.randomUUID()}`
+    const anchoredSessionId = input.anchors.sessionId?.trim() || ""
+    const sessionId = anchoredSessionId || `sess_${crypto.randomUUID()}`
     const regenerateTargetResponseId = input.regenerateTargetResponseId?.trim() || ""
     const isRegenerate = regenerateTargetResponseId.length > 0
     const isDeepSearch = !isRegenerate && input.deepSearch === true
@@ -1895,7 +1911,7 @@ export class GrokChatService implements ChatService {
     emitStarted(requestId)
 
     try {
-      const previousResponseId = input.anchors.lastResponseId?.trim() || ""
+      const previousResponseId = anchoredSessionId ? input.anchors.lastResponseId?.trim() || "" : ""
       const requestBodyPayload: Record<string, unknown> = {
         model: input.model,
         session_id: sessionId,
@@ -2336,10 +2352,13 @@ export class GrokChatService implements ChatService {
       const currentConversation = existingConversations.find((item) => item.id === conversationId)
       const currentTitle = currentConversation?.title || ""
       const nextHasDeepSearch = Boolean(currentConversation?.hasDeepSearch || isDeepSearch)
+      const resolvedTitle =
+        resolveConversationTitle(upstreamConversationTitle, currentTitle) ||
+        fallbackConversationTitleFromPrompt(input.text)
       await this.repository.upsertConversation(
         createConversationRecord(
           conversationId,
-          resolveConversationTitle(upstreamConversationTitle, currentTitle),
+          resolvedTitle,
           anchors,
           Date.now(),
           nextHasDeepSearch

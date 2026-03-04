@@ -155,6 +155,11 @@ function collectRawChunkCandidates(rawChunk: unknown): Record<string, unknown>[]
     if (isRecord(parsed.result)) {
       append(parsed.result.response)
       append(parsed.result.title)
+      append(parsed.result.conversation)
+      append(parsed.result.modelResponse)
+      if (isRecord(parsed.result.response)) {
+        append(parsed.result.response.modelResponse)
+      }
     }
   }
 
@@ -162,6 +167,61 @@ function collectRawChunkCandidates(rawChunk: unknown): Record<string, unknown>[]
 }
 
 function extractResponseIdFromRecord(value: Record<string, unknown>): string {
+  const normalizeResponseId = (input: unknown): string => {
+    if (typeof input !== "string") {
+      return ""
+    }
+    const trimmed = input.trim()
+    if (!trimmed) {
+      return ""
+    }
+    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(trimmed)) {
+      return trimmed
+    }
+    if (/^resp[_-]/i.test(trimmed)) {
+      return trimmed
+    }
+    return ""
+  }
+
+  const responseIdFromDirect = normalizeResponseId(value.responseId) || normalizeResponseId(value.response_id)
+  if (responseIdFromDirect) {
+    return responseIdFromDirect
+  }
+
+  if (isRecord(value.modelResponse)) {
+    const responseIdFromModelResponse =
+      normalizeResponseId(value.modelResponse.responseId) ||
+      normalizeResponseId(value.modelResponse.response_id) ||
+      normalizeResponseId(value.modelResponse.id)
+    if (responseIdFromModelResponse) {
+      return responseIdFromModelResponse
+    }
+  }
+
+  if (isRecord(value.response)) {
+    const responseIdFromResponse =
+      normalizeResponseId(value.response.responseId) ||
+      normalizeResponseId(value.response.response_id) ||
+      normalizeResponseId(value.response.id)
+    if (responseIdFromResponse) {
+      return responseIdFromResponse
+    }
+  }
+
+  if (isRecord(value.metadata)) {
+    const responseIdFromMetadata =
+      normalizeResponseId(value.metadata.responseId) || normalizeResponseId(value.metadata.response_id)
+    if (responseIdFromMetadata) {
+      return responseIdFromMetadata
+    }
+  }
+
+  const id = normalizeResponseId(value.id)
+  if (id) {
+    return id
+  }
+
   const responseIdCamel = typeof value.responseId === "string" ? value.responseId.trim() : ""
   if (responseIdCamel) {
     return responseIdCamel
@@ -958,10 +1018,15 @@ function parseResearchObject(value: unknown): Partial<ChatDeepSearchResearch> {
     return {}
   }
 
+  const metadata = isRecord(value.metadata) ? value.metadata : null
   const requestMetadata = isRecord(value.request_metadata)
     ? value.request_metadata
     : isRecord(value.requestMetadata)
       ? value.requestMetadata
+      : metadata && isRecord(metadata.requestMetadata)
+        ? metadata.requestMetadata
+        : metadata && isRecord(metadata.request_metadata)
+          ? metadata.request_metadata
       : undefined
   const uiLayoutRaw = isRecord(value.ui_layout) ? value.ui_layout : isRecord(value.uiLayout) ? value.uiLayout : null
   const uiLayout = uiLayoutRaw
@@ -981,11 +1046,21 @@ function parseResearchObject(value: unknown): Partial<ChatDeepSearchResearch> {
   return {
     requestMetadata: requestMetadata ? { ...requestMetadata } : undefined,
     uiLayout,
-    deepsearchPreset: readOptionalString(value.deepsearch_preset) || readOptionalString(value.deepsearchPreset),
+    deepsearchPreset:
+      readOptionalString(value.deepsearch_preset) ||
+      readOptionalString(value.deepsearchPreset) ||
+      readOptionalString(metadata?.deepsearch_preset) ||
+      readOptionalString(metadata?.deepsearchPreset),
     thinkingStartTime:
-      normalizeResearchIsoTime(value.thinking_start_time) || normalizeResearchIsoTime(value.thinkingStartTime),
+      normalizeResearchIsoTime(value.thinking_start_time) ||
+      normalizeResearchIsoTime(value.thinkingStartTime) ||
+      normalizeResearchIsoTime(metadata?.thinking_start_time) ||
+      normalizeResearchIsoTime(metadata?.thinkingStartTime),
     thinkingEndTime:
-      normalizeResearchIsoTime(value.thinking_end_time) || normalizeResearchIsoTime(value.thinkingEndTime),
+      normalizeResearchIsoTime(value.thinking_end_time) ||
+      normalizeResearchIsoTime(value.thinkingEndTime) ||
+      normalizeResearchIsoTime(metadata?.thinking_end_time) ||
+      normalizeResearchIsoTime(metadata?.thinkingEndTime),
     details: details.length > 0 ? details : undefined,
     steps: steps.length > 0 ? steps : undefined,
     citationCards: citationCards.length > 0 ? citationCards : undefined,
@@ -1187,6 +1262,41 @@ export function extractInlineCitationsFromText(value: string): ChatInlineCitatio
 }
 
 export function extractDeepSearchResearchFromRawChunk(rawChunk: unknown): Partial<ChatDeepSearchResearch> {
+  const parseStepRowsFromMessageToken = (value: string): string[] => {
+    const normalized = value
+      .replace(/<xai:tool_usage_card[\s\S]*?<\/xai:tool_usage_card>/gi, " ")
+      .replace(/<grok:render[\s\S]*?<\/grok:render>/gi, " ")
+      .trim()
+    if (!normalized) {
+      return []
+    }
+    return normalized
+      .split(/\r?\n/)
+      .map((line) => line.trim().replace(/^[-*•]\s+/, "").trim())
+      .filter(Boolean)
+  }
+
+  const parseStepFromMessageTag = (value: Record<string, unknown>): ChatDeepSearchResearchStep | null => {
+    const messageTag = (readOptionalString(value.messageTag) || "").toLowerCase()
+    if (messageTag !== "header" && messageTag !== "summary") {
+      return null
+    }
+    const rows = parseStepRowsFromMessageToken(
+      readOptionalString(value.token) || readOptionalString(value.message) || ""
+    )
+    if (rows.length === 0) {
+      return null
+    }
+    const toolUsageCardId =
+      readOptionalString(value.toolUsageCardId) || readOptionalString(value.tool_usage_card_id)
+    return {
+      tags: [messageTag],
+      title: messageTag === "header" ? rows[0] : undefined,
+      text: messageTag === "header" ? [rows[0]] : rows,
+      toolUsageCardIds: toolUsageCardId ? [toolUsageCardId] : undefined,
+    }
+  }
+
   let merged: Partial<ChatDeepSearchResearch> = {}
 
   for (const candidate of collectRawChunkCandidates(rawChunk)) {
@@ -1209,6 +1319,19 @@ export function extractDeepSearchResearchFromRawChunk(rawChunk: unknown): Partia
         : {}
     if (hasResearchFragment(fromModelResponse)) {
       merged = mergeResearchFragments(merged, fromModelResponse)
+    }
+
+    const fromCandidate = parseResearchObject(candidate)
+    if (hasResearchFragment(fromCandidate)) {
+      merged = mergeResearchFragments(merged, fromCandidate)
+    }
+
+    const stepFromMessageTag = parseStepFromMessageTag(candidate)
+    if (stepFromMessageTag) {
+      merged = mergeResearchFragments(merged, {
+        steps: [stepFromMessageTag],
+        details: parseResearchDetailsFromSteps([stepFromMessageTag]),
+      })
     }
   }
 
@@ -1969,11 +2092,36 @@ function readNewTitle(value: unknown): string {
   return newTitle.trim()
 }
 
+function normalizeConversationTitle(value: string): string {
+  const normalized = value.replace(/<eos>\s*$/i, "").trim()
+  if (!normalized) {
+    return ""
+  }
+  const lower = normalized.toLowerCase()
+  if (lower === "new conversation" || lower === "新对话") {
+    return ""
+  }
+  return normalized
+}
+
 function readDirectNewTitle(value: unknown): string {
   if (!isRecord(value)) {
     return ""
   }
-  return typeof value.newTitle === "string" ? value.newTitle.trim() : ""
+  return typeof value.newTitle === "string" ? normalizeConversationTitle(value.newTitle) : ""
+}
+
+function readStringTitle(value: unknown): string {
+  if (!isRecord(value)) {
+    return ""
+  }
+  if (typeof value.title === "string") {
+    return normalizeConversationTitle(value.title)
+  }
+  if (isRecord(value.conversation) && typeof value.conversation.title === "string") {
+    return normalizeConversationTitle(value.conversation.title)
+  }
+  return ""
 }
 
 export function extractResponseNewTitleFromRawChunk(rawChunk: unknown): string {
@@ -1986,6 +2134,10 @@ export function extractResponseNewTitleFromRawChunk(rawChunk: unknown): string {
     const direct = readDirectNewTitle(candidate)
     if (direct) {
       return direct
+    }
+    const stringTitle = readStringTitle(candidate)
+    if (stringTitle) {
+      return stringTitle
     }
   }
 
@@ -2093,11 +2245,11 @@ export function extractGatewayResponseIdFromRawChunk(rawChunk: unknown): string 
 // ---------------------------------------------------------------------------
 
 export function resolveConversationTitle(upstreamTitle: string, currentTitle: string): string {
-  const upstream = upstreamTitle.trim()
+  const upstream = normalizeConversationTitle(upstreamTitle)
   if (upstream) {
     return upstream
   }
-  return currentTitle.trim()
+  return normalizeConversationTitle(currentTitle)
 }
 
 // ---------------------------------------------------------------------------
