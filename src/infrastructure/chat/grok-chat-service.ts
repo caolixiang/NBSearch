@@ -193,12 +193,23 @@ function mergeResearchPayload(
         toolName: (usage.toolName || "").trim() || "tool",
         args: isRecord(usage.args) ? usage.args : {},
         webSearchResults: Array.isArray(usage.webSearchResults)
-          ? usage.webSearchResults.map((row) => ({
-              title: (row.title || "").trim() || undefined,
-              url: (row.url || "").trim() || undefined,
-              preview: (row.preview || "").trim() || undefined,
-              favicon: (row.favicon || "").trim() || undefined,
-            }))
+          ? usage.webSearchResults.map((row) => {
+              const authorName = (row.authorName || "").trim()
+              const authorHandle = (row.authorHandle || "").trim()
+              const publishedAt = (row.publishedAt || "").trim()
+              const postId = (row.postId || "").trim()
+              return {
+                ...(row.kind === "x_post" ? { kind: "x_post" as const } : {}),
+                title: (row.title || "").trim() || undefined,
+                url: (row.url || "").trim() || undefined,
+                preview: (row.preview || "").trim() || undefined,
+                favicon: (row.favicon || "").trim() || undefined,
+                ...(authorName ? { authorName } : {}),
+                ...(authorHandle ? { authorHandle } : {}),
+                ...(publishedAt ? { publishedAt } : {}),
+                ...(postId ? { postId } : {}),
+              }
+            })
           : undefined,
       })
     }

@@ -96,10 +96,15 @@ export interface ChatReasoningToolUsage {
 }
 
 export interface WebSearchResultItem {
+  kind?: "web" | "x_post"
   title?: string
   url?: string
   preview?: string
   favicon?: string
+  authorName?: string
+  authorHandle?: string
+  publishedAt?: string
+  postId?: string
 }
 
 export interface ChatReasoningToolResult {

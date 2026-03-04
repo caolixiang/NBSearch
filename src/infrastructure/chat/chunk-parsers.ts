@@ -269,34 +269,85 @@ function readWebSearchResultsCount(value: unknown): number | undefined {
   if (Array.isArray(value)) {
     return value.length
   }
-  if (isRecord(value) && Array.isArray(value.results)) {
-    return value.results.length
+  if (isRecord(value)) {
+    if (Array.isArray(value.results)) {
+      return value.results.length
+    }
+    if (isRecord(value.xSearchResults) && Array.isArray(value.xSearchResults.results)) {
+      return value.xSearchResults.results.length
+    }
   }
   return undefined
 }
 
+function buildXPostUrl(authorHandle: string | undefined, postId: string | undefined): string | undefined {
+  const handle = (authorHandle || "").trim()
+  const id = (postId || "").trim()
+  if (!handle || !id) {
+    return undefined
+  }
+  return `https://x.com/${handle}/status/${id}`
+}
+
 function readWebSearchResults(value: unknown): WebSearchResultItem[] | undefined {
-  let list: unknown[] | undefined;
+  let list: unknown[] | undefined
   if (Array.isArray(value)) {
-    list = value;
+    list = value
   } else if (isRecord(value) && Array.isArray(value.results)) {
-    list = value.results;
+    list = value.results
+  } else if (isRecord(value) && isRecord(value.xSearchResults) && Array.isArray(value.xSearchResults.results)) {
+    list = value.xSearchResults.results
   }
 
-  if (!list) return undefined;
+  if (!list) {
+    return undefined
+  }
 
-  const results: WebSearchResultItem[] = [];
+  const results: WebSearchResultItem[] = []
   for (const item of list) {
     if (isRecord(item)) {
+      const authorName = typeof item.name === "string" ? item.name.trim() || undefined : undefined
+      const authorHandle = typeof item.username === "string" ? item.username.trim() || undefined : undefined
+      const publishedAt = typeof item.createTime === "string" ? item.createTime.trim() || undefined : undefined
+      const postId = typeof item.postId === "string" ? item.postId.trim() || undefined : undefined
+      const isXPost = Boolean(authorName || authorHandle || publishedAt || postId)
+      const title =
+        typeof item.title === "string"
+          ? item.title
+          : [authorName || "", authorHandle ? `@${authorHandle}` : ""].join(" ").trim() || undefined
+      const url =
+        typeof item.url === "string"
+          ? item.url
+          : typeof item.link === "string"
+            ? item.link
+            : buildXPostUrl(authorHandle, postId)
+      const preview =
+        typeof item.preview === "string"
+          ? item.preview
+          : typeof item.snippet === "string"
+            ? item.snippet
+            : typeof item.text === "string"
+              ? item.text
+              : typeof item.textMarkdown === "string"
+                ? item.textMarkdown
+                : undefined
+      if (!title && !url && !preview) {
+        continue
+      }
       results.push({
-        title: typeof item.title === "string" ? item.title : undefined,
-        url: typeof item.url === "string" ? item.url : typeof item.link === "string" ? item.link : undefined,
-        preview: typeof item.preview === "string" ? item.preview : typeof item.snippet === "string" ? item.snippet : undefined,
+        ...(isXPost ? { kind: "x_post" as const } : {}),
+        title,
+        url,
+        preview,
         favicon: typeof item.favicon === "string" ? item.favicon : undefined,
-      });
+        ...(authorName ? { authorName } : {}),
+        ...(authorHandle ? { authorHandle } : {}),
+        ...(publishedAt ? { publishedAt } : {}),
+        ...(postId ? { postId } : {}),
+      })
     }
   }
-  return results.length > 0 ? results : undefined;
+  return results.length > 0 ? results : undefined
 }
 
 function extractWebSearchToolMetaFromOutputItem(item: unknown): WebSearchToolMeta | null {
@@ -690,7 +741,7 @@ function parseToolUsageResultsFromStep(value: unknown): Map<string, WebSearchRes
     if (!toolUsageCardId) {
       continue
     }
-    const webSearchResults = readWebSearchResults(row.webSearchResults)
+    const webSearchResults = readWebSearchResults(row.webSearchResults ?? row.xSearchResults)
     if (!Array.isArray(webSearchResults) || webSearchResults.length === 0) {
       continue
     }
@@ -1025,12 +1076,23 @@ function mergeResearchFragments(
         toolName: (usage.toolName || "").trim() || "tool",
         args: isRecord(usage.args) ? usage.args : {},
         webSearchResults: Array.isArray(usage.webSearchResults)
-          ? usage.webSearchResults.map((row) => ({
-              title: (row.title || "").trim() || undefined,
-              url: (row.url || "").trim() || undefined,
-              preview: (row.preview || "").trim() || undefined,
-              favicon: (row.favicon || "").trim() || undefined,
-            }))
+          ? usage.webSearchResults.map((row) => {
+              const authorName = (row.authorName || "").trim()
+              const authorHandle = (row.authorHandle || "").trim()
+              const publishedAt = (row.publishedAt || "").trim()
+              const postId = (row.postId || "").trim()
+              return {
+                ...(row.kind === "x_post" ? { kind: "x_post" as const } : {}),
+                title: (row.title || "").trim() || undefined,
+                url: (row.url || "").trim() || undefined,
+                preview: (row.preview || "").trim() || undefined,
+                favicon: (row.favicon || "").trim() || undefined,
+                ...(authorName ? { authorName } : {}),
+                ...(authorHandle ? { authorHandle } : {}),
+                ...(publishedAt ? { publishedAt } : {}),
+                ...(postId ? { postId } : {}),
+              }
+            })
           : undefined,
       })
     }
@@ -1315,11 +1377,12 @@ function readToolResultEvent(rawChunk: unknown): ChatReasoningEventDetail | null
       continue
     }
 
-    const webSearchResultsCount = readWebSearchResultsCount(candidate.webSearchResults)
+    const searchResultsPayload = candidate.webSearchResults ?? candidate.xSearchResults
+    const webSearchResultsCount = readWebSearchResultsCount(searchResultsPayload)
     if (typeof webSearchResultsCount !== "number") {
       continue
     }
-    const webSearchResults = readWebSearchResults(candidate.webSearchResults)
+    const webSearchResults = readWebSearchResults(searchResultsPayload)
     const responseId = extractResponseIdFromRecord(candidate)
     return {
       kind: "tool_result",

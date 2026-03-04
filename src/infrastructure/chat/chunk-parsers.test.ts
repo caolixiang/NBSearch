@@ -756,6 +756,54 @@ describe("extractReasoningEventsFromRawChunk", () => {
     })
   })
 
+  it("extracts x search result rows from raw_function_result payload", () => {
+    const events = extractReasoningEventsFromRawChunk({
+      type: "response.tool_usage_card",
+      response_id: "resp_1",
+      isThinking: false,
+      messageTag: "raw_function_result",
+      rolloutId: "Agent 1",
+      toolUsageCardId: "tool_x_1",
+      xSearchResults: {
+        results: [
+          {
+            username: "Guoshuai777777",
+            name: "郭帅",
+            text: "美国应该取消了杨润和吴征的美国国籍！",
+            createTime: "2026-03-04T00:00:00Z",
+            postId: "2029999999999999999",
+          },
+        ],
+      },
+    })
+
+    expect(events).toHaveLength(1)
+    expect(events[0]).toEqual({
+      kind: "tool_result",
+      result: {
+        toolUsageCardId: "tool_x_1",
+        rolloutId: "Agent 1",
+        messageTag: "raw_function_result",
+        webSearchResultsCount: 1,
+        webSearchResults: [
+          {
+            kind: "x_post",
+            title: "郭帅 @Guoshuai777777",
+            url: "https://x.com/Guoshuai777777/status/2029999999999999999",
+            preview: "美国应该取消了杨润和吴征的美国国籍！",
+            favicon: undefined,
+            authorName: "郭帅",
+            authorHandle: "Guoshuai777777",
+            publishedAt: "2026-03-04T00:00:00Z",
+            postId: "2029999999999999999",
+          },
+        ],
+        isThinking: false,
+        responseId: "resp_1",
+      },
+    })
+  })
+
   it("extracts wrapped ui layout from gateway result.response payload", () => {
     const events = extractReasoningEventsFromRawChunk({
       result: {
@@ -1023,6 +1071,15 @@ describe("extractDeepSearchResearchFromRawChunk", () => {
                     },
                   },
                 },
+                {
+                  toolUsageCardId: "card_x_1",
+                  x_keyword_search: {
+                    args: {
+                      query: "谷爱凌 国籍",
+                      limit: 10,
+                    },
+                  },
+                },
               ],
               toolUsageResults: [
                 {
@@ -1032,6 +1089,20 @@ describe("extractDeepSearchResearchFromRawChunk", () => {
                       {
                         url: "https://example.com/a",
                         title: "Example A",
+                      },
+                    ],
+                  },
+                },
+                {
+                  toolUsageCardId: "card_x_1",
+                  xSearchResults: {
+                    results: [
+                      {
+                        username: "Guoshuai777777",
+                        name: "郭帅",
+                        text: "美国应该取消了杨润和吴征的美国国籍！",
+                        createTime: "2026-03-04T00:00:00Z",
+                        postId: "2029999999999999999",
                       },
                     ],
                   },
@@ -1050,7 +1121,7 @@ describe("extractDeepSearchResearchFromRawChunk", () => {
         text: [
           "<xai:tool_usage_card>\n  <xai:tool_usage_card_id>card_1</xai:tool_usage_card_id>\n  <xai:tool_name>web_search</xai:tool_name>\n  <xai:tool_args><![CDATA[{\"query\":\"Gu Ailing nationality controversy\",\"num_results\":20}]]></xai:tool_args>\n</xai:tool_usage_card>",
         ],
-        toolUsageCardIds: ["card_1"],
+        toolUsageCardIds: ["card_1", "card_x_1"],
         toolUsages: [
           {
             toolUsageCardId: "card_1",
@@ -1065,6 +1136,27 @@ describe("extractDeepSearchResearchFromRawChunk", () => {
                 title: "Example A",
                 preview: undefined,
                 favicon: undefined,
+              },
+            ],
+          },
+          {
+            toolUsageCardId: "card_x_1",
+            toolName: "x_keyword_search",
+            args: {
+              query: "谷爱凌 国籍",
+              limit: 10,
+            },
+            webSearchResults: [
+              {
+                kind: "x_post",
+                title: "郭帅 @Guoshuai777777",
+                url: "https://x.com/Guoshuai777777/status/2029999999999999999",
+                preview: "美国应该取消了杨润和吴征的美国国籍！",
+                favicon: undefined,
+                authorName: "郭帅",
+                authorHandle: "Guoshuai777777",
+                publishedAt: "2026-03-04T00:00:00Z",
+                postId: "2029999999999999999",
               },
             ],
           },

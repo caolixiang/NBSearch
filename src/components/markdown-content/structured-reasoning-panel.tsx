@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { ChevronDown, Globe, ImageIcon, Lightbulb, Search, Wrench, X } from "lucide-react"
+import { ChevronDown, Globe, ImageIcon, Lightbulb, Search, UserRound, Wrench, X } from "lucide-react"
 import { createPortal } from "react-dom"
 import type { ChatDeepSearchResearch, ChatDeepSearchDetail, ChatReasoningEventDetail } from "@/domain/chat/types"
 import { openExternalUrl } from "@/lib/open-external-url"
@@ -15,6 +15,7 @@ import {
   groupEntriesByAgent,
   isChatroomSendToolName,
   isImageSearchToolName,
+  isXSearchToolName,
   resolveStructuredEntryLabel,
   toAgentKey,
 } from "./structured-reasoning"
@@ -24,6 +25,39 @@ import { AgentAvatarStack, AgentCanvasOrb } from "./agent-orbs"
 
 const OPEN_REASONING_DRAWER_EVENT = "nbsearch:open-reasoning-drawer"
 
+function XBrandIcon({ className }: { className?: string }) {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+      <path
+        d="M18.244 2.25H21.552L14.325 10.51L22.827 21.75H16.17L10.956 14.933L4.99 21.75H1.68L9.41 12.915L1.254 2.25H8.08L12.793 8.481L18.244 2.25ZM17.083 19.77H18.916L7.084 4.126H5.117L17.083 19.77Z"
+        fill="currentColor"
+      />
+    </svg>
+  )
+}
+
+function formatRelativeTimeLabel(value: string | undefined): string {
+  const source = (value || "").trim()
+  if (!source) {
+    return ""
+  }
+  const millis = Date.parse(source)
+  if (!Number.isFinite(millis)) {
+    return ""
+  }
+  const diffSeconds = Math.max(0, Math.floor((Date.now() - millis) / 1000))
+  if (diffSeconds < 60) {
+    return `${diffSeconds}s`
+  }
+  if (diffSeconds < 3600) {
+    return `${Math.floor(diffSeconds / 60)}m`
+  }
+  if (diffSeconds < 86400) {
+    return `${Math.floor(diffSeconds / 3600)}h`
+  }
+  return `${Math.floor(diffSeconds / 86400)}d`
+}
+
 /* ------------------------------------------------------------------ */
 /* Entry rendering helpers                                             */
 /* ------------------------------------------------------------------ */
@@ -31,12 +65,15 @@ const OPEN_REASONING_DRAWER_EVENT = "nbsearch:open-reasoning-drawer"
 function ToolEntryRow({ entry }: { entry: StructuredReasoningEntry }) {
   const [open, setOpen] = useState(false)
   const hasResults = entry.webSearchResults && entry.webSearchResults.length > 0
+  const isXSearch = isXSearchToolName(entry.toolName)
 
   const content = (
     <div className="flex items-start justify-between gap-3 py-1">
       <div className="flex min-w-0 flex-1 items-start gap-2.5">
         <span className="mt-0.5 inline-flex size-5 shrink-0 items-center justify-center text-muted-foreground">
-          {hasResults ? (
+          {isXSearch ? (
+            <XBrandIcon className="size-4" />
+          ) : hasResults ? (
             <span className="inline-flex size-5 items-center justify-center rounded-full border border-foreground/8 bg-background shadow-sm">
               <ChevronDown className={cn("size-3.5 transition-transform", open ? "rotate-180" : "")} />
             </span>
@@ -75,47 +112,106 @@ function ToolEntryRow({ entry }: { entry: StructuredReasoningEntry }) {
         {content}
       </button>
       {open && (
-        <div className="mt-1.5 ml-7 rounded-xl border border-foreground/4 bg-secondary/30 p-3 space-y-3.5">
-          {entry.webSearchResults!.map((res, i) => {
-            let host = ""
-            try {
-              if (res.url) host = new URL(res.url).host.replace(/^www\./, "")
-            } catch {
-              host = res.url || ""
-            }
-            return (
-              <div key={i} className="flex flex-col gap-1">
-                <a
-                  href={res.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-[13px] font-bold text-foreground hover:underline line-clamp-2 leading-snug"
-                  onClick={(event) => {
-                    event.preventDefault()
-                    if (res.url) {
-                      void openExternalUrl(res.url)
-                    }
-                  }}
-                >
-                  {res.title || res.url}
-                </a>
-                {res.url && (
-                  <div className="flex items-center gap-1.5 text-[12px] text-muted-foreground/80">
-                    {res.favicon ? (
-                      <img src={res.favicon} alt="" className="size-3.5 rounded-sm bg-background/50 object-cover shrink-0" />
-                    ) : (
-                      <Globe className="size-3.5 shrink-0" />
+        <>
+          {isXSearch ? (
+            <div className="mt-1.5 ml-7 rounded-xl border border-foreground/4 bg-secondary/30 p-2.5 space-y-2">
+              {entry.webSearchResults!.map((res, i) => {
+                const authorName = (res.authorName || "").trim() || "X 用户"
+                const authorHandle = (res.authorHandle || "").trim()
+                const postText = (res.preview || "").trim() || (res.title || "").trim() || (res.url || "").trim()
+                const timeLabel = formatRelativeTimeLabel(res.publishedAt)
+                const clickable = Boolean((res.url || "").trim())
+                return (
+                  <button
+                    key={i}
+                    type="button"
+                    className={cn(
+                      "w-full rounded-xl px-3 py-2.5 text-left transition-colors",
+                      clickable ? "cursor-pointer bg-secondary/40 hover:bg-secondary/60" : "cursor-default bg-secondary/25"
                     )}
-                    <span className="truncate">{host}</span>
+                    onClick={() => {
+                      if (res.url) {
+                        void openExternalUrl(res.url)
+                      }
+                    }}
+                  >
+                    <span className="flex items-start gap-2.5">
+                      <span className="mt-0.5 inline-flex size-9 shrink-0 items-center justify-center rounded-full border border-foreground/8 bg-background/80 text-muted-foreground">
+                        <UserRound className="size-4" />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="flex items-start justify-between gap-2">
+                          <span className="min-w-0">
+                            <span className="block truncate text-[15px] font-semibold leading-5 text-foreground">
+                              {authorName}
+                            </span>
+                            {authorHandle ? (
+                              <span className="block truncate text-[13px] leading-5 text-muted-foreground">
+                                @{authorHandle}
+                              </span>
+                            ) : null}
+                          </span>
+                          {timeLabel ? (
+                            <span className="shrink-0 text-[12px] leading-5 text-muted-foreground tabular-nums">
+                              {timeLabel}
+                            </span>
+                          ) : null}
+                        </span>
+                        {postText ? (
+                          <p className="mt-1 text-[14px] leading-6 text-foreground/90 whitespace-pre-wrap line-clamp-4">
+                            {postText}
+                          </p>
+                        ) : null}
+                      </span>
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          ) : (
+            <div className="mt-1.5 ml-7 rounded-xl border border-foreground/4 bg-secondary/30 p-3 space-y-3.5">
+              {entry.webSearchResults!.map((res, i) => {
+                let host = ""
+                try {
+                  if (res.url) host = new URL(res.url).host.replace(/^www\./, "")
+                } catch {
+                  host = res.url || ""
+                }
+                return (
+                  <div key={i} className="flex flex-col gap-1">
+                    <a
+                      href={res.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-[13px] font-bold text-foreground hover:underline line-clamp-2 leading-snug"
+                      onClick={(event) => {
+                        event.preventDefault()
+                        if (res.url) {
+                          void openExternalUrl(res.url)
+                        }
+                      }}
+                    >
+                      {res.title || res.url}
+                    </a>
+                    {res.url && (
+                      <div className="flex items-center gap-1.5 text-[12px] text-muted-foreground/80">
+                        {res.favicon ? (
+                          <img src={res.favicon} alt="" className="size-3.5 rounded-sm bg-background/50 object-cover shrink-0" />
+                        ) : (
+                          <Globe className="size-3.5 shrink-0" />
+                        )}
+                        <span className="truncate">{host}</span>
+                      </div>
+                    )}
+                    {res.preview && (
+                      <p className="text-[12px] text-muted-foreground/90 line-clamp-2 mt-0.5 leading-[1.6]">{res.preview}</p>
+                    )}
                   </div>
-                )}
-                {res.preview && (
-                  <p className="text-[12px] text-muted-foreground/90 line-clamp-2 mt-0.5 leading-[1.6]">{res.preview}</p>
-                )}
-              </div>
-            )
-          })}
-        </div>
+                )
+              })}
+            </div>
+          )}
+        </>
       )}
     </div>
   )
@@ -574,7 +670,9 @@ export function StructuredReasoningPanel({
                       <div className="flex items-start justify-between gap-3">
                         <div className="flex min-w-0 flex-1 items-start gap-2.5">
                           <span className="mt-0.5 inline-flex size-5 shrink-0 items-center justify-center text-muted-foreground">
-                            {entry.visited ? (
+                            {isXSearchToolName(entry.toolName) ? (
+                              <XBrandIcon className="size-4" />
+                            ) : entry.visited ? (
                               <Globe className="size-4" />
                             ) : isImageSearchToolName(entry.toolName) ? (
                               <ImageIcon className="size-4" />
