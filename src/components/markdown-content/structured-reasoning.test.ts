@@ -283,6 +283,46 @@ describe("buildDeepSearchLegacyTimeline", () => {
     }
   })
 
+  it("hydrates legacy x-search result count from xml detail title tool args", () => {
+    const details: ChatDeepSearchDetail[] = [
+      {
+        title:
+          "<xai:tool_usage_card>\n  <xai:tool_usage_card_id>x_legacy_1</xai:tool_usage_card_id>\n  <xai:tool_name>x_keyword_search</xai:tool_name>\n  <xai:tool_args><![CDATA[{\"query\":\"中国石油进口 伊朗 委内瑞拉 占比\",\"limit\":10}]]></xai:tool_args>\n</xai:tool_usage_card>",
+        bullets: [],
+      },
+      {
+        title: "整合 X 观点",
+        bullets: ["- 讨论集中于供给冲击与替代来源。"],
+      },
+    ]
+    const events: ChatReasoningEventDetail[] = [
+      {
+        kind: "tool_usage",
+        usage: {
+          toolUsageCardId: "x_legacy_1",
+          toolName: "xSearch",
+          args: { query: "中国石油进口 伊朗 委内瑞拉 占比" },
+        },
+      },
+      {
+        kind: "tool_result",
+        result: {
+          toolUsageCardId: "x_legacy_1",
+        },
+      },
+    ]
+    const summary = buildStructuredReasoningSummary(events)
+    const timeline = buildDeepSearchLegacyTimeline(details, summary.entries)
+    const toolItems = timeline.filter((item) => item.kind === "tool")
+
+    expect(toolItems).toHaveLength(1)
+    if (toolItems[0]?.kind === "tool") {
+      expect(toolItems[0].entry.toolName).toBe("xSearch")
+      expect(toolItems[0].entry.resultsCount).toBe(10)
+      expect(toolItems[0].entry.text).toBe("中国石油进口 伊朗 委内瑞拉 占比")
+    }
+  })
+
   it("drops legacy thought cards whose title is pure xai xml", () => {
     const details: ChatDeepSearchDetail[] = [
       {

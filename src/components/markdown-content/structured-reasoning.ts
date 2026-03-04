@@ -538,6 +538,9 @@ export function buildDeepSearchGroupedSections(
 }
 
 const DEEPSEARCH_XML_ROW_PATTERN = /<\/?xai:[^>]*>/i
+const LEGACY_TOOL_USAGE_CARD_ID_XML_PATTERN = /<xai:tool_usage_card_id>([^<]+)<\/xai:tool_usage_card_id>/i
+const LEGACY_TOOL_NAME_XML_PATTERN = /<xai:tool_name>([^<]+)<\/xai:tool_name>/i
+const LEGACY_TOOL_ARGS_XML_PATTERN = /<xai:tool_args><!\[CDATA\[(.*?)\]\]><\/xai:tool_args>/is
 
 function sanitizeDeepSearchRows(rows: string[]): string[] {
   return rows
@@ -546,6 +549,41 @@ function sanitizeDeepSearchRows(rows: string[]): string[] {
     .filter((row) => Boolean(row) && !DEEPSEARCH_XML_ROW_PATTERN.test(row))
     .map((row) => row.replace(/^[-*]\s+/, "").trim())
     .filter(Boolean)
+}
+
+function extractLegacyToolUsageFromXml(
+  value: string
+): { toolUsageCardId: string; toolName: string; args: Record<string, unknown> } | null {
+  const source = value.trim()
+  if (!source) {
+    return null
+  }
+  const cardIdMatched = LEGACY_TOOL_USAGE_CARD_ID_XML_PATTERN.exec(source)
+  const toolUsageCardId = (cardIdMatched?.[1] || "").trim()
+  if (!toolUsageCardId) {
+    return null
+  }
+
+  const toolNameMatched = LEGACY_TOOL_NAME_XML_PATTERN.exec(source)
+  const toolName = (toolNameMatched?.[1] || "").trim() || "tool"
+  const argsMatched = LEGACY_TOOL_ARGS_XML_PATTERN.exec(source)
+  const argsRaw = (argsMatched?.[1] || "").trim()
+  let args: Record<string, unknown> = {}
+  if (argsRaw) {
+    try {
+      const parsed = JSON.parse(argsRaw) as unknown
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        args = parsed as Record<string, unknown>
+      }
+    } catch {
+      // Keep default empty args for malformed legacy XML blocks.
+    }
+  }
+  return {
+    toolUsageCardId,
+    toolName,
+    args,
+  }
 }
 
 function createSyntheticTimelineToolEntry(
@@ -730,9 +768,18 @@ export function buildDeepSearchLegacyTimeline(
 
   const timeline: DeepSearchTimelineItem[] = []
   const thoughtItems: Array<{ title: string; bullets: string[] }> = []
+  const legacyToolUsageByCardId = new Map<string, { toolName: string; args: Record<string, unknown> }>()
 
   for (const detail of normalizedDetails) {
-    const title = sanitizeDeepSearchRows([(detail.title || "").trim()])[0] || ""
+    const rawTitle = (detail.title || "").trim()
+    const legacyToolUsage = extractLegacyToolUsageFromXml(rawTitle)
+    if (legacyToolUsage) {
+      legacyToolUsageByCardId.set(legacyToolUsage.toolUsageCardId, {
+        toolName: legacyToolUsage.toolName,
+        args: legacyToolUsage.args,
+      })
+    }
+    const title = sanitizeDeepSearchRows([rawTitle])[0] || ""
     const bullets = sanitizeDeepSearchRows(Array.isArray(detail.bullets) ? detail.bullets : [])
     if (!title && bullets.length === 0) {
       continue
@@ -746,6 +793,24 @@ export function buildDeepSearchLegacyTimeline(
   let toolIndex = 0
   let thoughtIndex = 0
   let entryIndex = 0
+  const toLegacyResolvedEntry = (entry: StructuredReasoningEntry): StructuredReasoningEntry => {
+    const legacyToolUsage = legacyToolUsageByCardId.get((entry.toolUsageCardId || "").trim())
+    if (!legacyToolUsage) {
+      return {
+        ...entry,
+        status: entry.status || "completed",
+      }
+    }
+    const fallbackQuery = readToolUsageQueries(legacyToolUsage.args)[0]
+    const fallbackCount = readRequestedResultsCount(legacyToolUsage.args)
+    return {
+      ...entry,
+      toolName: (entry.toolName || "").trim() || legacyToolUsage.toolName || "tool",
+      text: (entry.text || "").trim() || fallbackQuery || "",
+      resultsCount: typeof entry.resultsCount === "number" ? entry.resultsCount : fallbackCount,
+      status: entry.status || "completed",
+    }
+  }
 
   for (const thought of thoughtItems) {
     timeline.push({
@@ -761,10 +826,7 @@ export function buildDeepSearchLegacyTimeline(
       timeline.push({
         kind: "tool",
         key: `deepsearch_legacy_tool_${toolIndex++}`,
-        entry: {
-          ...entries[entryIndex]!,
-          status: entries[entryIndex]!.status || "completed",
-        },
+        entry: toLegacyResolvedEntry(entries[entryIndex]!),
       })
       entryIndex += 1
     }
@@ -774,10 +836,7 @@ export function buildDeepSearchLegacyTimeline(
     timeline.push({
       kind: "tool",
       key: `deepsearch_legacy_tool_${toolIndex++}`,
-      entry: {
-        ...entries[entryIndex]!,
-        status: entries[entryIndex]!.status || "completed",
-      },
+      entry: toLegacyResolvedEntry(entries[entryIndex]!),
     })
     entryIndex += 1
   }

@@ -58,14 +58,28 @@ function formatRelativeTimeLabel(value: string | undefined): string {
   return `${Math.floor(diffSeconds / 86400)}d`
 }
 
+function buildXSearchUrl(query: string): string {
+  const trimmed = query.trim()
+  if (!trimmed) {
+    return ""
+  }
+  return `https://x.com/search?q=${encodeURIComponent(trimmed)}&src=typed_query&f=live`
+}
+
 /* ------------------------------------------------------------------ */
 /* Entry rendering helpers                                             */
 /* ------------------------------------------------------------------ */
 
 function ToolEntryRow({ entry }: { entry: StructuredReasoningEntry }) {
   const [open, setOpen] = useState(false)
-  const hasResults = entry.webSearchResults && entry.webSearchResults.length > 0
+  const resultRows = Array.isArray(entry.webSearchResults) ? entry.webSearchResults : []
+  const hasResults = resultRows.length > 0
   const isXSearch = isXSearchToolName(entry.toolName)
+  const displayText = formatSearchTextForDisplay(entry.text)
+  const xSearchUrl = isXSearch ? buildXSearchUrl(displayText) : ""
+  const canExpand = hasResults || (isXSearch && Boolean(xSearchUrl))
+  const displayResultsCount =
+    typeof entry.resultsCount === "number" ? entry.resultsCount : hasResults ? resultRows.length : isXSearch ? 0 : undefined
 
   const content = (
     <div className="flex items-start justify-between gap-3 py-1">
@@ -90,19 +104,19 @@ function ToolEntryRow({ entry }: { entry: StructuredReasoningEntry }) {
             {resolveStructuredEntryLabel(entry.toolName, entry.visited, entry.status)}
           </p>
           <p className="truncate text-sm font-medium leading-6 text-foreground">
-            {formatSearchTextForDisplay(entry.text)}
+            {displayText}
           </p>
         </div>
       </div>
-      {typeof entry.resultsCount === "number" ? (
+      {typeof displayResultsCount === "number" ? (
         <span className="inline-flex shrink-0 items-center rounded-md border border-foreground/6 bg-secondary/50 px-1.5 py-0.5 text-[12px] tabular-nums text-muted-foreground">
-          {entry.resultsCount}
+          {displayResultsCount}
         </span>
       ) : null}
     </div>
   )
 
-  if (!hasResults) {
+  if (!canExpand) {
     return content
   }
 
@@ -115,7 +129,7 @@ function ToolEntryRow({ entry }: { entry: StructuredReasoningEntry }) {
         <>
           {isXSearch ? (
             <div className="mt-1.5 ml-7 rounded-xl border border-foreground/4 bg-secondary/30 p-2.5 space-y-2">
-              {entry.webSearchResults!.map((res, i) => {
+              {resultRows.map((res, i) => {
                 const authorName = (res.authorName || "").trim() || "X 用户"
                 const authorHandle = (res.authorHandle || "").trim()
                 const postText = (res.preview || "").trim() || (res.title || "").trim() || (res.url || "").trim()
@@ -167,10 +181,21 @@ function ToolEntryRow({ entry }: { entry: StructuredReasoningEntry }) {
                   </button>
                 )
               })}
+              {!hasResults && xSearchUrl ? (
+                <button
+                  type="button"
+                  className="w-full rounded-xl border border-foreground/8 bg-background/70 px-3 py-2.5 text-left text-[13px] text-foreground hover:bg-background"
+                  onClick={() => {
+                    void openExternalUrl(xSearchUrl)
+                  }}
+                >
+                  在 X 中查看“{displayText}”
+                </button>
+              ) : null}
             </div>
           ) : (
             <div className="mt-1.5 ml-7 rounded-xl border border-foreground/4 bg-secondary/30 p-3 space-y-3.5">
-              {entry.webSearchResults!.map((res, i) => {
+              {resultRows.map((res, i) => {
                 let host = ""
                 try {
                   if (res.url) host = new URL(res.url).host.replace(/^www\./, "")
