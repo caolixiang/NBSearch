@@ -10,6 +10,7 @@ import {
   Trash2,
   Check,
   X,
+  Microscope,
 } from "lucide-react"
 import { GrokLottieIcon, HoverAnimationProvider } from "./grok-lottie"
 import { cn } from "@/lib/utils"
@@ -18,6 +19,7 @@ interface Conversation {
   id: string
   title: string
   lastMessage?: string
+  hasDeepSearch?: boolean
   updatedAt: Date
 }
 
@@ -238,7 +240,10 @@ export function ChatSidebar({
                 shouldShowActions ? "px-2 pr-[4.6rem]" : "px-2 pr-2"
               )}
             >
-              <span className="block truncate">{resolveConversationLabel(convo)}</span>
+              <span className="flex min-w-0 items-center gap-1.5">
+                {convo.hasDeepSearch ? <Microscope className="size-4 shrink-0 text-teal-400" /> : null}
+                <span className="block truncate">{resolveConversationLabel(convo)}</span>
+              </span>
             </button>
             {canShowActionButtons ? (
               <div

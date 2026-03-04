@@ -442,12 +442,14 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       const mapped = conversations.map((item) => ({
         id: item.id,
         title: item.title,
+        hasDeepSearch: item.hasDeepSearch,
         updatedAt: new Date(item.updatedAt),
       }))
       if (hasDraftConversation) {
         mapped.unshift({
           id: DRAFT_CONVERSATION_ID,
           title: "",
+          hasDeepSearch: false,
           updatedAt: new Date(draftConversationUpdatedAt || Date.now()),
         })
       }
@@ -682,6 +684,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
         anchors: {
           conversationId: id,
         },
+        hasDeepSearch: false,
         createdAt: now,
         updatedAt: now,
       })
@@ -1237,6 +1240,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
           conversationId,
           lastResponseId: parentResponseId,
         },
+        hasDeepSearch: currentConversation?.hasDeepSearch || false,
         createdAt: currentConversation?.createdAt || now,
         updatedAt: now,
       })

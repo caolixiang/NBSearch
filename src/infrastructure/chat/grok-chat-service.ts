@@ -83,6 +83,7 @@ function createConversationRecord(
     id: conversationId,
     title,
     anchors,
+    hasDeepSearch: false,
     createdAt: now,
     updatedAt: now,
   }
@@ -1650,11 +1651,13 @@ export class GrokChatService implements ChatService {
     const now = Date.now()
     const conversationId = anchors.conversationId || anchors.sessionId || `conv_${crypto.randomUUID()}`
     const existingConversations = await this.repository.listConversations()
-    const currentTitle = existingConversations.find((item) => item.id === conversationId)?.title || ""
+    const currentConversation = existingConversations.find((item) => item.id === conversationId)
+    const currentTitle = currentConversation?.title || ""
     await this.repository.upsertConversation({
       id: conversationId,
       title: currentTitle,
       anchors,
+      hasDeepSearch: currentConversation?.hasDeepSearch || false,
       createdAt: now,
       updatedAt: now,
     })

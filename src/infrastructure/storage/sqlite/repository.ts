@@ -113,13 +113,27 @@ export class SqliteAppRepository implements AppRepository {
         session_id: string
         conversation_id: string
         last_response_id: string
+        has_deep_search: number | boolean | string
         created_at: number
         updated_at: number
       }>
     >(
-      `SELECT id, title, session_id, conversation_id, last_response_id, created_at, updated_at
-       FROM conversations
-       ORDER BY updated_at DESC`
+      `SELECT c.id,
+              c.title,
+              c.session_id,
+              c.conversation_id,
+              c.last_response_id,
+              EXISTS(
+                SELECT 1
+                FROM messages m
+                WHERE m.conversation_id = c.id
+                  AND m.role = 'assistant'
+                  AND m.content_json LIKE '%"research":%'
+              ) AS has_deep_search,
+              c.created_at,
+              c.updated_at
+       FROM conversations c
+       ORDER BY c.updated_at DESC`
     )
 
     return rows.map((row) => ({
@@ -130,6 +144,10 @@ export class SqliteAppRepository implements AppRepository {
         conversationId: row.conversation_id,
         lastResponseId: row.last_response_id,
       },
+      hasDeepSearch:
+        row.has_deep_search === true ||
+        row.has_deep_search === 1 ||
+        row.has_deep_search === "1",
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     }))
