@@ -802,6 +802,27 @@ describe("streamTurn heartbeats and timeout", () => {
         },
       }),
       JSON.stringify({
+        result: {
+          response: {
+            cardAttachment: {
+              jsonData:
+                "{\"id\":\"citation_card_1\",\"cardType\":\"citation_card\",\"type\":\"render_inline_citation\",\"url\":\"https://en.wikipedia.org/wiki/Eileen_Gu\"}",
+            },
+            modelResponse: {
+              steps: [
+                { tags: ["header"], text: ["挖掘国籍细节"] },
+                {
+                  tags: ["summary"],
+                  text: ["谷爱凌国籍争议及中美双重身份，引发公众讨论。"],
+                },
+              ],
+              thinkingStartTime: "2026-03-03T10:00:00Z",
+              thinkingEndTime: "2026-03-03T10:00:09Z",
+            },
+          },
+        },
+      }),
+      JSON.stringify({
         type: "response.output_text.delta",
         delta: "Deep result",
       }),
@@ -815,7 +836,12 @@ describe("streamTurn heartbeats and timeout", () => {
               content: [
                 {
                   type: "output_text",
-                  text: "Deep result",
+                  text: [
+                    "Deep result",
+                    '<grok:render card_id="citation_card_1" card_type="citation_card" type="render_inline_citation">',
+                    '<argument name="citation_id">6</argument>',
+                    "</grok:render>",
+                  ].join("\n"),
                 },
               ],
             },
@@ -854,5 +880,30 @@ describe("streamTurn heartbeats and timeout", () => {
     expect(body["x_grok"]).toEqual({
       deep_search: true,
     })
+
+    const messages = await repository.listMessages("conv_deep_1")
+    const assistant = messages.find((item) => item.role === "assistant")
+    expect(assistant?.research?.citationCards).toEqual([
+      {
+        cardId: "citation_card_1",
+        cardType: "citation_card",
+        url: "https://en.wikipedia.org/wiki/Eileen_Gu",
+      },
+    ])
+    expect(assistant?.research?.inlineCitations).toEqual([
+      {
+        cardId: "citation_card_1",
+        citationId: "6",
+        url: undefined,
+      },
+    ])
+    expect(assistant?.research?.details).toEqual([
+      {
+        title: "挖掘国籍细节",
+        bullets: ["谷爱凌国籍争议及中美双重身份，引发公众讨论。"],
+      },
+    ])
+    expect(assistant?.research?.thinkingStartTime).toBe(new Date("2026-03-03T10:00:00Z").toISOString())
+    expect(assistant?.research?.thinkingEndTime).toBe(new Date("2026-03-03T10:00:09Z").toISOString())
   })
 })

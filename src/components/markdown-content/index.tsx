@@ -1,7 +1,7 @@
 "use client"
 
 import { useMemo } from "react"
-import type { ChatReasoningEventDetail } from "@/domain/chat/types"
+import type { ChatDeepSearchResearch, ChatReasoningEventDetail } from "@/domain/chat/types"
 import { extractAssistantToolMeta, expandGrokRenderTags, collectCardsFromReasoningEvents } from "./markdown-normalize"
 import { parseThinkSections } from "./think-parser"
 import { StructuredReasoningPanel } from "./structured-reasoning-panel"
@@ -18,6 +18,7 @@ export function MarkdownContent({
   reasoningEvents = [],
   reasoningActive = false,
   reasoningDurationSeconds = 0,
+  research,
   messageId,
 }: {
   content: string
@@ -25,6 +26,7 @@ export function MarkdownContent({
   reasoningEvents?: ChatReasoningEventDetail[]
   reasoningActive?: boolean
   reasoningDurationSeconds?: number
+  research?: ChatDeepSearchResearch
   messageId?: string
 }) {
   const parsed = useMemo(() => extractAssistantToolMeta(content), [content])
@@ -43,7 +45,10 @@ export function MarkdownContent({
 
 
 
-  const hasStructuredReasoning = reasoningEvents.length > 0 || reasoningDurationSeconds > 0
+  const hasStructuredReasoning =
+    reasoningEvents.length > 0 ||
+    reasoningDurationSeconds > 0 ||
+    (Array.isArray(research?.details) && research.details.length > 0)
   const shouldShowStructuredReasoning = hasStructuredReasoning
   const shouldRenderLegacyThink = !hasStructuredReasoning
   const sections = useMemo(
@@ -77,6 +82,7 @@ export function MarkdownContent({
           isThinking={reasoningActive}
           isStreaming={streaming}
           durationSeconds={reasoningDurationSeconds}
+          deepSearchDetails={research?.details}
         />
       ) : null}
       {streaming && !content.trim() && !shouldShowStructuredReasoning ? (

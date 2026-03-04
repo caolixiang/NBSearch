@@ -1,9 +1,14 @@
 "use client"
 
 import { useRef, useState, type MouseEvent } from "react"
-import type { ChatReasoningEventDetail } from "@/domain/chat/types"
+import type {
+  ChatDeepSearchResearch,
+  ChatInlineCitation,
+  ChatReasoningEventDetail,
+} from "@/domain/chat/types"
 import { hasTauriRuntime } from "@/app/runtime-info"
 import { buildMessagePdfBytes } from "@/features/chat/export-message-pdf"
+import { openExternalUrl } from "@/lib/open-external-url"
 import { cn } from "@/lib/utils"
 import {
   File,
@@ -24,6 +29,7 @@ export interface RenderChatMessage {
   reasoningEvents?: ChatReasoningEventDetail[]
   reasoningActive?: boolean
   reasoningDurationSeconds?: number
+  research?: ChatDeepSearchResearch
 }
 
 const CJK_CHAR_PATTERN = /[\u3400-\u9FFF\uF900-\uFAFF\u3000-\u303F\uFF00-\uFFEF]/
@@ -155,6 +161,210 @@ function resolveSourceCount(events: ChatReasoningEventDetail[] | undefined): num
   return total
 }
 
+type CitationRenderItem = {
+  key: string
+  url: string
+  label: string
+}
+
+function normalizeCitationUrl(input: string): string {
+  const trimmed = input.trim()
+  if (!trimmed) {
+    return ""
+  }
+  try {
+    const parsed = new URL(trimmed)
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return ""
+    }
+    return parsed.href
+  } catch {
+    return ""
+  }
+}
+
+function fallbackCitationLabel(url: string): string {
+  try {
+    const parsed = new URL(url)
+    const host = parsed.host.replace(/^www\./, "")
+    const path = parsed.pathname === "/" ? "" : parsed.pathname
+    const short = `${host}${path}`
+    if (short.length <= 84) {
+      return short
+    }
+    return `${short.slice(0, 81)}...`
+  } catch {
+    return url
+  }
+}
+
+function collectCitationTitleByUrl(events: ChatReasoningEventDetail[] | undefined): Map<string, string> {
+  const map = new Map<string, string>()
+  if (!events || events.length === 0) {
+    return map
+  }
+  for (const detail of events) {
+    if (detail.kind !== "tool_result" || !Array.isArray(detail.result.webSearchResults)) {
+      continue
+    }
+    for (const row of detail.result.webSearchResults) {
+      const normalizedUrl = normalizeCitationUrl(row.url || "")
+      if (!normalizedUrl) {
+        continue
+      }
+      const title = (row.title || "").trim()
+      if (!title) {
+        continue
+      }
+      if (!map.has(normalizedUrl)) {
+        map.set(normalizedUrl, title)
+      }
+    }
+  }
+  return map
+}
+
+function extractInlineCitationsFromContent(content: string): ChatInlineCitation[] {
+  const source = content.trim()
+  if (!source) {
+    return []
+  }
+  const rows: ChatInlineCitation[] = []
+  const seen = new Set<string>()
+  const renderPattern =
+    /<grok:render\b([^>]*?)>([\s\S]*?)<\/grok:render>|<grok:render\b([^>]*?)\/>/gi
+  let matched: RegExpExecArray | null = renderPattern.exec(source)
+  while (matched) {
+    const attrs = matched[1] || matched[3] || ""
+    const body = matched[2] || ""
+    const cardType = attrs.match(/card_type="([^"]+)"/i)?.[1]?.toLowerCase() || ""
+    if (!cardType.includes("citation")) {
+      matched = renderPattern.exec(source)
+      continue
+    }
+    const cardId = attrs.match(/card_id="([^"]+)"/i)?.[1]?.trim() || ""
+    if (!cardId) {
+      matched = renderPattern.exec(source)
+      continue
+    }
+    const citationId =
+      body.match(/<argument\b[^>]*name="citation_id"[^>]*>([\s\S]*?)<\/argument>/i)?.[1]?.trim() || undefined
+    const key = `${cardId}\u0000${citationId || ""}`
+    if (!seen.has(key)) {
+      seen.add(key)
+      rows.push({
+        cardId,
+        citationId,
+      })
+    }
+    matched = renderPattern.exec(source)
+  }
+  return rows
+}
+
+function collectCitationCardsFromReasoningEvents(
+  events: ChatReasoningEventDetail[] | undefined
+): Array<{ cardId: string; url?: string }> {
+  if (!events || events.length === 0) {
+    return []
+  }
+  const rows: Array<{ cardId: string; url?: string }> = []
+  const seen = new Set<string>()
+  for (const detail of events) {
+    if (detail.kind !== "card_attachment") {
+      continue
+    }
+    const type = `${detail.card.cardType || ""} ${detail.card.type || ""}`.toLowerCase()
+    if (!type.includes("citation")) {
+      continue
+    }
+    const cardId = (detail.card.id || "").trim()
+    if (!cardId) {
+      continue
+    }
+    const url = detail.card.url || detail.card.image?.link || undefined
+    const key = `${cardId}\u0000${url || ""}`
+    if (seen.has(key)) {
+      continue
+    }
+    seen.add(key)
+    rows.push({
+      cardId,
+      url,
+    })
+  }
+  return rows
+}
+
+function buildCitationItems(
+  content: string,
+  research: ChatDeepSearchResearch | undefined,
+  events: ChatReasoningEventDetail[] | undefined
+): CitationRenderItem[] {
+  const fallbackCitationCards = collectCitationCardsFromReasoningEvents(events)
+  const fallbackInline = extractInlineCitationsFromContent(content)
+  const effectiveResearch: ChatDeepSearchResearch = research || {
+    citationCards: fallbackCitationCards,
+    inlineCitations: fallbackInline,
+  }
+  if (
+    (!effectiveResearch.inlineCitations || effectiveResearch.inlineCitations.length === 0) &&
+    (!effectiveResearch.citationCards || effectiveResearch.citationCards.length === 0)
+  ) {
+    return []
+  }
+
+  const citationCardUrlById = new Map<string, string>()
+  for (const row of effectiveResearch.citationCards || []) {
+    const cardId = row.cardId.trim()
+    if (!cardId) {
+      continue
+    }
+    const normalizedUrl = normalizeCitationUrl(row.url || "")
+    if (!normalizedUrl) {
+      continue
+    }
+    if (!citationCardUrlById.has(cardId)) {
+      citationCardUrlById.set(cardId, normalizedUrl)
+    }
+  }
+
+  const titleByUrl = collectCitationTitleByUrl(events)
+  const rows: CitationRenderItem[] = []
+  const seen = new Set<string>()
+
+  const append = (entry: ChatInlineCitation | { cardId: string; url?: string }, fallbackId: string) => {
+    const directUrl = normalizeCitationUrl(entry.url || "")
+    const mappedUrl = directUrl || citationCardUrlById.get(entry.cardId) || ""
+    if (!mappedUrl) {
+      return
+    }
+    const key = `${entry.cardId}\u0000${("citationId" in entry ? entry.citationId : "") || fallbackId}\u0000${mappedUrl}`
+    if (seen.has(key)) {
+      return
+    }
+    seen.add(key)
+    const label = titleByUrl.get(mappedUrl) || fallbackCitationLabel(mappedUrl)
+    rows.push({
+      key,
+      url: mappedUrl,
+      label,
+    })
+  }
+
+  if (Array.isArray(effectiveResearch.inlineCitations) && effectiveResearch.inlineCitations.length > 0) {
+    for (const row of effectiveResearch.inlineCitations) {
+      append(row, "")
+    }
+  } else if (Array.isArray(effectiveResearch.citationCards) && effectiveResearch.citationCards.length > 0) {
+    for (const row of effectiveResearch.citationCards) {
+      append({ cardId: row.cardId, url: row.url }, row.cardId)
+    }
+  }
+
+  return rows
+}
+
 function RegenerateIcon({ className }: { className?: string }) {
   return (
     <svg
@@ -220,6 +430,10 @@ export function ChatMessage({
   const isStreamingAssistant = !isUser && message.id === "streaming_assistant"
   const canExportPdf = !isUser && !isStreamingAssistant && Boolean(pdfExportMeta)
   const sourceCount = !isUser && !isStreamingAssistant ? resolveSourceCount(message.reasoningEvents) : 0
+  const citationItems =
+    !isUser && !isStreamingAssistant
+      ? buildCitationItems(message.content, message.research, message.reasoningEvents)
+      : []
   const showSourceSummary = sourceCount > 0
   const reasoningPanelId = `reasoning-panel-${message.id}`
 
@@ -350,8 +564,32 @@ export function ChatMessage({
           reasoningEvents={message.reasoningEvents}
           reasoningActive={message.reasoningActive}
           reasoningDurationSeconds={message.reasoningDurationSeconds}
+          research={message.research}
           messageId={message.id}
         />
+        {citationItems.length > 0 ? (
+          <section className="mt-3 rounded-2xl border border-foreground/8 bg-secondary/10 px-4 py-3">
+            <h4 className="text-[15px] font-semibold leading-6 text-foreground">Key Citations:</h4>
+            <ul className="mt-1.5 list-disc space-y-1.5 pl-6 text-[15px] leading-6">
+              {citationItems.map((item) => (
+                <li key={item.key}>
+                  <a
+                    href={item.url}
+                    target="_blank"
+                    rel="noreferrer noopener"
+                    className="break-words text-foreground/90 underline decoration-foreground/40 underline-offset-2 hover:text-foreground"
+                    onClick={(event) => {
+                      event.preventDefault()
+                      void openExternalUrl(item.url)
+                    }}
+                  >
+                    {item.label}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
       </div>
       {!isStreamingAssistant && (onRegenerate || canExportPdf || showSourceSummary) ? (
         <div

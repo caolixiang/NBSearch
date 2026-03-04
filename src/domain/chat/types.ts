@@ -6,6 +6,7 @@ export interface ChatMessage {
   content: string
   reasoningEvents?: ChatReasoningEventDetail[]
   reasoningDurationSeconds?: number
+  research?: ChatDeepSearchResearch
   responseId?: string
   previousResponseId?: string
   status?: "streaming" | "completed" | "failed"
@@ -38,6 +39,34 @@ export interface ChatReasoningLayout {
   willThinkLong?: boolean
   effort?: string
   rolloutIds: string[]
+}
+
+export interface ChatCitationCard {
+  cardId: string
+  cardType?: string
+  url?: string
+}
+
+export interface ChatInlineCitation {
+  cardId: string
+  citationId?: string
+  url?: string
+}
+
+export interface ChatDeepSearchDetail {
+  title: string
+  bullets: string[]
+}
+
+export interface ChatDeepSearchResearch {
+  requestMetadata?: Record<string, unknown>
+  uiLayout?: ChatReasoningLayout
+  deepsearchPreset?: string
+  thinkingStartTime?: string
+  thinkingEndTime?: string
+  details?: ChatDeepSearchDetail[]
+  citationCards?: ChatCitationCard[]
+  inlineCitations?: ChatInlineCitation[]
 }
 
 export interface ChatReasoningToolUsage {

@@ -49,6 +49,7 @@ function toRenderMessage(message: DomainChatMessage): RenderChatMessage | null {
     role: message.role,
     content: message.content,
     createdAt: message.createdAt,
+    research: message.research,
     responseId: message.responseId,
     previousResponseId: message.previousResponseId,
   }
@@ -508,6 +509,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
           reasoningEvents: reasoningEvents || [],
           reasoningActive: false,
           reasoningDurationSeconds,
+          research: message.research,
         }
       })
       .filter((item): item is RenderChatMessage => item !== null)

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { ChevronDown, Globe, ImageIcon, Search, Wrench, X } from "lucide-react"
 import { createPortal } from "react-dom"
-import type { ChatReasoningEventDetail } from "@/domain/chat/types"
+import type { ChatDeepSearchDetail, ChatReasoningEventDetail } from "@/domain/chat/types"
 import { openExternalUrl } from "@/lib/open-external-url"
 import { cn } from "@/lib/utils"
 import type { StructuredReasoningEntry, StructuredReasoningToolChainItem } from "./types"
@@ -213,6 +213,31 @@ function ToolChainSection({ toolChain }: { toolChain: StructuredReasoningToolCha
   )
 }
 
+function DeepSearchDetailSection({ details }: { details: ChatDeepSearchDetail[] }) {
+  if (details.length === 0) {
+    return null
+  }
+
+  return (
+    <section className="mb-4 space-y-2.5">
+      {details.map((detail, index) => (
+        <article key={`${detail.title}-${index}`} className="rounded-xl border border-foreground/8 bg-secondary/20 p-3">
+          <h4 className="text-[15px] font-semibold leading-6 text-foreground">{detail.title}</h4>
+          {detail.bullets.length > 0 ? (
+            <ul className="mt-1.5 list-disc space-y-1 pl-5 text-[14px] leading-6 text-foreground/80">
+              {detail.bullets.map((row, rowIndex) => (
+                <li key={`${detail.title}-${rowIndex}`} className="break-words">
+                  {row}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </article>
+      ))}
+    </section>
+  )
+}
+
 /* ------------------------------------------------------------------ */
 /* Right-side drawer panel                                             */
 /* ------------------------------------------------------------------ */
@@ -221,11 +246,13 @@ function ReasoningDrawer({
   agentGroups,
   agents,
   toolChain,
+  deepSearchDetails,
   onClose,
 }: {
   agentGroups: AgentGroupedEntries[]
   agents: ReturnType<typeof collectRolloutAgents>
   toolChain: StructuredReasoningToolChainItem[]
+  deepSearchDetails: ChatDeepSearchDetail[]
   onClose: () => void
 }) {
   useEffect(() => {
@@ -259,6 +286,7 @@ function ReasoningDrawer({
           </button>
         </div>
         <div className="flex-1 overflow-y-auto px-5 py-4">
+          <DeepSearchDetailSection details={deepSearchDetails} />
           <ToolChainSection toolChain={toolChain} />
           {agentGroups.length > 0 ? (
             <div className="space-y-1">
@@ -293,12 +321,14 @@ export function StructuredReasoningPanel({
   isThinking,
   isStreaming = false,
   durationSeconds = 0,
+  deepSearchDetails = [],
 }: {
   messageId?: string
   events: ChatReasoningEventDetail[]
   isThinking: boolean
   isStreaming?: boolean
   durationSeconds?: number
+  deepSearchDetails?: ChatDeepSearchDetail[]
 }) {
   const summary = useMemo(() => buildStructuredReasoningSummary(events), [events])
   const agents = useMemo(() => collectRolloutAgents(summary.rolloutIds), [summary.rolloutIds])
@@ -391,7 +421,7 @@ export function StructuredReasoningPanel({
 
   const hasAgentItems = agents.length > 1
   const durationSuffix = durationSeconds > 0 ? ` ${durationSeconds}s` : ""
-  const hasAnyRecords = summary.entries.length > 0
+  const hasAnyRecords = summary.entries.length > 0 || deepSearchDetails.length > 0
   const toolChainCount = summary.toolChain.length
   const showPanel = effectiveThinking || hasAnyRecords
 
@@ -440,7 +470,13 @@ export function StructuredReasoningPanel({
           </span>
         </button>
         {drawerOpen && (
-          <ReasoningDrawer agentGroups={agentGroups} agents={agents} toolChain={summary.toolChain} onClose={closeDrawer} />
+          <ReasoningDrawer
+            agentGroups={agentGroups}
+            agents={agents}
+            toolChain={summary.toolChain}
+            deepSearchDetails={deepSearchDetails}
+            onClose={closeDrawer}
+          />
         )}
       </div>
     )

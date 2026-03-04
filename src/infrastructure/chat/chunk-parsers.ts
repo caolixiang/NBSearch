@@ -1,6 +1,10 @@
 import type {
   ChatCardAttachmentPayload,
+  ChatCitationCard,
+  ChatDeepSearchDetail,
+  ChatDeepSearchResearch,
   ChatAnchors,
+  ChatInlineCitation,
   ChatMessage,
   ChatReasoningEventDetail,
   ChatReasoningLayout,
@@ -396,6 +400,426 @@ function readStringArray(value: unknown): string[] {
   return value.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
 }
 
+function readStringOrStringArray(value: unknown): string[] {
+  if (typeof value === "string") {
+    const trimmed = value.trim()
+    return trimmed ? [trimmed] : []
+  }
+  if (!Array.isArray(value)) {
+    return []
+  }
+  const rows: string[] = []
+  for (const item of value) {
+    if (typeof item === "string") {
+      const trimmed = item.trim()
+      if (trimmed) {
+        rows.push(trimmed)
+      }
+    }
+  }
+  return rows
+}
+
+function readOptionalString(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined
+  }
+  const normalized = value.trim()
+  return normalized ? normalized : undefined
+}
+
+function normalizeResearchIsoTime(value: unknown): string | undefined {
+  const raw = readOptionalString(value)
+  if (!raw) {
+    return undefined
+  }
+  const millis = Date.parse(raw)
+  if (!Number.isFinite(millis)) {
+    return undefined
+  }
+  return new Date(millis).toISOString()
+}
+
+function extractAttrValue(rawAttrs: string, name: string): string | undefined {
+  const pattern = new RegExp(`${name}="([^"]+)"`, "i")
+  const matched = rawAttrs.match(pattern)?.[1]
+  if (!matched) {
+    return undefined
+  }
+  const trimmed = matched.trim()
+  return trimmed || undefined
+}
+
+function extractArgumentValue(body: string, name: string): string | undefined {
+  const pattern = new RegExp(`<argument\\b[^>]*name="${name}"[^>]*>([\\s\\S]*?)<\\/argument>`, "i")
+  const matched = body.match(pattern)?.[1]
+  if (!matched) {
+    return undefined
+  }
+  const trimmed = matched.trim()
+  return trimmed || undefined
+}
+
+function parseCitationCards(value: unknown): ChatCitationCard[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+  const rows: ChatCitationCard[] = []
+  for (const item of value) {
+    if (!isRecord(item)) {
+      continue
+    }
+    const cardId =
+      readOptionalString(item.card_id) ||
+      readOptionalString(item.cardId) ||
+      readOptionalString(item.id) ||
+      ""
+    if (!cardId) {
+      continue
+    }
+    rows.push({
+      cardId,
+      cardType: readOptionalString(item.card_type) || readOptionalString(item.cardType),
+      url: readOptionalString(item.url),
+    })
+  }
+  return rows
+}
+
+function parseInlineCitations(value: unknown): ChatInlineCitation[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+  const rows: ChatInlineCitation[] = []
+  for (const item of value) {
+    if (!isRecord(item)) {
+      continue
+    }
+    const cardId =
+      readOptionalString(item.card_id) ||
+      readOptionalString(item.cardId) ||
+      readOptionalString(item.id) ||
+      ""
+    if (!cardId) {
+      continue
+    }
+    rows.push({
+      cardId,
+      citationId: readOptionalString(item.citation_id) || readOptionalString(item.citationId),
+      url: readOptionalString(item.url),
+    })
+  }
+  return rows
+}
+
+function parseResearchDetailsFromSteps(value: unknown): ChatDeepSearchDetail[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  const details: ChatDeepSearchDetail[] = []
+  let current: ChatDeepSearchDetail | null = null
+
+  const pushCurrent = () => {
+    if (!current) {
+      return
+    }
+    const normalizedBullets = current.bullets
+      .map((row) => row.trim())
+      .filter(Boolean)
+    if (!current.title.trim() && normalizedBullets.length === 0) {
+      current = null
+      return
+    }
+    details.push({
+      title: current.title.trim() || "深度挖掘细节",
+      bullets: Array.from(new Set(normalizedBullets)),
+    })
+    current = null
+  }
+
+  for (const step of value) {
+    if (!isRecord(step)) {
+      continue
+    }
+
+    const tags = readStringArray(step.tags).map((tag) => tag.toLowerCase())
+    const hasHeaderTag = tags.includes("header")
+    const hasSummaryTag = tags.includes("summary")
+    const titleCandidate =
+      readOptionalString(step.header) ||
+      readOptionalString(step.title) ||
+      readOptionalString(step.name) ||
+      readOptionalString(step.label)
+    const textRows = Array.from(
+      new Set([
+        ...readStringOrStringArray(step.summary),
+        ...readStringOrStringArray(step.text),
+        ...readStringOrStringArray(step.bullets),
+        ...readStringOrStringArray(step.points),
+      ])
+    )
+
+    if (hasHeaderTag) {
+      pushCurrent()
+      const [firstText, ...restText] = textRows
+      current = {
+        title: titleCandidate || firstText || "深度挖掘细节",
+        bullets: restText,
+      }
+      continue
+    }
+
+    if (hasSummaryTag) {
+      if (!current) {
+        current = {
+          title: titleCandidate || "深度挖掘细节",
+          bullets: [],
+        }
+      }
+      current.bullets.push(...textRows)
+      continue
+    }
+
+    if (titleCandidate || textRows.length > 0) {
+      pushCurrent()
+      const [firstText, ...restText] = textRows
+      details.push({
+        title: titleCandidate || firstText || "深度挖掘细节",
+        bullets: titleCandidate ? textRows : restText,
+      })
+    }
+  }
+
+  pushCurrent()
+
+  const deduped: ChatDeepSearchDetail[] = []
+  const seen = new Set<string>()
+  for (const detail of details) {
+    const title = detail.title.trim()
+    const bullets = detail.bullets
+      .map((row) => row.trim())
+      .filter(Boolean)
+      .slice(0, 6)
+    const key = `${title}\u0000${bullets.join("\u0001")}`
+    if (seen.has(key)) {
+      continue
+    }
+    seen.add(key)
+    deduped.push({
+      title: title || "深度挖掘细节",
+      bullets,
+    })
+  }
+  return deduped
+}
+
+function parseResearchObject(value: unknown): Partial<ChatDeepSearchResearch> {
+  if (!isRecord(value)) {
+    return {}
+  }
+
+  const requestMetadata = isRecord(value.request_metadata)
+    ? value.request_metadata
+    : isRecord(value.requestMetadata)
+      ? value.requestMetadata
+      : undefined
+  const uiLayoutRaw = isRecord(value.ui_layout) ? value.ui_layout : isRecord(value.uiLayout) ? value.uiLayout : null
+  const uiLayout = uiLayoutRaw
+    ? {
+        reasoningUiLayout: readOptionalString(uiLayoutRaw.reasoningUiLayout),
+        willThinkLong:
+          typeof uiLayoutRaw.willThinkLong === "boolean" ? uiLayoutRaw.willThinkLong : undefined,
+        effort: readOptionalString(uiLayoutRaw.effort),
+        rolloutIds: readStringArray(uiLayoutRaw.rolloutIds),
+      }
+    : undefined
+  const details = parseResearchDetailsFromSteps(value.steps)
+  const citationCards = parseCitationCards(value.citation_cards || value.citationCards)
+  const inlineCitations = parseInlineCitations(value.inline_citations || value.inlineCitations)
+
+  return {
+    requestMetadata: requestMetadata ? { ...requestMetadata } : undefined,
+    uiLayout,
+    deepsearchPreset: readOptionalString(value.deepsearch_preset) || readOptionalString(value.deepsearchPreset),
+    thinkingStartTime:
+      normalizeResearchIsoTime(value.thinking_start_time) || normalizeResearchIsoTime(value.thinkingStartTime),
+    thinkingEndTime:
+      normalizeResearchIsoTime(value.thinking_end_time) || normalizeResearchIsoTime(value.thinkingEndTime),
+    details: details.length > 0 ? details : undefined,
+    citationCards: citationCards.length > 0 ? citationCards : undefined,
+    inlineCitations: inlineCitations.length > 0 ? inlineCitations : undefined,
+  }
+}
+
+function hasResearchFragment(value: Partial<ChatDeepSearchResearch>): boolean {
+  return Boolean(
+    value.requestMetadata ||
+      value.uiLayout ||
+      (value.deepsearchPreset || "").trim() ||
+      (value.thinkingStartTime || "").trim() ||
+      (value.thinkingEndTime || "").trim() ||
+      (Array.isArray(value.details) && value.details.length > 0) ||
+      (Array.isArray(value.citationCards) && value.citationCards.length > 0) ||
+      (Array.isArray(value.inlineCitations) && value.inlineCitations.length > 0)
+  )
+}
+
+function mergeResearchFragments(
+  previous: Partial<ChatDeepSearchResearch>,
+  next: Partial<ChatDeepSearchResearch>
+): Partial<ChatDeepSearchResearch> {
+  const merged: Partial<ChatDeepSearchResearch> = {
+    requestMetadata:
+      next.requestMetadata && Object.keys(next.requestMetadata).length > 0
+        ? next.requestMetadata
+        : previous.requestMetadata,
+    uiLayout: next.uiLayout || previous.uiLayout,
+    deepsearchPreset: next.deepsearchPreset || previous.deepsearchPreset,
+    thinkingStartTime: next.thinkingStartTime || previous.thinkingStartTime,
+    thinkingEndTime: next.thinkingEndTime || previous.thinkingEndTime,
+  }
+
+  const citationByKey = new Map<string, ChatCitationCard>()
+  for (const row of [...(previous.citationCards || []), ...(next.citationCards || [])]) {
+    const key = `${row.cardId}\u0000${row.url || ""}`
+    if (!citationByKey.has(key)) {
+      citationByKey.set(key, row)
+    }
+  }
+  if (citationByKey.size > 0) {
+    merged.citationCards = Array.from(citationByKey.values())
+  }
+
+  const inlineByKey = new Map<string, ChatInlineCitation>()
+  for (const row of [...(previous.inlineCitations || []), ...(next.inlineCitations || [])]) {
+    const key = `${row.cardId}\u0000${row.citationId || ""}\u0000${row.url || ""}`
+    if (!inlineByKey.has(key)) {
+      inlineByKey.set(key, row)
+    }
+  }
+  if (inlineByKey.size > 0) {
+    merged.inlineCitations = Array.from(inlineByKey.values())
+  }
+
+  const detailByKey = new Map<string, ChatDeepSearchDetail>()
+  for (const row of [...(previous.details || []), ...(next.details || [])]) {
+    const title = row.title.trim()
+    const bullets = row.bullets.map((item) => item.trim()).filter(Boolean)
+    const key = `${title}\u0000${bullets.join("\u0001")}`
+    if (!detailByKey.has(key)) {
+      detailByKey.set(key, {
+        title: title || "深度挖掘细节",
+        bullets,
+      })
+    }
+  }
+  if (detailByKey.size > 0) {
+    merged.details = Array.from(detailByKey.values())
+  }
+
+  return merged
+}
+
+function toCitationCardFromAttachment(card: ChatCardAttachmentPayload): ChatCitationCard | null {
+  const cardType = (card.cardType || card.type || "").trim()
+  if (!cardType.toLowerCase().includes("citation")) {
+    return null
+  }
+  const cardId = (card.id || "").trim()
+  if (!cardId) {
+    return null
+  }
+  const resolvedUrl = readOptionalString(card.url) || readOptionalString(card.image?.link)
+  return {
+    cardId,
+    cardType: cardType || undefined,
+    url: resolvedUrl,
+  }
+}
+
+export function extractInlineCitationsFromText(value: string): ChatInlineCitation[] {
+  const source = value.trim()
+  if (!source) {
+    return []
+  }
+
+  const rows: ChatInlineCitation[] = []
+  const seen = new Set<string>()
+  const renderPattern =
+    /<grok:render\b([^>]*?)>([\s\S]*?)<\/grok:render>|<grok:render\b([^>]*?)\/>/gi
+  let matched: RegExpExecArray | null = renderPattern.exec(source)
+  while (matched) {
+    const attrs = matched[1] || matched[3] || ""
+    const body = matched[2] || ""
+    const cardType = (extractAttrValue(attrs, "card_type") || extractAttrValue(attrs, "cardType") || "").toLowerCase()
+    if (!cardType.includes("citation")) {
+      matched = renderPattern.exec(source)
+      continue
+    }
+    const cardId = extractAttrValue(attrs, "card_id") || extractAttrValue(attrs, "cardId") || ""
+    if (!cardId) {
+      matched = renderPattern.exec(source)
+      continue
+    }
+    const citationId =
+      extractArgumentValue(body, "citation_id") ||
+      extractArgumentValue(body, "citationId") ||
+      extractAttrValue(attrs, "citation_id") ||
+      extractAttrValue(attrs, "citationId")
+    const url =
+      extractArgumentValue(body, "url") || extractAttrValue(attrs, "url")
+    const key = `${cardId}\u0000${citationId || ""}\u0000${url || ""}`
+    if (!seen.has(key)) {
+      seen.add(key)
+      rows.push({
+        cardId,
+        citationId: citationId || undefined,
+        url: url || undefined,
+      })
+    }
+    matched = renderPattern.exec(source)
+  }
+
+  return rows
+}
+
+export function extractDeepSearchResearchFromRawChunk(rawChunk: unknown): Partial<ChatDeepSearchResearch> {
+  let merged: Partial<ChatDeepSearchResearch> = {}
+
+  for (const candidate of collectRawChunkCandidates(rawChunk)) {
+    const fromXGrok =
+      isRecord(candidate.x_grok) && isRecord(candidate.x_grok.research)
+        ? parseResearchObject(candidate.x_grok.research)
+        : {}
+    if (hasResearchFragment(fromXGrok)) {
+      merged = mergeResearchFragments(merged, fromXGrok)
+    }
+
+    const fromResearch = parseResearchObject(candidate.research)
+    if (hasResearchFragment(fromResearch)) {
+      merged = mergeResearchFragments(merged, fromResearch)
+    }
+
+    const fromModelResponse =
+      isRecord(candidate.modelResponse)
+        ? parseResearchObject(candidate.modelResponse)
+        : {}
+    if (hasResearchFragment(fromModelResponse)) {
+      merged = mergeResearchFragments(merged, fromModelResponse)
+    }
+  }
+
+  const citationCards = extractCardAttachmentsFromRawChunk(rawChunk)
+    .map((card) => toCitationCardFromAttachment(card))
+    .filter((row): row is ChatCitationCard => Boolean(row))
+  if (citationCards.length > 0) {
+    merged = mergeResearchFragments(merged, { citationCards })
+  }
+
+  return merged
+}
+
 function readReasoningLayout(rawChunk: unknown): {
   layout: ChatReasoningLayout
   isThinking?: boolean
@@ -582,14 +1006,6 @@ function readToolResultEvent(rawChunk: unknown): ChatReasoningEventDetail | null
 // ---------------------------------------------------------------------------
 // Card attachments
 // ---------------------------------------------------------------------------
-
-function readOptionalString(value: unknown): string | undefined {
-  if (typeof value !== "string") {
-    return undefined
-  }
-  const normalized = value.trim()
-  return normalized ? normalized : undefined
-}
 
 function readOptionalExpiresAt(value: unknown): string | undefined {
   if (typeof value === "number" && Number.isFinite(value)) {

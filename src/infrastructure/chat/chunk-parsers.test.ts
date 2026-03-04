@@ -1,10 +1,12 @@
 import { describe, expect, it } from "bun:test"
 import {
   extractCardAttachmentsFromRawChunk,
+  extractDeepSearchResearchFromRawChunk,
   extractGatewayFinalMessageFromRawChunk,
   extractGatewayResponseIdFromRawChunk,
   extractGatewayTextDeltaFromRawChunk,
   extractGeneratedImageModeratedFromRawChunk,
+  extractInlineCitationsFromText,
   extractReasoningEventsFromRawChunk,
   extractWebSearchToolMetaFromRawChunk,
   extractResponseNewTitleFromRawChunk,
@@ -854,6 +856,124 @@ describe("extractReasoningEventsFromRawChunk", () => {
         responseId: "resp_wrapped_6",
       },
     })
+  })
+})
+
+describe("extractInlineCitationsFromText", () => {
+  it("extracts inline citation rows from grok render tags", () => {
+    const rows = extractInlineCitationsFromText(
+      [
+        "正文",
+        '<grok:render card_id="c1" card_type="citation_card" type="render_inline_citation">',
+        '<argument name="citation_id">6</argument>',
+        "</grok:render>",
+      ].join("\n")
+    )
+
+    expect(rows).toEqual([
+      {
+        cardId: "c1",
+        citationId: "6",
+        url: undefined,
+      },
+    ])
+  })
+})
+
+describe("extractDeepSearchResearchFromRawChunk", () => {
+  it("extracts research payload from x_grok.research", () => {
+    const research = extractDeepSearchResearchFromRawChunk({
+      type: "response.completed",
+      response: {
+        x_grok: {
+          research: {
+            request_metadata: {
+              model: "grok-4",
+              mode: "MODEL_MODE_EXPERT",
+              effort: "HIGH",
+            },
+            ui_layout: {
+              reasoningUiLayout: "UNIFIED",
+              willThinkLong: true,
+              effort: "HIGH",
+              rolloutIds: ["Grok", "Agent 1"],
+            },
+            thinking_start_time: "2026-03-03T10:00:00Z",
+            thinking_end_time: "2026-03-03T10:00:09Z",
+            citation_cards: [{ card_id: "c1", card_type: "citation_card", url: "https://en.wikipedia.org/wiki/Eileen_Gu" }],
+            inline_citations: [{ card_id: "c1", citation_id: "6" }],
+            steps: [
+              { tags: ["header"], text: ["挖掘国籍细节"] },
+              { tags: ["summary"], text: ["谷爱凌国籍争议及中美双重身份，引发公众讨论。"] },
+            ],
+          },
+        },
+      },
+    })
+
+    expect(research.requestMetadata?.model).toBe("grok-4")
+    expect(research.uiLayout?.reasoningUiLayout).toBe("UNIFIED")
+    expect(research.thinkingStartTime).toBe(new Date("2026-03-03T10:00:00Z").toISOString())
+    expect(research.thinkingEndTime).toBe(new Date("2026-03-03T10:00:09Z").toISOString())
+    expect(research.citationCards).toEqual([
+      {
+        cardId: "c1",
+        cardType: "citation_card",
+        url: "https://en.wikipedia.org/wiki/Eileen_Gu",
+      },
+    ])
+    expect(research.inlineCitations).toEqual([
+      {
+        cardId: "c1",
+        citationId: "6",
+        url: undefined,
+      },
+    ])
+    expect(research.details).toEqual([
+      {
+        title: "挖掘国籍细节",
+        bullets: ["谷爱凌国籍争议及中美双重身份，引发公众讨论。"],
+      },
+    ])
+  })
+
+  it("extracts citation cards from stream cardAttachment payload", () => {
+    const research = extractDeepSearchResearchFromRawChunk({
+      result: {
+        response: {
+          cardAttachment: {
+            jsonData:
+              "{\"id\":\"card_11\",\"cardType\":\"citation_card\",\"type\":\"render_inline_citation\",\"url\":\"https://time.com/6148188/eileen-gus-identity\"}",
+          },
+          modelResponse: {
+            steps: [
+              {
+                tags: ["header"],
+                text: ["挖掘国籍细节"],
+              },
+              {
+                tags: ["summary"],
+                text: ["她出生在美国，母亲是中国人，2019年宣布加入中国国籍。"],
+              },
+            ],
+          },
+        },
+      },
+    })
+
+    expect(research.citationCards).toEqual([
+      {
+        cardId: "card_11",
+        cardType: "citation_card",
+        url: "https://time.com/6148188/eileen-gus-identity",
+      },
+    ])
+    expect(research.details).toEqual([
+      {
+        title: "挖掘国籍细节",
+        bullets: ["她出生在美国，母亲是中国人，2019年宣布加入中国国籍。"],
+      },
+    ])
   })
 })
 

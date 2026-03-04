@@ -3,6 +3,9 @@ import type { ChatService } from "../../domain/chat/service"
 import type {
   ChatAnchors,
   ChatCardAttachmentPayload,
+  ChatCitationCard,
+  ChatDeepSearchResearch,
+  ChatInlineCitation,
   ChatMessage,
   ChatReasoningEventDetail,
   ChatTurnResult,
@@ -20,10 +23,12 @@ import {
   buildUserMessage,
   extractCardAttachmentsFromRawChunk,
   extractChunkIsThinking,
+  extractDeepSearchResearchFromRawChunk,
   extractGatewayFinalMessageFromRawChunk,
   extractGatewayResponseIdFromRawChunk,
   extractGatewayTextDeltaFromRawChunk,
   extractGeneratedImageModeratedFromRawChunk,
+  extractInlineCitationsFromText,
   isRecord,
   extractReasoningEventsFromRawChunk,
   extractResponseNewTitleFromRawChunk,
@@ -99,6 +104,90 @@ function readReasoningEventResponseId(detail: ChatReasoningEventDetail): string 
     return detail.result.responseId?.trim() || ""
   }
   return ""
+}
+
+function toCitationCardFromAttachment(card: ChatCardAttachmentPayload): ChatCitationCard | null {
+  const cardType = (card.cardType || card.type || "").trim()
+  if (!cardType.toLowerCase().includes("citation")) {
+    return null
+  }
+  const cardId = (card.id || "").trim()
+  if (!cardId) {
+    return null
+  }
+  return {
+    cardId,
+    cardType: cardType || undefined,
+    url: (card.url || card.image?.link || "").trim() || undefined,
+  }
+}
+
+function mergeResearchPayload(
+  previous: ChatDeepSearchResearch | undefined,
+  next: Partial<ChatDeepSearchResearch> | undefined
+): ChatDeepSearchResearch | undefined {
+  const base = previous || {}
+  const incoming = next || {}
+  const merged: ChatDeepSearchResearch = {
+    requestMetadata:
+      incoming.requestMetadata && Object.keys(incoming.requestMetadata).length > 0
+        ? incoming.requestMetadata
+        : base.requestMetadata,
+    uiLayout: incoming.uiLayout || base.uiLayout,
+    deepsearchPreset: incoming.deepsearchPreset || base.deepsearchPreset,
+    thinkingStartTime: incoming.thinkingStartTime || base.thinkingStartTime,
+    thinkingEndTime: incoming.thinkingEndTime || base.thinkingEndTime,
+  }
+
+  const citationMap = new Map<string, ChatCitationCard>()
+  for (const row of [...(base.citationCards || []), ...(incoming.citationCards || [])]) {
+    const key = `${row.cardId}\u0000${row.url || ""}`
+    if (!citationMap.has(key)) {
+      citationMap.set(key, row)
+    }
+  }
+  if (citationMap.size > 0) {
+    merged.citationCards = Array.from(citationMap.values())
+  }
+
+  const inlineMap = new Map<string, ChatInlineCitation>()
+  for (const row of [...(base.inlineCitations || []), ...(incoming.inlineCitations || [])]) {
+    const key = `${row.cardId}\u0000${row.citationId || ""}\u0000${row.url || ""}`
+    if (!inlineMap.has(key)) {
+      inlineMap.set(key, row)
+    }
+  }
+  if (inlineMap.size > 0) {
+    merged.inlineCitations = Array.from(inlineMap.values())
+  }
+
+  const detailMap = new Map<string, { title: string; bullets: string[] }>()
+  for (const row of [...(base.details || []), ...(incoming.details || [])]) {
+    const title = row.title.trim()
+    const bullets = row.bullets.map((item) => item.trim()).filter(Boolean)
+    const key = `${title}\u0000${bullets.join("\u0001")}`
+    if (!detailMap.has(key)) {
+      detailMap.set(key, {
+        title: title || "深度挖掘细节",
+        bullets,
+      })
+    }
+  }
+  if (detailMap.size > 0) {
+    merged.details = Array.from(detailMap.values())
+  }
+
+  const hasPayload = Boolean(
+    merged.requestMetadata ||
+      merged.uiLayout ||
+      (merged.deepsearchPreset || "").trim() ||
+      (merged.thinkingStartTime || "").trim() ||
+      (merged.thinkingEndTime || "").trim() ||
+      (merged.citationCards && merged.citationCards.length > 0) ||
+      (merged.inlineCitations && merged.inlineCitations.length > 0) ||
+      (merged.details && merged.details.length > 0)
+  )
+  return hasPayload ? merged : undefined
 }
 
 const MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024
@@ -1595,6 +1684,7 @@ export class GrokChatService implements ChatService {
       const generatedImageIndexByCanonical = new Map<string, number>()
       const generatedImageIndexByAssetId = new Map<string, number>()
       const collectedReasoningEvents: ChatReasoningEventDetail[] = []
+      let collectedResearch: ChatDeepSearchResearch | undefined
       let hasStructuredGeneratedImages = false
       let hasModeratedGeneratedImages = false
 
@@ -1843,6 +1933,10 @@ export class GrokChatService implements ChatService {
               // Extract web search meta & cards (collect only)
               appendWebSearchMeta(extractWebSearchToolMetaFromRawChunk(parsed))
               appendCards(extractCardAttachmentsFromRawChunk(parsed))
+              collectedResearch = mergeResearchPayload(
+                collectedResearch,
+                extractDeepSearchResearchFromRawChunk(parsed)
+              )
               if (extractGeneratedImageModeratedFromRawChunk(parsed)) {
                 hasModeratedGeneratedImages = true
               }
@@ -1897,6 +1991,13 @@ export class GrokChatService implements ChatService {
         renewCache
       )
 
+      const citationCardsFromAttachments = collectedCards
+        .map((card) => toCitationCardFromAttachment(card))
+        .filter((row): row is ChatCitationCard => Boolean(row))
+      collectedResearch = mergeResearchPayload(collectedResearch, {
+        citationCards: citationCardsFromAttachments,
+      })
+
       if (hasStructuredGeneratedImages) {
         assistantText = extractGeneratedImageMarkdown(collectedCards)
         gatewayFinalMessage = ""
@@ -1911,6 +2012,13 @@ export class GrokChatService implements ChatService {
       // Use final message as fallback if no accumulated text
       if (!assistantText && gatewayFinalMessage && !isGeneratedImageNarration(gatewayFinalMessage)) {
         assistantText = gatewayFinalMessage
+      }
+
+      const inlineCitationsFromText = extractInlineCitationsFromText(gatewayFinalMessage || assistantText)
+      if (inlineCitationsFromText.length > 0) {
+        collectedResearch = mergeResearchPayload(collectedResearch, {
+          inlineCitations: inlineCitationsFromText,
+        })
       }
 
       const assistantContent = appendToolMeta(assistantText, {
@@ -1929,6 +2037,7 @@ export class GrokChatService implements ChatService {
         createdAt: Date.now(),
         reasoningEvents: reasoningEventCount > 0 ? normalizedReasoningEvents : undefined,
         reasoningDurationSeconds: shouldPersistReasoningDuration ? finalDurationSeconds : undefined,
+        research: collectedResearch,
         responseId: gatewayResponseId || undefined,
         previousResponseId: input.anchors.lastResponseId || undefined,
         status: "completed",

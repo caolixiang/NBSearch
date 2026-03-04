@@ -1,4 +1,4 @@
-import type { ChatMessage, ChatReasoningEventDetail } from "../../../domain/chat/types"
+import type { ChatDeepSearchResearch, ChatMessage, ChatReasoningEventDetail } from "../../../domain/chat/types"
 import type {
   AppRepository,
   ConversationRecord,
@@ -10,6 +10,27 @@ type PersistedMessageContent = {
   text: string
   reasoningEvents?: ChatReasoningEventDetail[]
   reasoningDurationSeconds?: number
+  research?: ChatDeepSearchResearch
+}
+
+function hasResearchPayload(research: ChatDeepSearchResearch | undefined): boolean {
+  if (!research) {
+    return false
+  }
+  return Boolean(
+    (research.deepsearchPreset || "").trim() ||
+      (research.thinkingStartTime || "").trim() ||
+      (research.thinkingEndTime || "").trim() ||
+      (Array.isArray(research.details) && research.details.length > 0) ||
+      (Array.isArray(research.citationCards) && research.citationCards.length > 0) ||
+      (Array.isArray(research.inlineCitations) && research.inlineCitations.length > 0) ||
+      (research.requestMetadata && Object.keys(research.requestMetadata).length > 0) ||
+      (research.uiLayout &&
+        ((research.uiLayout.reasoningUiLayout || "").trim() ||
+          typeof research.uiLayout.willThinkLong === "boolean" ||
+          (research.uiLayout.effort || "").trim() ||
+          (Array.isArray(research.uiLayout.rolloutIds) && research.uiLayout.rolloutIds.length > 0)))
+  )
 }
 
 function normalizeMessageContent(message: ChatMessage): string {
@@ -29,6 +50,10 @@ function normalizeMessageContent(message: ChatMessage): string {
     payload.reasoningDurationSeconds = Math.max(1, Math.round(message.reasoningDurationSeconds))
   }
 
+  if (hasResearchPayload(message.research)) {
+    payload.research = message.research
+  }
+
   return JSON.stringify(payload)
 }
 
@@ -36,6 +61,7 @@ function parseMessageContent(contentJson: string): {
   text: string
   reasoningEvents?: ChatReasoningEventDetail[]
   reasoningDurationSeconds?: number
+  research?: ChatDeepSearchResearch
 } {
   const trimmed = contentJson.trim()
   if (!trimmed) {
@@ -47,12 +73,14 @@ function parseMessageContent(contentJson: string): {
       text?: unknown
       reasoningEvents?: unknown
       reasoningDurationSeconds?: unknown
+      research?: unknown
     }
     const text = typeof value?.text === "string" ? value.text : trimmed
     const result: {
       text: string
       reasoningEvents?: ChatReasoningEventDetail[]
       reasoningDurationSeconds?: number
+      research?: ChatDeepSearchResearch
     } = { text }
 
     if (Array.isArray(value?.reasoningEvents)) {
@@ -64,6 +92,9 @@ function parseMessageContent(contentJson: string): {
       value.reasoningDurationSeconds > 0
     ) {
       result.reasoningDurationSeconds = Math.max(1, Math.round(value.reasoningDurationSeconds))
+    }
+    if (value?.research && typeof value.research === "object" && !Array.isArray(value.research)) {
+      result.research = value.research as ChatDeepSearchResearch
     }
     return result
   } catch {
@@ -213,6 +244,7 @@ export class SqliteAppRepository implements AppRepository {
         content: parsedContent.text,
         reasoningEvents: parsedContent.reasoningEvents,
         reasoningDurationSeconds: parsedContent.reasoningDurationSeconds,
+        research: parsedContent.research,
         responseId: row.response_id || undefined,
         previousResponseId: row.previous_response_id || undefined,
         status: row.status,
