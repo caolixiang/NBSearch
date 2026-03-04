@@ -1557,11 +1557,11 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
   )
 
   const handleNewConversation = useCallback(() => {
-    resetComposerForNewConversation()
     if (activeConversationIdRef.current === DRAFT_CONVERSATION_ID) {
       clearMessagesForConversation(DRAFT_CONVERSATION_ID)
       return
     }
+    resetComposerForNewConversation()
     setHasDraftConversation(true)
     setDraftConversationUpdatedAt(Date.now())
     setActiveConversationId(DRAFT_CONVERSATION_ID)
