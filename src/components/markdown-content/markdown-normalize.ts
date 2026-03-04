@@ -742,6 +742,68 @@ function fixBrokenYearRanges(content: string): string {
   return normalized
 }
 
+function isKeyCitationsHeading(line: string): boolean {
+  const normalized = line
+    .trim()
+    .replace(/^#{1,6}\s*/, "")
+    .replace(/^[*_`~\s]+|[*_`~\s]+$/g, "")
+    .replace(/[：:]\s*$/, "")
+    .trim()
+    .toLowerCase()
+  return normalized === "key citations" || normalized === "key citation"
+}
+
+function isCitationTailLine(line: string): boolean {
+  const trimmed = line.trim()
+  if (!trimmed) {
+    return true
+  }
+  if (/^[-*+]\s+/.test(trimmed)) {
+    return true
+  }
+  if (/https?:\/\//i.test(trimmed)) {
+    return true
+  }
+  if (/^[（(]\s*https?:\/\//i.test(trimmed)) {
+    return true
+  }
+  return false
+}
+
+function stripTrailingKeyCitationsSection(content: string): string {
+  if (!content) {
+    return ""
+  }
+
+  const lines = content.split("\n")
+  let headingIndex = -1
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    if (isKeyCitationsHeading(lines[index] || "")) {
+      headingIndex = index
+      break
+    }
+  }
+  if (headingIndex < 0) {
+    return content
+  }
+
+  const tail = lines.slice(headingIndex + 1)
+  if (tail.length === 0) {
+    return lines.slice(0, headingIndex).join("\n").trimEnd()
+  }
+
+  const hasUrl = tail.some((line) => /https?:\/\//i.test(line))
+  if (!hasUrl) {
+    return content
+  }
+
+  if (!tail.every((line) => isCitationTailLine(line))) {
+    return content
+  }
+
+  return lines.slice(0, headingIndex).join("\n").trimEnd()
+}
+
 export function normalizeAssistantMarkdown(content: string): string {
   if (!content) {
     return ""
@@ -798,6 +860,7 @@ export function normalizeAssistantMarkdown(content: string): string {
       return `${prefix}${fixedUrl}${suffix}`
     }
   )
+  normalized = stripTrailingKeyCitationsSection(normalized)
   normalized = normalized.replace(/\n{3,}/g, "\n\n")
   return normalized.trim()
 }

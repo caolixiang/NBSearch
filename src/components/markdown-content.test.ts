@@ -220,6 +220,27 @@ describe("normalizeAssistantMarkdown", () => {
     expect(normalized).toBe("### 字节跳动内部晋升路径（2017-2021）")
     expect(normalized).not.toContain("\n- 2021")
   })
+
+  it("strips trailing key citations list block from markdown body", () => {
+    const normalized = normalizeAssistantMarkdown(
+      [
+        "结论段落。",
+        "",
+        "**Key Citations**",
+        "- Baidu Baike: 风清扬条目（https://baike.baidu.com/item/%E9%A3%8E%E6%B8%85%E6%89%AC/7056998）",
+        "- Wikipedia (Chinese): 岳不群条目（https://zh.wikipedia.org/wiki/%E5%B2%B3%E4%B8%8D%E7%BE%A3）",
+      ].join("\n")
+    )
+
+    expect(normalized).toBe("结论段落。")
+    expect(normalized).not.toContain("Key Citations")
+    expect(normalized).not.toContain("baike.baidu.com")
+  })
+
+  it("keeps non-citation section when key citations appears in prose", () => {
+    const normalized = normalizeAssistantMarkdown("这段话提到了 key citations 这个词，但不是标题。")
+    expect(normalized).toBe("这段话提到了 key citations 这个词，但不是标题。")
+  })
 })
 
 describe("expandGrokRenderTags", () => {
