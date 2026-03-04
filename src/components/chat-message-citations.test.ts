@@ -1,6 +1,10 @@
 import { describe, expect, it } from "bun:test"
 import type { ChatReasoningEventDetail } from "@/domain/chat/types"
-import { buildCitationItems, extractTrailingKeyCitationEntries } from "./chat-message"
+import {
+  buildCitationItems,
+  extractTrailingKeyCitationEntries,
+  shouldHidePdfExportForGeneratedContent,
+} from "./chat-message"
 
 describe("extractTrailingKeyCitationEntries", () => {
   it("parses trailing key citations in multiple url formats", () => {
@@ -92,5 +96,29 @@ describe("buildCitationItems", () => {
     expect(rows[0]?.url).toBe("https://a.example.com/ref")
     expect(rows[1]?.url).toBe("https://b.example.com/ref")
     expect(rows[1]?.label).toBe("B Ref")
+  })
+})
+
+describe("shouldHidePdfExportForGeneratedContent", () => {
+  it("returns true for pure generated-image tool-meta blocks", () => {
+    const content = [
+      "![Generated Image](<https://example.com/a.jpg>)",
+      "<tool-meta>{\"webSearch\":[],\"cards\":[{\"id\":\"card_a\",\"type\":\"generated_image\"},{\"id\":\"card_b\",\"type\":\"generated_image\"}]}</tool-meta>",
+    ].join("\n")
+
+    expect(shouldHidePdfExportForGeneratedContent(content)).toBe(true)
+  })
+
+  it("returns false when tool-meta includes non-generated cards", () => {
+    const content = [
+      "正文",
+      "<tool-meta>{\"webSearch\":[],\"cards\":[{\"id\":\"card_a\",\"type\":\"generated_image\"},{\"id\":\"card_b\",\"type\":\"citation_card\"}]}</tool-meta>",
+    ].join("\n")
+
+    expect(shouldHidePdfExportForGeneratedContent(content)).toBe(false)
+  })
+
+  it("returns false when no tool-meta exists", () => {
+    expect(shouldHidePdfExportForGeneratedContent("普通回答内容")).toBe(false)
   })
 })

@@ -38,6 +38,54 @@ const DOCUMENT_EXTENSIONS = new Set(["pdf", "doc", "docx", "odt", "pages", "txt"
 const CODE_TEXT_EXTENSIONS = new Set(["json", "xml", "yaml", "yml", "toml", "ini", "log"])
 const OPEN_REASONING_DRAWER_EVENT = "nbsearch:open-reasoning-drawer"
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null
+}
+
+export function shouldHidePdfExportForGeneratedContent(content: string): boolean {
+  if (!content || !content.includes("<tool-meta>")) {
+    return false
+  }
+
+  const matches = content.matchAll(/<tool-meta>([\s\S]*?)<\/tool-meta>/gi)
+  let sawGeneratedCard = false
+  let sawNonGeneratedCard = false
+
+  for (const match of matches) {
+    const payloadText = (match[1] || "").trim()
+    if (!payloadText) {
+      continue
+    }
+
+    let payload: unknown
+    try {
+      payload = JSON.parse(payloadText) as unknown
+    } catch {
+      continue
+    }
+    if (!isRecord(payload) || !Array.isArray(payload.cards)) {
+      continue
+    }
+
+    for (const card of payload.cards) {
+      if (!isRecord(card)) {
+        continue
+      }
+      const cardType = typeof card.type === "string" ? card.type.trim().toLowerCase() : ""
+      if (!cardType) {
+        continue
+      }
+      if (cardType === "generated_image" || cardType.includes("generated_image")) {
+        sawGeneratedCard = true
+        continue
+      }
+      sawNonGeneratedCard = true
+    }
+  }
+
+  return sawGeneratedCard && !sawNonGeneratedCard
+}
+
 function parseUserMessageContent(content: string): { text: string; attachments: string[] } {
   const textLines: string[] = []
   const attachments: string[] = []
@@ -483,7 +531,8 @@ export function ChatMessage({
   const [pdfExportState, setPdfExportState] = useState<"idle" | "loading" | "done" | "error">("idle")
   const isUser = message.role === "user"
   const isStreamingAssistant = !isUser && message.id === "streaming_assistant"
-  const canExportPdf = !isUser && !isStreamingAssistant && Boolean(pdfExportMeta)
+  const hidePdfExport = !isUser && !isStreamingAssistant && shouldHidePdfExportForGeneratedContent(message.content)
+  const canExportPdf = !isUser && !isStreamingAssistant && Boolean(pdfExportMeta) && !hidePdfExport
   const sourceCount = !isUser && !isStreamingAssistant ? resolveSourceCount(message.reasoningEvents) : 0
   const citationItems =
     !isUser && !isStreamingAssistant
@@ -649,7 +698,7 @@ export function ChatMessage({
       {!isStreamingAssistant && (onRegenerate || canExportPdf || showSourceSummary) ? (
         <div
           className={cn(
-            "mt-2 flex items-center gap-1 transition-opacity duration-100",
+            "mt-2 flex w-full items-center justify-end gap-1 transition-opacity duration-100",
             actionBarPinned
               ? "opacity-100"
               : "opacity-0 group-hover/message:opacity-100 group-focus-within/message:opacity-100"
