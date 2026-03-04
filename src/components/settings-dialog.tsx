@@ -165,7 +165,6 @@ export function SettingsDialog({
       setBaseUrl(resolved.apiBaseUrl)
       setApiKey(resolved.apiKey)
       setGatewayMessage("网关配置已保存")
-      onOpenChange(false)
     } catch {
       setGatewayMessage("保存失败，请重试")
     } finally {
@@ -452,4 +451,3 @@ export function SettingsDialog({
     </Dialog>
   )
 }
-

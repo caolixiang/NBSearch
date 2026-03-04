@@ -189,13 +189,24 @@ fn resolve_nbsearch_db_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(resolve_nbsearch_data_dir(app)?.join("chat-app.db"))
 }
 
-fn resolve_app_config_toml_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    let config_dir = app
-        .path()
+fn resolve_legacy_app_config_toml_path(app: &tauri::AppHandle) -> Option<PathBuf> {
+    app.path()
         .app_config_dir()
-        .map_err(|e| format!("resolve app config dir failed: {e}"))?;
-    fs::create_dir_all(&config_dir).map_err(|e| format!("create app config dir failed: {e}"))?;
-    Ok(config_dir.join("config.toml"))
+        .ok()
+        .map(|dir| dir.join("config.toml"))
+}
+
+fn resolve_app_config_toml_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let root = resolve_nbsearch_root(app)?;
+    let target = root.join("config.toml");
+
+    if !target.exists() {
+        if let Some(legacy) = resolve_legacy_app_config_toml_path(app) {
+            copy_file_if_exists(&legacy, &target)?;
+        }
+    }
+
+    Ok(target)
 }
 
 fn read_gateway_config_toml(path: &Path) -> Result<GatewayConfigToml, String> {
