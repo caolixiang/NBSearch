@@ -364,7 +364,7 @@ export function SettingsDialog({
 
                   <div className="space-y-1.5">
                     <label className="text-sm font-medium text-foreground">字体大小</label>
-                    <div className="grid grid-cols-3 gap-2">
+                    <div className="flex flex-wrap gap-2">
                       {[
                         {
                           label: "小",
@@ -391,7 +391,7 @@ export function SettingsDialog({
                             handleFontSizeModeChange(size.value)
                           }}
                           className={cn(
-                            "rounded-xl border px-3 py-2.5 text-left transition-colors",
+                            "w-40 rounded-xl border px-3 py-2.5 text-left transition-colors",
                             fontSizeMode === size.value
                               ? "border-foreground/15 bg-foreground text-background"
                               : "border-input bg-background text-foreground hover:bg-secondary"
