@@ -1025,6 +1025,45 @@ function appendMissingGeneratedImageMarkdownOutsideToolMeta(content: string, url
   return segments.join("")
 }
 
+function parseGeneratedImageMarkdownUrl(line: string): string {
+  const match = line.trim().match(/^!\[Generated Image\]\(<(https?:\/\/[^>]+)>\)$/i)
+  return match?.[1]?.trim() || ""
+}
+
+function pruneGeneratedImageMarkdownOutsideToolMeta(content: string, allowedUrls: Set<string>): string {
+  if (!content || allowedUrls.size === 0) {
+    return content
+  }
+
+  const segments = content.split(/(<tool-meta>[\s\S]*?<\/tool-meta>)/gi)
+  const keptUrls = new Set<string>()
+
+  for (let index = 0; index < segments.length; index += 1) {
+    const segment = segments[index] || ""
+    if (!segment || /^<tool-meta>[\s\S]*<\/tool-meta>$/i.test(segment)) {
+      continue
+    }
+
+    const lines = segment.split("\n")
+    const nextLines: string[] = []
+    for (const line of lines) {
+      const imageUrl = parseGeneratedImageMarkdownUrl(line)
+      if (!imageUrl) {
+        nextLines.push(line)
+        continue
+      }
+      if (!allowedUrls.has(imageUrl) || keptUrls.has(imageUrl)) {
+        continue
+      }
+      keptUrls.add(imageUrl)
+      nextLines.push(line)
+    }
+    segments[index] = nextLines.join("\n")
+  }
+
+  return segments.join("")
+}
+
 function collectGeneratedImageUrls(cards: ChatCardAttachmentPayload[]): Set<string> {
   const urls = new Set<string>()
   for (const card of cards) {
@@ -1117,6 +1156,17 @@ function decodeBase64Url(input: string): string {
   }
 }
 
+function isLikelyDecodedImagePath(value: string): boolean {
+  const trimmed = value.trim()
+  if (!trimmed) {
+    return false
+  }
+  if (/^https?:\/\//i.test(trimmed)) {
+    return true
+  }
+  return trimmed.startsWith("/") || trimmed.startsWith("users/")
+}
+
 function resolveGeneratedImageSourcePath(raw: string): string {
   const value = raw.trim()
   if (!value) {
@@ -1129,13 +1179,13 @@ function resolveGeneratedImageSourcePath(raw: string): string {
     const encoded = decodeURIComponent(value.slice(markerIndex + marker.length).replace(/^\/+/, ""))
     if (encoded.startsWith("p_")) {
       const decoded = decodeBase64Url(encoded.slice(2))
-      if (decoded) {
+      if (decoded && isLikelyDecodedImagePath(decoded)) {
         return decoded
       }
     }
     if (encoded.startsWith("u_")) {
       const decoded = decodeBase64Url(encoded.slice(2))
-      if (decoded) {
+      if (decoded && isLikelyDecodedImagePath(decoded)) {
         try {
           return new URL(decoded).pathname || decoded
         } catch {
@@ -1208,6 +1258,104 @@ function preferGeneratedCardByUrlQuality(
     return next
   }
   return existing
+}
+
+function collectGeneratedImageIdentityKeys(card: ChatCardAttachmentPayload): string[] {
+  if ((card.type || "").toLowerCase() !== "generated_image") {
+    return []
+  }
+
+  const keys = new Set<string>()
+  const addCanonical = (value: string) => {
+    const canonical = canonicalizeGeneratedImagePath(value).key
+    if (!canonical) {
+      return
+    }
+    keys.add(`canonical:${canonical.toLowerCase()}`)
+  }
+  const addLocalAsset = (value: string) => {
+    const normalized = value.trim().toLowerCase()
+    if (!normalized || !isLocalRenewableImageAssetId(normalized)) {
+      return
+    }
+    keys.add(`local:${normalized}`)
+  }
+  const addUpstreamAsset = (value: string) => {
+    const normalized = value.trim().toLowerCase()
+    if (!normalized || isLocalRenewableImageAssetId(normalized)) {
+      return
+    }
+    keys.add(`upstream:${normalized}`)
+  }
+
+  const source = (card.image?.original || card.url || "").trim()
+  const meta = readCardAssetMeta(card)
+  const inferredFromSource = inferGeneratedImageAssetId(source)
+  const inferredFromRawUrl = inferGeneratedImageAssetId(meta.rawUrl)
+
+  addCanonical(source)
+  addCanonical(meta.rawUrl)
+
+  addLocalAsset(meta.asset_id)
+  addLocalAsset(inferredFromSource)
+  addLocalAsset(inferredFromRawUrl)
+
+  addUpstreamAsset(meta.assetId)
+  addUpstreamAsset(inferredFromSource)
+  addUpstreamAsset(inferredFromRawUrl)
+
+  return Array.from(keys)
+}
+
+function dedupeGeneratedImageCards(
+  cards: ChatCardAttachmentPayload[],
+  apiUrl: string
+): ChatCardAttachmentPayload[] {
+  if (cards.length <= 1) {
+    return cards
+  }
+
+  const deduped: ChatCardAttachmentPayload[] = []
+  const indexByIdentity = new Map<string, number>()
+  const reserveIdentities = (identities: string[], index: number) => {
+    for (const key of identities) {
+      if (!key) {
+        continue
+      }
+      indexByIdentity.set(key, index)
+    }
+  }
+
+  for (const card of cards) {
+    if ((card.type || "").toLowerCase() !== "generated_image") {
+      deduped.push(card)
+      continue
+    }
+
+    const identities = collectGeneratedImageIdentityKeys(card)
+    let matchedIndex = -1
+    for (const key of identities) {
+      const index = indexByIdentity.get(key)
+      if (typeof index === "number") {
+        matchedIndex = index
+        break
+      }
+    }
+
+    if (matchedIndex < 0) {
+      deduped.push(card)
+      reserveIdentities(identities, deduped.length - 1)
+      continue
+    }
+
+    const existing = deduped[matchedIndex] || card
+    const preferred = preferGeneratedCardByUrlQuality(existing, card, apiUrl)
+    deduped[matchedIndex] = preferred
+    reserveIdentities(identities, matchedIndex)
+    reserveIdentities(collectGeneratedImageIdentityKeys(preferred), matchedIndex)
+  }
+
+  return deduped
 }
 
 export function inferGeneratedImageAssetId(raw: string): string {
@@ -1576,6 +1724,8 @@ export class GrokChatService implements ChatService {
 
         const cardsBeforeHydration = cards.map((card) => cloneCardAttachmentPayload(card))
         await this.hydrateGeneratedImageCards(cards, renewCache)
+        const dedupedCards = dedupeGeneratedImageCards(cards, this.apiUrl)
+        cards.splice(0, cards.length, ...dedupedCards)
         for (const imageUrl of collectGeneratedImageUrls(cards)) {
           ensuredMarkdownImageUrls.add(imageUrl)
         }
@@ -1626,12 +1776,15 @@ export class GrokChatService implements ChatService {
       const replacedContent = changed
         ? applyUrlReplacementsOutsideToolMeta(nextContent, replacementByUrl)
         : message.content
+      const prunedContent = changed
+        ? pruneGeneratedImageMarkdownOutsideToolMeta(replacedContent, ensuredMarkdownImageUrls)
+        : replacedContent
       const nextVisibleContent = changed
         ? appendMissingGeneratedImageMarkdownOutsideToolMeta(
-            replacedContent,
+            prunedContent,
             ensuredMarkdownImageUrls
           )
-        : replacedContent
+        : prunedContent
 
       const nextMessage = {
         ...message,
@@ -2108,6 +2261,8 @@ export class GrokChatService implements ChatService {
         (cards, sharedRenewCache) => this.hydrateGeneratedImageCards(cards, sharedRenewCache),
         renewCache
       )
+      const dedupedCollectedCards = dedupeGeneratedImageCards(collectedCards, this.apiUrl)
+      collectedCards.splice(0, collectedCards.length, ...dedupedCollectedCards)
 
       const citationCardsFromAttachments = collectedCards
         .map((card) => toCitationCardFromAttachment(card))

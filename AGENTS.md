@@ -16,6 +16,7 @@
 - 当前项目重写已完成，UI、路由、数据层、网络层、状态管理、存储层均以现有实现为基线持续迭代。
 - 模型调用统一走网关 HTTP 接口；当前未引入 AI SDK，也未引入 `openai` 原生 SDK。
 - 工具链统一使用 Bun + Tauri CLI，不保留 Node 兜底路径。
+- 本地数据库目录固定为 `~/.nbsearch`（默认库文件：`~/.nbsearch/data/chat-app.db`）。
 
 ## 写入规则
 
