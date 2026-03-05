@@ -343,6 +343,7 @@ const TURN_RECOVERY_IN_PROGRESS_RETRY_MAX_ATTEMPTS_MAX = 10
 const TURN_RECOVERY_IN_PROGRESS_RETRY_DELAY_MS_MAX = 30_000
 const PENDING_RECOVERY_COMPLETION_FETCH_MAX_ATTEMPTS = 3
 const PENDING_RECOVERY_COMPLETION_FETCH_DELAY_MS = 500
+const PENDING_RECOVERY_MESSAGE_MISSING_RETRY_AFTER_MS = 30_000
 const TURN_RECOVERY_HTTP_RETRYABLE_CODES = new Set([
   "session_in_progress",
   "turn_in_progress",
@@ -1943,6 +1944,7 @@ export class GrokChatService implements ChatService {
   }): Promise<{
     recovered: boolean
     inProgress?: boolean
+    retrySend?: boolean
     previewContent?: string
     result?: ChatTurnResult
   }> {
@@ -1989,6 +1991,21 @@ export class GrokChatService implements ChatService {
         return true
       }
       return sessionLastResponseId !== fallbackPreviousResponseId
+    }
+    const shouldAutoRetrySendForMissingMessage = (state: GatewaySessionState | null): boolean => {
+      if (!isSessionAnchorAheadOfLocal(state)) {
+        return false
+      }
+      if (!state || state.inProgress) {
+        return false
+      }
+      const now = Date.now()
+      const referenceUpdatedAt = state.updatedAt > 0 ? state.updatedAt : 0
+      const referenceTimestamp = Math.max(pendingUserCreatedAt, referenceUpdatedAt)
+      if (referenceTimestamp <= 0) {
+        return false
+      }
+      return now - referenceTimestamp >= PENDING_RECOVERY_MESSAGE_MISSING_RETRY_AFTER_MS
     }
     const pickLatestAssistantRow = (rows: GatewaySessionMessage[]): GatewaySessionMessage | null => {
       const assistantRows = rows.filter((row) => row.role === "assistant")
@@ -2151,6 +2168,13 @@ export class GrokChatService implements ChatService {
         }
       }
       if (isSessionAnchorAheadOfLocal(sessionState)) {
+        if (shouldAutoRetrySendForMissingMessage(sessionState)) {
+          return {
+            recovered: false,
+            retrySend: true,
+            previewContent: completionFetch.previewContent || undefined,
+          }
+        }
         return {
           recovered: false,
           inProgress: true,
@@ -2214,6 +2238,13 @@ export class GrokChatService implements ChatService {
           }
         }
         if (isSessionAnchorAheadOfLocal(sessionState)) {
+          if (shouldAutoRetrySendForMissingMessage(sessionState)) {
+            return {
+              recovered: false,
+              retrySend: true,
+              previewContent: completionFetch.previewContent || undefined,
+            }
+          }
           return {
             recovered: false,
             inProgress: true,

@@ -15,6 +15,7 @@ export interface ChatService {
   }): Promise<{
     recovered: boolean
     inProgress?: boolean
+    retrySend?: boolean
     previewContent?: string
     result?: {
       assistantMessage: ChatMessage

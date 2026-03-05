@@ -90,6 +90,18 @@ function buildUserMessageContent(text: string, attachments?: File[]): string {
   return `${content}\n\n${attachmentLines.join("\n")}`
 }
 
+function extractRetryableUserText(messageContent: string): string {
+  const lines = messageContent.split(/\r?\n/)
+  const kept: string[] = []
+  for (const line of lines) {
+    if (/^\s*\[附件\]\s+/u.test(line)) {
+      continue
+    }
+    kept.push(line)
+  }
+  return kept.join("\n").trim()
+}
+
 function resolveSendAnchors(
   conversationId: string,
   currentConversation: ConversationRecord | undefined,
@@ -376,7 +388,19 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
   const modelSyncNoticeTimerRef = useRef<number | null>(null)
   const bottomLockRef = useRef(false)
   const attemptedPendingRecoveryMessageIdByConversationRef = useRef<Record<string, string>>({})
+  const autoRetriedPendingRecoveryMessageIdByConversationRef = useRef<Record<string, string>>({})
   const pendingRecoveryNoneRetryTrackerRef = useRef<PendingRecoveryNoneRetryTracker>({})
+  const handleSendMessageRef = useRef<
+    | ((
+        text: string,
+        attachments?: File[],
+        options?: {
+          deepSearch?: boolean
+          retryExistingUserMessageId?: string
+        }
+      ) => Promise<void>)
+    | null
+  >(null)
 
   const clearModelSyncNoticeTimer = useCallback(() => {
     if (modelSyncNoticeTimerRef.current !== null) {
@@ -793,11 +817,12 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     async (
       conversationId: string,
       messages: DomainChatMessage[]
-    ): Promise<"recovered" | "in_progress" | "none"> => {
+    ): Promise<"recovered" | "in_progress" | "retry_send" | "none"> => {
       if (conversationId === DRAFT_CONVERSATION_ID) {
         setPendingRecoverySyncingForConversation(conversationId, false)
         setPendingRecoveryPreviewForConversation(conversationId, "")
         clearPendingRecoveryNoneRetryBudget(pendingRecoveryNoneRetryTrackerRef.current, conversationId)
+        autoRetriedPendingRecoveryMessageIdByConversationRef.current[conversationId] = ""
         return "none"
       }
       const pendingUserMessage = getLastPendingUserMessage(messages)
@@ -805,6 +830,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
         setPendingRecoverySyncingForConversation(conversationId, false)
         setPendingRecoveryPreviewForConversation(conversationId, "")
         clearPendingRecoveryNoneRetryBudget(pendingRecoveryNoneRetryTrackerRef.current, conversationId)
+        autoRetriedPendingRecoveryMessageIdByConversationRef.current[conversationId] = ""
         return "none"
       }
       const conversation = conversations.find((item) => item.id === conversationId)
@@ -817,6 +843,35 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
         setPendingRecoveryPreviewForConversation(conversationId, recovery.previewContent)
       }
       if (!recovery.recovered) {
+        if (recovery.retrySend) {
+          const alreadyRetriedMessageId =
+            autoRetriedPendingRecoveryMessageIdByConversationRef.current[conversationId] || ""
+          if (alreadyRetriedMessageId === pendingUserMessage.id) {
+            setPendingRecoverySyncingForConversation(conversationId, false)
+            setPendingRecoveryPreviewForConversation(conversationId, "")
+            return "retry_send"
+          }
+          const retryText = extractRetryableUserText(pendingUserMessage.content)
+          if (!retryText) {
+            setPendingRecoverySyncingForConversation(conversationId, false)
+            setPendingRecoveryPreviewForConversation(conversationId, "")
+            return "none"
+          }
+          autoRetriedPendingRecoveryMessageIdByConversationRef.current[conversationId] =
+            pendingUserMessage.id
+          setPendingRecoverySyncingForConversation(conversationId, false)
+          setPendingRecoveryPreviewForConversation(conversationId, "")
+          clearPendingRecoveryNoneRetryBudget(pendingRecoveryNoneRetryTrackerRef.current, conversationId)
+          clearLastErrorForConversation(conversationId)
+          const retryHandler = handleSendMessageRef.current
+          if (!retryHandler) {
+            return "none"
+          }
+          await retryHandler(retryText, [], {
+            retryExistingUserMessageId: pendingUserMessage.id,
+          })
+          return "retry_send"
+        }
         if (recovery.inProgress) {
           clearPendingRecoveryNoneRetryBudget(pendingRecoveryNoneRetryTrackerRef.current, conversationId)
           setPendingRecoverySyncingForConversation(conversationId, true)
@@ -831,6 +886,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       setPendingRecoveryPreviewForConversation(conversationId, "")
       clearLastErrorForConversation(conversationId)
       attemptedPendingRecoveryMessageIdByConversationRef.current[conversationId] = ""
+      autoRetriedPendingRecoveryMessageIdByConversationRef.current[conversationId] = ""
       clearPendingRecoveryNoneRetryBudget(pendingRecoveryNoneRetryTrackerRef.current, conversationId)
       shouldAutoScrollRef.current = activeConversationIdRef.current === conversationId
       await refreshConversations()
@@ -929,6 +985,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     const pendingUserMessage = getLastPendingUserMessage(activeMessages)
     if (!pendingUserMessage) {
       attemptedPendingRecoveryMessageIdByConversationRef.current[activeConversationId] = ""
+      autoRetriedPendingRecoveryMessageIdByConversationRef.current[activeConversationId] = ""
       clearPendingRecoveryNoneRetryBudget(pendingRecoveryNoneRetryTrackerRef.current, activeConversationId)
       setPendingRecoverySyncingForConversation(activeConversationId, false)
       setPendingRecoveryPreviewForConversation(activeConversationId, "")
@@ -982,6 +1039,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
         setPendingRecoverySyncingForConversation(activeConversationId, false)
         setPendingRecoveryPreviewForConversation(activeConversationId, "")
         attemptedPendingRecoveryMessageIdByConversationRef.current[activeConversationId] = ""
+        autoRetriedPendingRecoveryMessageIdByConversationRef.current[activeConversationId] = ""
         clearPendingRecoveryNoneRetryBudget(pendingRecoveryNoneRetryTrackerRef.current, activeConversationId)
         return
       }
@@ -1495,6 +1553,10 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       upsertPersistedReasoningEntry,
     ]
   )
+
+  useEffect(() => {
+    handleSendMessageRef.current = handleSendMessage
+  }, [handleSendMessage])
 
   const handleRegenerateMessage = useCallback(
     async (targetMessage: RenderChatMessage): Promise<void> => {

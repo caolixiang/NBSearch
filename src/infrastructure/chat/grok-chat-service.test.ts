@@ -1538,6 +1538,7 @@ describe("streamTurn heartbeats and timeout", () => {
       turnRecoveryPollInProgressDelayMs: 0,
     })
 
+    const stateUpdatedAt = Date.now()
     const mockedFetch = (async (input: RequestInfo | URL) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url
       if (url.includes("/v1/sessions/sess_recover_anchor_advanced_1/messages")) {
@@ -1561,7 +1562,7 @@ describe("streamTurn heartbeats and timeout", () => {
             last_response_id: "resp_server_new_anchor_1",
             in_progress: false,
             active_client_turn_id: null,
-            updated_at: 1772670001700,
+            updated_at: stateUpdatedAt,
           }),
           {
             status: 200,
@@ -1586,6 +1587,77 @@ describe("streamTurn heartbeats and timeout", () => {
 
     expect(recovered.recovered).toBe(false)
     expect(recovered.inProgress).toBe(true)
+  })
+
+  it("requests retry send when anchor advanced but missing message stays stale", async () => {
+    const repository = new MemoryAppRepository()
+    const service = new GrokChatService(repository, {
+      apiBaseUrl: "http://127.0.0.1:8787",
+      apiKey: "test-key",
+      defaultModel: "grok-4.1-fast",
+      voiceEnabled: false,
+      themeMode: "light",
+      fontSizeMode: "default",
+      turnRecoveryPollInProgressMaxAttempts: 0,
+      turnRecoveryPollInProgressDelayMs: 0,
+    })
+
+    await repository.appendMessage("conv_recover_retry_send_1", {
+      id: "usr_recover_retry_send_1",
+      role: "user",
+      content: "请继续",
+      createdAt: 1,
+      status: "completed",
+    })
+
+    const mockedFetch = (async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url
+      if (url.includes("/v1/sessions/sess_recover_retry_send_1/messages")) {
+        return new Response(
+          JSON.stringify({
+            session_id: "sess_recover_retry_send_1",
+            messages: [],
+          }),
+          {
+            status: 200,
+            headers: {
+              "Content-Type": "application/json",
+            },
+          }
+        )
+      }
+      if (url.includes("/v1/sessions/sess_recover_retry_send_1/state")) {
+        return new Response(
+          JSON.stringify({
+            session_id: "sess_recover_retry_send_1",
+            last_response_id: "resp_server_retry_send_1",
+            in_progress: false,
+            updated_at: 1,
+          }),
+          {
+            status: 200,
+            headers: {
+              "Content-Type": "application/json",
+            },
+          }
+        )
+      }
+      return new Response("{}", { status: 404 })
+    }) as unknown as typeof fetch
+    ;(mockedFetch as unknown as { preconnect: (url: string) => void }).preconnect = () => {}
+    ;(service as unknown as { runtimeFetch: typeof fetch }).runtimeFetch = mockedFetch
+
+    const recovered = await service.recoverPendingAssistant({
+      conversationId: "conv_recover_retry_send_1",
+      anchors: {
+        sessionId: "sess_recover_retry_send_1",
+        lastResponseId: "resp_prev_retry_send_1",
+      },
+    })
+
+    expect(recovered.recovered).toBe(false)
+    expect(recovered.retrySend).toBe(true)
+    expect(recovered.inProgress).toBeUndefined()
   })
 
   it("recovers pending assistant when after_response_id is invalid by falling back to full session messages", async () => {
