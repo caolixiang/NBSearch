@@ -14,6 +14,7 @@ export interface ChatService {
     anchors: Partial<ChatAnchors>
   }): Promise<{
     recovered: boolean
+    inProgress?: boolean
     result?: {
       assistantMessage: ChatMessage
       anchors: ChatAnchors

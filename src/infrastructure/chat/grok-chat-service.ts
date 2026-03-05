@@ -1936,6 +1936,7 @@ export class GrokChatService implements ChatService {
     anchors: Partial<ChatAnchors>
   }): Promise<{
     recovered: boolean
+    inProgress?: boolean
     result?: ChatTurnResult
   }> {
     const conversationId = (input.conversationId || "").trim()
@@ -1945,36 +1946,60 @@ export class GrokChatService implements ChatService {
     }
 
     const fallbackPreviousResponseId = (input.anchors.lastResponseId || "").trim()
-    const recoveredRows = await this.queryGatewaySessionMessages(sessionId, fallbackPreviousResponseId)
-    const candidate = recoveredRows
-      .filter((row) => row.role === "assistant")
-      .sort((a, b) => a.createdAt - b.createdAt)
-      .at(-1)
-    if (!candidate) {
+    const tryRecoverFromMessages = async (): Promise<ChatTurnResult | null> => {
+      const recoveredRows = await this.queryGatewaySessionMessages(sessionId, fallbackPreviousResponseId)
+      const candidate = recoveredRows
+        .filter((row) => row.role === "assistant")
+        .sort((a, b) => a.createdAt - b.createdAt)
+        .at(-1)
+      if (!candidate) {
+        return null
+      }
+
+      const turnState: GatewayTurnState = {
+        status: "completed",
+        responseId: candidate.responseId || candidate.id,
+        errorCode: "",
+        errorMessage: "",
+        updatedAt: candidate.createdAt || Date.now(),
+      }
+      return this.persistRecoveredCompletedTurn({
+        conversationId,
+        sessionId,
+        turnState,
+        fallbackPreviousResponseId,
+      })
+    }
+
+    const recoveredImmediately = await tryRecoverFromMessages()
+    if (recoveredImmediately) {
+      return {
+        recovered: true,
+        result: recoveredImmediately,
+      }
+    }
+
+    let sessionState = await this.queryGatewaySessionState(sessionId)
+    if (!sessionState?.inProgress) {
       return { recovered: false }
     }
 
-    const turnState: GatewayTurnState = {
-      status: "completed",
-      responseId: candidate.responseId || candidate.id,
-      errorCode: "",
-      errorMessage: "",
-      updatedAt: candidate.createdAt || Date.now(),
-    }
-    const result = await this.persistRecoveredCompletedTurn({
-      conversationId,
-      sessionId,
-      turnState,
-      fallbackPreviousResponseId,
-    })
-    if (!result) {
-      return { recovered: false }
+    for (let attempt = 0; attempt < this.turnRecoveryPollInProgressMaxAttempts; attempt += 1) {
+      await waitForRetryDelay(this.turnRecoveryPollInProgressDelayMs)
+      const recovered = await tryRecoverFromMessages()
+      if (recovered) {
+        return {
+          recovered: true,
+          result: recovered,
+        }
+      }
+      sessionState = await this.queryGatewaySessionState(sessionId)
+      if (!sessionState?.inProgress) {
+        return { recovered: false }
+      }
     }
 
-    return {
-      recovered: true,
-      result,
-    }
+    return { recovered: false, inProgress: true }
   }
 
   private buildGatewayV1Url(pathname: string): string {

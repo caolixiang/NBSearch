@@ -796,13 +796,16 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
   )
 
   const attemptRecoverPendingAssistant = useCallback(
-    async (conversationId: string, messages: DomainChatMessage[]): Promise<boolean> => {
+    async (
+      conversationId: string,
+      messages: DomainChatMessage[]
+    ): Promise<"recovered" | "in_progress" | "none"> => {
       if (conversationId === DRAFT_CONVERSATION_ID) {
-        return false
+        return "none"
       }
       const pendingUserMessage = getLastPendingUserMessage(messages)
       if (!pendingUserMessage) {
-        return false
+        return "none"
       }
       const conversation = conversations.find((item) => item.id === conversationId)
       const anchors = resolveSendAnchors(conversationId, conversation, messages)
@@ -811,7 +814,11 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
         anchors,
       })
       if (!recovery.recovered) {
-        return false
+        if (recovery.inProgress) {
+          setLastErrorForConversation(conversationId, "上一轮仍在处理中，请稍后点击重试。")
+          return "in_progress"
+        }
+        return "none"
       }
       clearLastErrorForConversation(conversationId)
       attemptedPendingRecoveryMessageIdByConversationRef.current[conversationId] = ""
@@ -824,7 +831,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
           setProgrammaticScrollTop(node, node.scrollHeight)
         }
       }
-      return true
+      return "recovered"
     },
     [
       chatService,
@@ -832,6 +839,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       conversations,
       loadMessages,
       refreshConversations,
+      setLastErrorForConversation,
       setProgrammaticScrollTop,
     ]
   )
@@ -1356,7 +1364,11 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
               clearCardAttachmentFlushTimer()
               pendingCardAttachmentDetails = []
               clearStreamingState()
-              setLastErrorForConversation(conversationId, event.message)
+              if (event.code === "turn_in_progress") {
+                setLastErrorForConversation(conversationId, "上一轮仍在处理中，请稍后点击重试。")
+              } else {
+                setLastErrorForConversation(conversationId, event.message)
+              }
               resetDeepSearchAfterTurn()
             }
           },
@@ -1412,8 +1424,8 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     }
 
     clearLastErrorForConversation(conversationId)
-    const recovered = await attemptRecoverPendingAssistant(conversationId, currentMessages)
-    if (recovered) {
+    const recoveryStatus = await attemptRecoverPendingAssistant(conversationId, currentMessages)
+    if (recoveryStatus !== "none") {
       return
     }
 
@@ -1768,7 +1780,11 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
               clearCardAttachmentFlushTimer()
               pendingCardAttachmentDetails = []
               clearStreamingState()
-              setLastErrorForConversation(conversationId, event.message)
+              if (event.code === "turn_in_progress") {
+                setLastErrorForConversation(conversationId, "上一轮仍在处理中，请稍后点击重试。")
+              } else {
+                setLastErrorForConversation(conversationId, event.message)
+              }
             }
           },
           controller.signal
