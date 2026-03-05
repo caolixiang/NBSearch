@@ -59,6 +59,30 @@ function createPendingStreamingResponse(): Response {
   )
 }
 
+function readHeaderValue(headers: HeadersInit | undefined, key: string): string {
+  if (!headers) {
+    return ""
+  }
+  const lower = key.toLowerCase()
+  if (headers instanceof Headers) {
+    return headers.get(key) || ""
+  }
+  if (Array.isArray(headers)) {
+    for (const [name, value] of headers) {
+      if (name.toLowerCase() === lower) {
+        return value
+      }
+    }
+    return ""
+  }
+  for (const [name, value] of Object.entries(headers)) {
+    if (name.toLowerCase() === lower) {
+      return value
+    }
+  }
+  return ""
+}
+
 describe("resolveGatewayMediaUrl", () => {
   const gatewayApiUrl = "http://127.0.0.1:8787/v1/responses"
 
@@ -685,7 +709,23 @@ describe("streamTurn heartbeats and timeout", () => {
       fontSizeMode: "default",
     })
 
-    const mockedFetch = (async () => createPendingStreamingResponse()) as unknown as typeof fetch
+    const mockedFetch = (async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url
+      if (url.endsWith("/v1/responses")) {
+        return createPendingStreamingResponse()
+      }
+      return new Response(
+        JSON.stringify({
+          status: "not_found",
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }
+      )
+    }) as unknown as typeof fetch
     ;(mockedFetch as unknown as { preconnect: (url: string) => void }).preconnect = () => {}
     ;(service as unknown as { runtimeFetch: typeof fetch }).runtimeFetch = mockedFetch
 
@@ -723,7 +763,7 @@ describe("streamTurn heartbeats and timeout", () => {
     expect(events.some((event) => event.type === "completed")).toBe(false)
   })
 
-  it("retries once on initial idle timeout and preserves previous_response_id", async () => {
+  it("retries once on initial idle timeout and keeps idempotent client_turn_id", async () => {
     const repository = new MemoryAppRepository()
     const service = new GrokChatService(repository, {
       apiBaseUrl: "http://127.0.0.1:8787",
@@ -766,9 +806,11 @@ describe("streamTurn heartbeats and timeout", () => {
 
     let fetchCallCount = 0
     const requestBodies: string[] = []
+    const idempotencyKeys: string[] = []
     const mockedFetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
       fetchCallCount += 1
       requestBodies.push(typeof init?.body === "string" ? init.body : "")
+      idempotencyKeys.push(readHeaderValue(init?.headers, "Idempotency-Key"))
       if (fetchCallCount === 1) {
         return createPendingStreamingResponse()
       }
@@ -822,7 +864,12 @@ describe("streamTurn heartbeats and timeout", () => {
       })
       .filter((payload) => Object.keys(payload).length > 0)
     expect(parsedRequestBodies).toHaveLength(2)
-    expect(parsedRequestBodies.every((payload) => payload["previous_response_id"] === "resp_prev_42")).toBe(true)
+    const firstClientTurnId = (parsedRequestBodies[0]?.["client_turn_id"] as string) || ""
+    const secondClientTurnId = (parsedRequestBodies[1]?.["client_turn_id"] as string) || ""
+    expect(firstClientTurnId.length > 0).toBe(true)
+    expect(secondClientTurnId).toBe(firstClientTurnId)
+    expect(parsedRequestBodies.every((payload) => payload["previous_response_id"] === undefined)).toBe(true)
+    expect(idempotencyKeys).toEqual([firstClientTurnId, firstClientTurnId])
   })
 
   it("retries once without previous_response_id on session anchor conflict", async () => {
@@ -900,7 +947,6 @@ describe("streamTurn heartbeats and timeout", () => {
         text: "retry please",
         anchors: {
           conversationId: "conv_anchor_retry_1",
-          sessionId: "sess_anchor_retry_1",
           lastResponseId: "resp_prev_anchor_42",
         },
       },
@@ -922,7 +968,224 @@ describe("streamTurn heartbeats and timeout", () => {
     expect(secondBody["previous_response_id"]).toBeUndefined()
   })
 
-  it("does not send previous_response_id when session anchor is missing", async () => {
+  it("recovers completed turn from session APIs after transport failure", async () => {
+    const repository = new MemoryAppRepository()
+    const service = new GrokChatService(repository, {
+      apiBaseUrl: "http://127.0.0.1:8787",
+      apiKey: "test-key",
+      defaultModel: "grok-4.1-fast",
+      voiceEnabled: false,
+      themeMode: "light",
+      fontSizeMode: "default",
+    })
+
+    const requestBodies: string[] = []
+    const idempotencyKeys: string[] = []
+    let fetchCallCount = 0
+    const mockedFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      fetchCallCount += 1
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url
+      if (url.endsWith("/v1/responses")) {
+        requestBodies.push(typeof init?.body === "string" ? init.body : "")
+        idempotencyKeys.push(readHeaderValue(init?.headers, "Idempotency-Key"))
+        throw new Error("network_failed")
+      }
+      if (url.includes("/v1/sessions/sess_recover_1/turns/turn_recover_1")) {
+        return new Response(
+          JSON.stringify({
+            session_id: "sess_recover_1",
+            client_turn_id: "turn_recover_1",
+            status: "completed",
+            response_id: "resp_recovered_1",
+            updated_at: 1772670000001,
+          }),
+          {
+            status: 200,
+            headers: {
+              "Content-Type": "application/json",
+            },
+          }
+        )
+      }
+      if (url.includes("/v1/sessions/sess_recover_1/messages")) {
+        return new Response(
+          JSON.stringify({
+            session_id: "sess_recover_1",
+            messages: [
+              {
+                id: "resp_recovered_1",
+                response_id: "resp_recovered_1",
+                previous_response_id: "resp_prev_recover_1",
+                role: "assistant",
+                content: "Recovered from session API",
+                status: "completed",
+                client_turn_id: "turn_recover_1",
+                created_at: 1772670000000,
+              },
+            ],
+            has_more: false,
+            next_after_response_id: "resp_recovered_1",
+          }),
+          {
+            status: 200,
+            headers: {
+              "Content-Type": "application/json",
+            },
+          }
+        )
+      }
+      if (url.includes("/v1/sessions/sess_recover_1/state")) {
+        return new Response(
+          JSON.stringify({
+            session_id: "sess_recover_1",
+            last_response_id: "resp_recovered_1",
+            in_progress: false,
+            updated_at: 1772670000002,
+          }),
+          {
+            status: 200,
+            headers: {
+              "Content-Type": "application/json",
+            },
+          }
+        )
+      }
+      return new Response("{}", { status: 404 })
+    }) as unknown as typeof fetch
+    ;(mockedFetch as unknown as { preconnect: (url: string) => void }).preconnect = () => {}
+    ;(service as unknown as { runtimeFetch: typeof fetch }).runtimeFetch = mockedFetch
+
+    const events: Array<{ type: string; code?: string; result?: { assistantMessage?: { content: string } } }> = []
+    await service.streamTurn(
+      {
+        model: "grok-4.1-fast",
+        text: "recover me",
+        anchors: {
+          conversationId: "conv_recover_1",
+          sessionId: "sess_recover_1",
+          lastResponseId: "resp_prev_recover_1",
+        },
+        clientTurnId: "turn_recover_1",
+      },
+      (event) => {
+        events.push(event)
+      }
+    )
+
+    expect(fetchCallCount).toBeGreaterThanOrEqual(4)
+    expect(events.some((event) => event.type === "failed")).toBe(false)
+    expect(events.some((event) => event.type === "completed")).toBe(true)
+    const completed = events.find((event) => event.type === "completed")
+    expect(completed?.result?.assistantMessage?.content).toContain("Recovered from session API")
+    const requestPayload = JSON.parse(requestBodies[0] || "{}") as Record<string, unknown>
+    expect(requestPayload["client_turn_id"]).toBe("turn_recover_1")
+    expect(idempotencyKeys[0]).toBe("turn_recover_1")
+  })
+
+  it("retries original send once when turn status is not_found after transport failure", async () => {
+    const repository = new MemoryAppRepository()
+    const service = new GrokChatService(repository, {
+      apiBaseUrl: "http://127.0.0.1:8787",
+      apiKey: "test-key",
+      defaultModel: "grok-4.1-fast",
+      voiceEnabled: false,
+      themeMode: "light",
+      fontSizeMode: "default",
+    })
+
+    const streamChunk = [
+      JSON.stringify({
+        type: "response.created",
+        response: {
+          id: "resp_retry_notfound_1",
+        },
+      }),
+      JSON.stringify({
+        type: "response.output_text.delta",
+        delta: "Retry succeeded",
+      }),
+      JSON.stringify({
+        type: "response.completed",
+        response: {
+          id: "resp_retry_notfound_1",
+          output: [
+            {
+              type: "message",
+              content: [
+                {
+                  type: "output_text",
+                  text: "Retry succeeded",
+                },
+              ],
+            },
+          ],
+        },
+      }),
+    ].join("")
+
+    let fetchCallCount = 0
+    const requestBodies: string[] = []
+    const mockedFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      fetchCallCount += 1
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url
+      if (url.endsWith("/v1/responses")) {
+        requestBodies.push(typeof init?.body === "string" ? init.body : "")
+        if (requestBodies.length === 1) {
+          throw new Error("network_failed")
+        }
+        return createStreamingResponse([streamChunk])
+      }
+      if (url.includes("/v1/sessions/sess_retry_notfound_1/turns/turn_retry_notfound_1")) {
+        return new Response(
+          JSON.stringify({
+            session_id: "sess_retry_notfound_1",
+            client_turn_id: "turn_retry_notfound_1",
+            status: "not_found",
+            updated_at: 1772670000100,
+          }),
+          {
+            status: 200,
+            headers: {
+              "Content-Type": "application/json",
+            },
+          }
+        )
+      }
+      return new Response("{}", { status: 404 })
+    }) as unknown as typeof fetch
+    ;(mockedFetch as unknown as { preconnect: (url: string) => void }).preconnect = () => {}
+    ;(service as unknown as { runtimeFetch: typeof fetch }).runtimeFetch = mockedFetch
+
+    const events: Array<{ type: string }> = []
+    await service.streamTurn(
+      {
+        model: "grok-4.1-fast",
+        text: "retry not found",
+        anchors: {
+          conversationId: "conv_retry_notfound_1",
+          sessionId: "sess_retry_notfound_1",
+          lastResponseId: "resp_prev_retry_notfound_1",
+        },
+        clientTurnId: "turn_retry_notfound_1",
+      },
+      (event) => {
+        events.push(event)
+      }
+    )
+
+    expect(fetchCallCount).toBe(3)
+    expect(requestBodies).toHaveLength(2)
+    const firstBody = JSON.parse(requestBodies[0] || "{}") as Record<string, unknown>
+    const secondBody = JSON.parse(requestBodies[1] || "{}") as Record<string, unknown>
+    expect(firstBody["client_turn_id"]).toBe("turn_retry_notfound_1")
+    expect(secondBody["client_turn_id"]).toBe("turn_retry_notfound_1")
+    expect(events.some((event) => event.type === "completed")).toBe(true)
+    const messages = await repository.listMessages("conv_retry_notfound_1")
+    expect(messages.filter((item) => item.role === "user")).toHaveLength(1)
+    expect(messages.filter((item) => item.role === "assistant")).toHaveLength(1)
+  })
+
+  it("sends previous_response_id when only response anchor is provided", async () => {
     const repository = new MemoryAppRepository()
     const service = new GrokChatService(repository, {
       apiBaseUrl: "http://127.0.0.1:8787",
@@ -986,7 +1249,7 @@ describe("streamTurn heartbeats and timeout", () => {
     expect(requestBodies).toHaveLength(1)
     const body = JSON.parse(requestBodies[0] || "{}") as Record<string, unknown>
     expect(typeof body["session_id"]).toBe("string")
-    expect(body["previous_response_id"]).toBeUndefined()
+    expect(body["previous_response_id"]).toBe("resp_prev_should_not_send")
   })
 
   it("sends x_grok regenerate payload without appending a new user message", async () => {
@@ -1160,7 +1423,7 @@ describe("streamTurn heartbeats and timeout", () => {
     expect(requestBodies).toHaveLength(1)
     const body = JSON.parse(requestBodies[0] || "{}") as Record<string, unknown>
     expect(body["session_id"]).toBe("sess_deep_1")
-    expect(body["previous_response_id"]).toBe("resp_prev_deep")
+    expect(body["previous_response_id"]).toBeUndefined()
     expect(Array.isArray(body["input"])).toBe(true)
     expect(body["x_grok"]).toEqual({
       deep_search: true,

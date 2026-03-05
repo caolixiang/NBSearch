@@ -326,6 +326,239 @@ const STREAM_HEARTBEAT_INTERVAL_MS = 2000
 const STREAM_IDLE_TIMEOUT_MS = 20_000
 const STREAM_IDLE_RETRY_MAX_ATTEMPTS = 1
 const STREAM_IDLE_RETRY_DELAY_MS = 450
+const TURN_RECOVERY_MESSAGES_LIMIT = 100
+const TURN_RECOVERY_NOT_FOUND_RETRY_MAX_ATTEMPTS = 1
+const TURN_RECOVERY_POLL_IN_PROGRESS_MAX_ATTEMPTS = 2
+const TURN_RECOVERY_POLL_IN_PROGRESS_DELAY_MS = 700
+const TURN_RECOVERY_HTTP_RETRYABLE_CODES = new Set([
+  "session_in_progress",
+  "turn_in_progress",
+  "network_timeout",
+])
+
+type GatewayTurnStatus = "not_found" | "in_progress" | "completed" | "failed"
+
+type GatewayTurnState = {
+  status: GatewayTurnStatus
+  responseId: string
+  errorCode: string
+  errorMessage: string
+  updatedAt: number
+}
+
+type GatewaySessionState = {
+  sessionId: string
+  lastResponseId: string
+  inProgress: boolean
+  activeClientTurnId: string
+  updatedAt: number
+}
+
+type GatewaySessionMessage = {
+  id: string
+  responseId: string
+  previousResponseId: string
+  role: ChatMessage["role"]
+  content: string
+  status: "streaming" | "completed" | "failed"
+  createdAt: number
+  clientTurnId: string
+}
+
+type TurnRecoveryOutcome =
+  | {
+      kind: "retry_send"
+    }
+  | {
+      kind: "completed"
+      result: ChatTurnResult
+    }
+  | {
+      kind: "none"
+    }
+
+function normalizeGatewayTurnStatus(value: unknown): GatewayTurnStatus {
+  const normalized = readTrimmedString(value).toLowerCase()
+  if (
+    normalized === "not_found" ||
+    normalized === "in_progress" ||
+    normalized === "completed" ||
+    normalized === "failed"
+  ) {
+    return normalized
+  }
+  return "not_found"
+}
+
+function readSafeInteger(value: unknown): number {
+  if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
+    return Math.floor(value)
+  }
+  if (typeof value === "string") {
+    const parsed = Number.parseInt(value, 10)
+    if (Number.isFinite(parsed) && parsed >= 0) {
+      return parsed
+    }
+  }
+  return 0
+}
+
+function coerceGatewayTurnState(payload: unknown): GatewayTurnState | null {
+  const root = isRecord(payload) ? payload : null
+  const candidates = [
+    root,
+    root && isRecord(root.data) ? root.data : null,
+    root && isRecord(root.result) ? root.result : null,
+    root && isRecord(root.turn) ? root.turn : null,
+  ].filter((item): item is Record<string, unknown> => Boolean(item))
+
+  for (const candidate of candidates) {
+    const status = normalizeGatewayTurnStatus(candidate.status)
+    const responseId = readTrimmedString(candidate.response_id) || readTrimmedString(candidate.responseId)
+    const updatedAt = readSafeInteger(candidate.updated_at ?? candidate.updatedAt)
+    const errorRecord = isRecord(candidate.error) ? candidate.error : null
+    const errorCode = errorRecord ? readTrimmedString(errorRecord.code) : ""
+    const errorMessage = errorRecord ? readTrimmedString(errorRecord.message) : ""
+    if (status || responseId || updatedAt > 0 || errorCode || errorMessage) {
+      return {
+        status,
+        responseId,
+        errorCode,
+        errorMessage,
+        updatedAt,
+      }
+    }
+  }
+
+  return null
+}
+
+function coerceGatewaySessionState(payload: unknown): GatewaySessionState | null {
+  const root = isRecord(payload) ? payload : null
+  const candidates = [
+    root,
+    root && isRecord(root.data) ? root.data : null,
+    root && isRecord(root.result) ? root.result : null,
+    root && isRecord(root.session) ? root.session : null,
+  ].filter((item): item is Record<string, unknown> => Boolean(item))
+
+  for (const candidate of candidates) {
+    const sessionId = readTrimmedString(candidate.session_id) || readTrimmedString(candidate.sessionId)
+    const lastResponseId =
+      readTrimmedString(candidate.last_response_id) || readTrimmedString(candidate.lastResponseId)
+    const inProgress =
+      candidate.in_progress === true ||
+      candidate.inProgress === true ||
+      candidate.status === "in_progress"
+    const activeClientTurnId =
+      readTrimmedString(candidate.active_client_turn_id) ||
+      readTrimmedString(candidate.activeClientTurnId)
+    const updatedAt = readSafeInteger(candidate.updated_at ?? candidate.updatedAt)
+    if (sessionId || lastResponseId || inProgress || activeClientTurnId || updatedAt > 0) {
+      return {
+        sessionId,
+        lastResponseId,
+        inProgress,
+        activeClientTurnId,
+        updatedAt,
+      }
+    }
+  }
+
+  return null
+}
+
+function readRecoveryMessageContent(value: unknown): string {
+  if (typeof value === "string") {
+    return value
+  }
+  if (Array.isArray(value)) {
+    const parts: string[] = []
+    for (const item of value) {
+      if (typeof item === "string") {
+        parts.push(item)
+        continue
+      }
+      if (!isRecord(item)) {
+        continue
+      }
+      const inlineText = readTrimmedString(item.text)
+      if (inlineText) {
+        parts.push(inlineText)
+      }
+      if (Array.isArray(item.content)) {
+        for (const row of item.content) {
+          if (!isRecord(row)) {
+            continue
+          }
+          const rowText = readTrimmedString(row.text)
+          if (rowText) {
+            parts.push(rowText)
+          }
+        }
+      }
+    }
+    return parts.join("\n").trim()
+  }
+  if (isRecord(value)) {
+    const direct = readTrimmedString(value.text) || readTrimmedString(value.content)
+    if (direct) {
+      return direct
+    }
+    if (Array.isArray(value.content)) {
+      const rows = value.content
+        .map((item) => (isRecord(item) ? readTrimmedString(item.text) : ""))
+        .filter(Boolean)
+      return rows.join("\n").trim()
+    }
+  }
+  return ""
+}
+
+function coerceGatewaySessionMessages(payload: unknown): GatewaySessionMessage[] {
+  const root = isRecord(payload) ? payload : null
+  const messagesCandidate =
+    (root && Array.isArray(root.messages) ? root.messages : null) ||
+    (root && isRecord(root.data) && Array.isArray(root.data.messages) ? root.data.messages : null) ||
+    (root && isRecord(root.result) && Array.isArray(root.result.messages) ? root.result.messages : null)
+  if (!messagesCandidate) {
+    return []
+  }
+
+  const rows: GatewaySessionMessage[] = []
+  for (const item of messagesCandidate) {
+    if (!isRecord(item)) {
+      continue
+    }
+    const roleRaw = readTrimmedString(item.role).toLowerCase()
+    if (roleRaw !== "user" && roleRaw !== "assistant" && roleRaw !== "system" && roleRaw !== "tool") {
+      continue
+    }
+    const statusRaw = readTrimmedString(item.status).toLowerCase()
+    const status: "streaming" | "completed" | "failed" =
+      statusRaw === "failed" ? "failed" : statusRaw === "streaming" ? "streaming" : "completed"
+    const responseId = readTrimmedString(item.response_id) || readTrimmedString(item.responseId)
+    const id = readTrimmedString(item.id) || responseId || `msg_${crypto.randomUUID()}`
+    const content =
+      readRecoveryMessageContent(item.content) ||
+      readRecoveryMessageContent(item.message) ||
+      readRecoveryMessageContent(item.output)
+    rows.push({
+      id,
+      responseId,
+      previousResponseId:
+        readTrimmedString(item.previous_response_id) || readTrimmedString(item.previousResponseId),
+      role: roleRaw as ChatMessage["role"],
+      content,
+      status,
+      createdAt: readSafeInteger(item.created_at ?? item.createdAt) || Date.now(),
+      clientTurnId:
+        readTrimmedString(item.client_turn_id) || readTrimmedString(item.clientTurnId),
+    })
+  }
+
+  return rows
+}
 
 class StreamIdleTimeoutError extends Error {
   constructor(timeoutMs: number) {
@@ -1613,6 +1846,246 @@ export class GrokChatService implements ChatService {
     return refreshed.messages
   }
 
+  private buildGatewayV1Url(pathname: string): string {
+    const base = normalizeGatewayBaseUrl(this.apiUrl)
+    const normalizedPath = pathname.startsWith("/") ? pathname : `/${pathname}`
+    return `${base}${normalizedPath}`
+  }
+
+  private createGatewayAuthHeaders(extra?: Record<string, string>): Record<string, string> {
+    return {
+      ...(this.apiKey ? { Authorization: `Bearer ${this.apiKey}` } : {}),
+      ...(extra || {}),
+    }
+  }
+
+  private async queryGatewayTurnState(sessionId: string, clientTurnId: string): Promise<GatewayTurnState | null> {
+    const normalizedSessionId = sessionId.trim()
+    const normalizedClientTurnId = clientTurnId.trim()
+    if (!normalizedSessionId || !normalizedClientTurnId) {
+      return null
+    }
+    const url = this.buildGatewayV1Url(
+      `/sessions/${encodeURIComponent(normalizedSessionId)}/turns/${encodeURIComponent(normalizedClientTurnId)}`
+    )
+    try {
+      const response = await this.runtimeFetch(url, {
+        method: "GET",
+        headers: this.createGatewayAuthHeaders(),
+      })
+      if (!response.ok) {
+        return null
+      }
+      const contentType = (response.headers.get("content-type") || "").toLowerCase()
+      if (!contentType.includes("json")) {
+        return null
+      }
+      const payload = await response.json().catch(() => null)
+      return coerceGatewayTurnState(payload)
+    } catch {
+      return null
+    }
+  }
+
+  private async queryGatewaySessionState(sessionId: string): Promise<GatewaySessionState | null> {
+    const normalizedSessionId = sessionId.trim()
+    if (!normalizedSessionId) {
+      return null
+    }
+    const url = this.buildGatewayV1Url(`/sessions/${encodeURIComponent(normalizedSessionId)}/state`)
+    try {
+      const response = await this.runtimeFetch(url, {
+        method: "GET",
+        headers: this.createGatewayAuthHeaders(),
+      })
+      if (!response.ok) {
+        return null
+      }
+      const contentType = (response.headers.get("content-type") || "").toLowerCase()
+      if (!contentType.includes("json")) {
+        return null
+      }
+      const payload = await response.json().catch(() => null)
+      return coerceGatewaySessionState(payload)
+    } catch {
+      return null
+    }
+  }
+
+  private async queryGatewaySessionMessages(
+    sessionId: string,
+    afterResponseId: string
+  ): Promise<GatewaySessionMessage[]> {
+    const normalizedSessionId = sessionId.trim()
+    if (!normalizedSessionId) {
+      return []
+    }
+    const url = new URL(
+      this.buildGatewayV1Url(`/sessions/${encodeURIComponent(normalizedSessionId)}/messages`)
+    )
+    if (afterResponseId.trim()) {
+      url.searchParams.set("after_response_id", afterResponseId.trim())
+    }
+    url.searchParams.set("limit", String(TURN_RECOVERY_MESSAGES_LIMIT))
+
+    try {
+      const response = await this.runtimeFetch(url.toString(), {
+        method: "GET",
+        headers: this.createGatewayAuthHeaders(),
+      })
+      if (!response.ok) {
+        return []
+      }
+      const contentType = (response.headers.get("content-type") || "").toLowerCase()
+      if (!contentType.includes("json")) {
+        return []
+      }
+      const payload = await response.json().catch(() => null)
+      return coerceGatewaySessionMessages(payload)
+    } catch {
+      return []
+    }
+  }
+
+  private async persistRecoveredCompletedTurn(input: {
+    conversationId: string
+    sessionId: string
+    turnState: GatewayTurnState
+    fallbackPreviousResponseId: string
+  }): Promise<ChatTurnResult | null> {
+    const targetResponseId = input.turnState.responseId.trim()
+    if (!targetResponseId) {
+      return null
+    }
+
+    const recoveredRows = await this.queryGatewaySessionMessages(
+      input.sessionId,
+      input.fallbackPreviousResponseId
+    )
+    const candidate =
+      recoveredRows.find(
+        (row) => row.role === "assistant" && row.responseId.trim() === targetResponseId
+      ) ||
+      recoveredRows
+        .filter((row) => row.role === "assistant")
+        .sort((a, b) => a.createdAt - b.createdAt)
+        .at(-1)
+    if (!candidate) {
+      return null
+    }
+
+    const existingMessages = await this.repository.listMessages(input.conversationId)
+    const existingAssistant = existingMessages.find(
+      (row) => row.role === "assistant" && (row.responseId || "").trim() === targetResponseId
+    )
+    const fallbackPreviousResponseId = input.fallbackPreviousResponseId.trim()
+    const nextAssistant: ChatMessage = {
+      id: existingAssistant?.id || candidate.id || targetResponseId || `asst_${crypto.randomUUID()}`,
+      role: "assistant",
+      content: candidate.content || existingAssistant?.content || "",
+      createdAt: existingAssistant?.createdAt || candidate.createdAt || Date.now(),
+      responseId: targetResponseId,
+      previousResponseId:
+        candidate.previousResponseId || existingAssistant?.previousResponseId || fallbackPreviousResponseId || undefined,
+      status: "completed",
+      reasoningEvents: existingAssistant?.reasoningEvents,
+      reasoningDurationSeconds: existingAssistant?.reasoningDurationSeconds,
+      research: existingAssistant?.research,
+    }
+
+    if (existingAssistant) {
+      const shouldUpdate =
+        existingAssistant.content !== nextAssistant.content ||
+        (existingAssistant.previousResponseId || "") !== (nextAssistant.previousResponseId || "") ||
+        (existingAssistant.status || "completed") !== "completed"
+      if (shouldUpdate) {
+        await this.repository.updateMessage(input.conversationId, nextAssistant)
+      }
+    } else {
+      await this.repository.appendMessage(input.conversationId, nextAssistant)
+    }
+
+    const sessionState = await this.queryGatewaySessionState(input.sessionId)
+    const existingConversations = await this.repository.listConversations()
+    const currentConversation = existingConversations.find((item) => item.id === input.conversationId)
+    const currentTitle = currentConversation?.title || ""
+    const anchors: ChatAnchors = {
+      sessionId: input.sessionId,
+      conversationId: input.conversationId,
+      lastResponseId:
+        sessionState?.lastResponseId.trim() || targetResponseId || fallbackPreviousResponseId,
+    }
+    await this.repository.upsertConversation(
+      createConversationRecord(
+        input.conversationId,
+        currentTitle || fallbackConversationTitleFromPrompt(nextAssistant.content),
+        anchors,
+        Date.now(),
+        currentConversation?.hasDeepSearch || false
+      )
+    )
+
+    return {
+      assistantMessage: nextAssistant,
+      anchors,
+    }
+  }
+
+  private async attemptTurnRecovery(input: {
+    conversationId: string
+    sessionId: string
+    clientTurnId: string
+    fallbackPreviousResponseId: string
+    allowRetryFromNotFound: boolean
+  }): Promise<TurnRecoveryOutcome> {
+    const normalizedSessionId = input.sessionId.trim()
+    const normalizedClientTurnId = input.clientTurnId.trim()
+    if (!normalizedSessionId || !normalizedClientTurnId) {
+      return { kind: "none" }
+    }
+
+    let turnState = await this.queryGatewayTurnState(normalizedSessionId, normalizedClientTurnId)
+    if (!turnState) {
+      return { kind: "none" }
+    }
+
+    if (turnState.status === "in_progress") {
+      for (let attempt = 0; attempt < TURN_RECOVERY_POLL_IN_PROGRESS_MAX_ATTEMPTS; attempt += 1) {
+        await waitForRetryDelay(TURN_RECOVERY_POLL_IN_PROGRESS_DELAY_MS)
+        const next = await this.queryGatewayTurnState(normalizedSessionId, normalizedClientTurnId)
+        if (!next) {
+          break
+        }
+        turnState = next
+        if (turnState.status !== "in_progress") {
+          break
+        }
+      }
+    }
+
+    if (turnState.status === "completed") {
+      const recovered = await this.persistRecoveredCompletedTurn({
+        conversationId: input.conversationId,
+        sessionId: normalizedSessionId,
+        turnState,
+        fallbackPreviousResponseId: input.fallbackPreviousResponseId,
+      })
+      if (recovered) {
+        return {
+          kind: "completed",
+          result: recovered,
+        }
+      }
+      return { kind: "none" }
+    }
+
+    if (turnState.status === "not_found" && input.allowRetryFromNotFound) {
+      return { kind: "retry_send" }
+    }
+
+    return { kind: "none" }
+  }
+
   private async renewAssetUrl(assetId: string): Promise<RenewedAssetUrlPayload | null> {
     const normalizedAssetId = assetId.trim()
     if (!normalizedAssetId) {
@@ -1858,9 +2331,27 @@ export class GrokChatService implements ChatService {
     const conversationId = buildConversationId(input.anchors)
     const anchoredSessionId = input.anchors.sessionId?.trim() || ""
     const sessionId = anchoredSessionId || `sess_${crypto.randomUUID()}`
+    const clientTurnId = input.clientTurnId?.trim() || `turn_${crypto.randomUUID()}`
     const regenerateTargetResponseId = input.regenerateTargetResponseId?.trim() || ""
     const isRegenerate = regenerateTargetResponseId.length > 0
     const isDeepSearch = !isRegenerate && input.deepSearch === true
+    const fallbackPreviousResponseId = input.anchors.lastResponseId?.trim() || ""
+    const existingConversations = await this.repository.listConversations()
+    const currentConversation = existingConversations.find((item) => item.id === conversationId)
+    const currentTitle = currentConversation?.title || ""
+    await this.repository.upsertConversation(
+      createConversationRecord(
+        conversationId,
+        currentTitle || fallbackConversationTitleFromPrompt(input.text),
+        {
+          sessionId,
+          conversationId,
+          lastResponseId: fallbackPreviousResponseId,
+        },
+        Date.now(),
+        currentConversation?.hasDeepSearch || false
+      )
+    )
     if (!isRegenerate) {
       const userMessage = buildUserMessage(buildUserMessageText(input.text, input.attachments))
       await this.repository.appendMessage(conversationId, userMessage)
@@ -1929,10 +2420,12 @@ export class GrokChatService implements ChatService {
     emitStarted(requestId)
 
     try {
-      const previousResponseId = anchoredSessionId ? input.anchors.lastResponseId?.trim() || "" : ""
+      const previousResponseId =
+        !anchoredSessionId && fallbackPreviousResponseId ? fallbackPreviousResponseId : ""
       const requestBodyPayload: Record<string, unknown> = {
         model: input.model,
         session_id: sessionId,
+        client_turn_id: clientTurnId,
         stream: true,
       }
       if (isRegenerate) {
@@ -2079,17 +2572,44 @@ export class GrokChatService implements ChatService {
 
       let idleRetryAttempts = 0
       let anchorRecoveryAttempts = 0
+      let turnNotFoundRetryAttempts = 0
       while (true) {
         const requestBody = JSON.stringify(requestBodyPayload)
-        const response = await this.runtimeFetch(this.apiUrl, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...(this.apiKey ? { Authorization: `Bearer ${this.apiKey}` } : {}),
-          },
-          body: requestBody,
-          signal,
-        })
+        let response: Response
+        try {
+          response = await this.runtimeFetch(this.apiUrl, {
+            method: "POST",
+            headers: this.createGatewayAuthHeaders({
+              "Content-Type": "application/json",
+              "Idempotency-Key": clientTurnId,
+            }),
+            body: requestBody,
+            signal,
+          })
+        } catch (error) {
+          if (!isRegenerate) {
+            const recovery = await this.attemptTurnRecovery({
+              conversationId,
+              sessionId,
+              clientTurnId,
+              fallbackPreviousResponseId,
+              allowRetryFromNotFound:
+                turnNotFoundRetryAttempts < TURN_RECOVERY_NOT_FOUND_RETRY_MAX_ATTEMPTS,
+            })
+            if (recovery.kind === "completed") {
+              emitCompleted(recovery.result, recovery.result.assistantMessage.responseId)
+              return
+            }
+            if (
+              recovery.kind === "retry_send" &&
+              turnNotFoundRetryAttempts < TURN_RECOVERY_NOT_FOUND_RETRY_MAX_ATTEMPTS
+            ) {
+              turnNotFoundRetryAttempts += 1
+              continue
+            }
+          }
+          throw error
+        }
 
         if (!response.ok) {
           const errorText = await response.text().catch(() => "")
@@ -2108,11 +2628,59 @@ export class GrokChatService implements ChatService {
             anchorRecoveryAttempts += 1
             continue
           }
+          const shouldTrySessionRecovery =
+            !isRegenerate &&
+            (TURN_RECOVERY_HTTP_RETRYABLE_CODES.has(errorCode) ||
+              ANCHOR_RECOVERY_ERROR_CODES.has(errorCode) ||
+              response.status >= 500 ||
+              response.status === 409)
+          if (shouldTrySessionRecovery) {
+            const recovery = await this.attemptTurnRecovery({
+              conversationId,
+              sessionId,
+              clientTurnId,
+              fallbackPreviousResponseId,
+              allowRetryFromNotFound:
+                turnNotFoundRetryAttempts < TURN_RECOVERY_NOT_FOUND_RETRY_MAX_ATTEMPTS,
+            })
+            if (recovery.kind === "completed") {
+              emitCompleted(recovery.result, recovery.result.assistantMessage.responseId)
+              return
+            }
+            if (
+              recovery.kind === "retry_send" &&
+              turnNotFoundRetryAttempts < TURN_RECOVERY_NOT_FOUND_RETRY_MAX_ATTEMPTS
+            ) {
+              turnNotFoundRetryAttempts += 1
+              continue
+            }
+          }
           emitFailed(`http_${response.status}`, errorText || `HTTP ${response.status}`)
           return
         }
 
         if (!response.body) {
+          if (!isRegenerate) {
+            const recovery = await this.attemptTurnRecovery({
+              conversationId,
+              sessionId,
+              clientTurnId,
+              fallbackPreviousResponseId,
+              allowRetryFromNotFound:
+                turnNotFoundRetryAttempts < TURN_RECOVERY_NOT_FOUND_RETRY_MAX_ATTEMPTS,
+            })
+            if (recovery.kind === "completed") {
+              emitCompleted(recovery.result, recovery.result.assistantMessage.responseId)
+              return
+            }
+            if (
+              recovery.kind === "retry_send" &&
+              turnNotFoundRetryAttempts < TURN_RECOVERY_NOT_FOUND_RETRY_MAX_ATTEMPTS
+            ) {
+              turnNotFoundRetryAttempts += 1
+              continue
+            }
+          }
           emitFailed("no_body", "Response has no body")
           return
         }
@@ -2297,6 +2865,27 @@ export class GrokChatService implements ChatService {
             await waitForRetryDelay(STREAM_IDLE_RETRY_DELAY_MS, signal)
             continue
           }
+          if (!isRegenerate) {
+            const recovery = await this.attemptTurnRecovery({
+              conversationId,
+              sessionId,
+              clientTurnId,
+              fallbackPreviousResponseId,
+              allowRetryFromNotFound:
+                turnNotFoundRetryAttempts < TURN_RECOVERY_NOT_FOUND_RETRY_MAX_ATTEMPTS,
+            })
+            if (recovery.kind === "completed") {
+              emitCompleted(recovery.result, recovery.result.assistantMessage.responseId)
+              return
+            }
+            if (
+              recovery.kind === "retry_send" &&
+              turnNotFoundRetryAttempts < TURN_RECOVERY_NOT_FOUND_RETRY_MAX_ATTEMPTS
+            ) {
+              turnNotFoundRetryAttempts += 1
+              continue
+            }
+          }
           throw error
         } finally {
           reader.releaseLock()
@@ -2403,6 +2992,19 @@ export class GrokChatService implements ChatService {
           anchors,
         }, assistantMessage.responseId)
     } catch (error) {
+      if (!isRegenerate) {
+        const recovery = await this.attemptTurnRecovery({
+          conversationId,
+          sessionId,
+          clientTurnId,
+          fallbackPreviousResponseId,
+          allowRetryFromNotFound: false,
+        })
+        if (recovery.kind === "completed") {
+          emitCompleted(recovery.result, recovery.result.assistantMessage.responseId)
+          return
+        }
+      }
       if (error instanceof StreamIdleTimeoutError) {
         emitFailed("stream_idle_timeout", error.message, gatewayResponseId)
         return
