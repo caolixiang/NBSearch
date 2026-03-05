@@ -2,11 +2,10 @@ import { describe, expect, it } from "bun:test"
 import { normalizeRemoteModelList, resolveSelectedModel } from "./catalog"
 
 describe("normalizeRemoteModelList", () => {
-  it("parses /v1/models/tauri_chat_models payload, drops mini, and keeps order", () => {
+  it("parses /v1/models/tauri_chat_models payload and keeps order", () => {
     const payload = {
       object: "list",
       data: [
-        { id: "grok-4.1-mini", type: "mini" },
         { id: "grok-4.1-fast", type: "fast" },
         { id: "grok-4.1-fast", type: "fast" },
       ],

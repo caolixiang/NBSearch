@@ -45,15 +45,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
-function isMiniModelCandidate(modelId: string, modelType: string): boolean {
-  const normalizedId = modelId.trim().toLowerCase()
-  const normalizedType = modelType.trim().toLowerCase()
-  if (normalizedType === "mini") {
-    return true
-  }
-  return normalizedId.includes("mini")
-}
-
 function hasLocalStorage(): boolean {
   return typeof window !== "undefined" && typeof window.localStorage !== "undefined"
 }
@@ -196,11 +187,6 @@ function normalizeStoredModelOption(value: unknown): ModelOption | null {
     return null
   }
 
-  const normalizedType = typeof value.type === "string" ? value.type : ""
-  if (isMiniModelCandidate(id, normalizedType)) {
-    return null
-  }
-
   return {
     id,
     name,
@@ -224,9 +210,6 @@ function normalizeRemoteModel(value: unknown): ModelOption | null {
   const rawName = value.display_name ?? value.name
   const name = typeof rawName === "string" && rawName.trim() ? rawName.trim() : humanizeModelId(id)
   const type = typeof value.type === "string" ? value.type.trim() : ""
-  if (isMiniModelCandidate(id, type)) {
-    return null
-  }
 
   return {
     id,
