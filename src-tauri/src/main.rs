@@ -810,6 +810,13 @@ fn save_gateway_config(
     let mut parsed = read_gateway_config_toml(&config_path).unwrap_or_default();
     parsed.gateway.api_base_url = api_base_url.trim().to_string();
     parsed.gateway.api_key = api_key.trim().to_string();
+    let normalized_retry_max_attempts = normalize_turn_in_progress_retry_max_attempts(
+        parsed.recovery.turn_in_progress_retry_max_attempts,
+    );
+    let normalized_retry_delay_ms =
+        normalize_turn_in_progress_retry_delay_ms(parsed.recovery.turn_in_progress_retry_delay_ms);
+    parsed.recovery.turn_in_progress_retry_max_attempts = Some(normalized_retry_max_attempts);
+    parsed.recovery.turn_in_progress_retry_delay_ms = Some(normalized_retry_delay_ms);
     write_gateway_config_toml(&config_path, &parsed)?;
 
     Ok(GatewayConfigPayload {
@@ -817,12 +824,8 @@ fn save_gateway_config(
         api_key: parsed.gateway.api_key,
         theme: normalize_theme_mode(parsed.appearance.theme.as_str()),
         font_size: normalize_font_size_mode(parsed.appearance.font_size.as_str()),
-        turn_in_progress_retry_max_attempts: normalize_turn_in_progress_retry_max_attempts(
-            parsed.recovery.turn_in_progress_retry_max_attempts,
-        ),
-        turn_in_progress_retry_delay_ms: normalize_turn_in_progress_retry_delay_ms(
-            parsed.recovery.turn_in_progress_retry_delay_ms,
-        ),
+        turn_in_progress_retry_max_attempts: normalized_retry_max_attempts,
+        turn_in_progress_retry_delay_ms: normalized_retry_delay_ms,
         config_path: config_path.to_string_lossy().to_string(),
     })
 }
