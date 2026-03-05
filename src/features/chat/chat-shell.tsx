@@ -41,6 +41,7 @@ function newConversationId(): string {
 const DRAFT_CONVERSATION_ID = "draft_new_conversation"
 const CHAT_INPUT_REVEAL_DELAY_MS = 500
 const MODEL_SYNC_NOTICE_DURATION_MS = 2200
+const PENDING_RETRY_FORCE_DETACH_AFTER_MS = 30_000
 
 type ModelSyncNotice = {
   message: string
@@ -1053,13 +1054,18 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     async (
       text: string,
       attachments?: File[],
-      options?: { deepSearch?: boolean; retryExistingUserMessageId?: string }
+      options?: {
+        deepSearch?: boolean
+        retryExistingUserMessageId?: string
+        forceDetachedRetry?: boolean
+      }
     ): Promise<void> => {
       const content = text.trim()
       const selectedAttachments = Array.isArray(attachments)
         ? attachments.filter((file) => Boolean(file))
         : []
       const retryExistingUserMessageId = options?.retryExistingUserMessageId?.trim() || ""
+      const forceDetachedRetry = retryExistingUserMessageId ? options?.forceDetachedRetry === true : false
       const deepSearch = retryExistingUserMessageId ? false : options?.deepSearch === true
       if (!content && selectedAttachments.length === 0) {
         return
@@ -1072,7 +1078,13 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       clearLastErrorForConversation(conversationId)
       const current = conversations.find((item) => item.id === conversationId)
       const currentMessages = messagesByConversationId[conversationId] || []
-      const anchors = resolveSendAnchors(conversationId, current, currentMessages)
+      const resolvedAnchors = resolveSendAnchors(conversationId, current, currentMessages)
+      const anchors: Partial<ChatAnchors> = forceDetachedRetry
+        ? {
+            conversationId,
+            ...(resolvedAnchors.lastResponseId ? { lastResponseId: resolvedAnchors.lastResponseId } : {}),
+          }
+        : resolvedAnchors
       const clientTurnId = `turn_${crypto.randomUUID()}`
 
       const optimisticMessage: DomainChatMessage | null = retryExistingUserMessageId
@@ -1425,10 +1437,9 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
 
     clearLastErrorForConversation(conversationId)
     const recoveryStatus = await attemptRecoverPendingAssistant(conversationId, currentMessages)
-    if (recoveryStatus !== "none") {
+    if (recoveryStatus === "recovered") {
       return
     }
-
     const retryPayload = parseRetryableUserMessageContent(pendingUserMessage.content)
     if (!retryPayload.text) {
       setLastErrorForConversation(conversationId, "重试失败：缺少可发送文本。")
@@ -1439,8 +1450,16 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       return
     }
 
+    if (recoveryStatus === "in_progress") {
+      const pendingAgeMs = Math.max(0, Date.now() - pendingUserMessage.createdAt)
+      if (pendingAgeMs < PENDING_RETRY_FORCE_DETACH_AFTER_MS) {
+        return
+      }
+    }
+
     await handleSendMessage(retryPayload.text, [], {
       retryExistingUserMessageId: pendingUserMessage.id,
+      ...(recoveryStatus === "in_progress" ? { forceDetachedRetry: true } : {}),
     })
   }, [
     attemptRecoverPendingAssistant,
