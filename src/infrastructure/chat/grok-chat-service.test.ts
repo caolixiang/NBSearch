@@ -1185,6 +1185,229 @@ describe("streamTurn heartbeats and timeout", () => {
     expect(messages.filter((item) => item.role === "assistant")).toHaveLength(1)
   })
 
+  it("retries same client turn when recovery reports in_progress and then succeeds", async () => {
+    const repository = new MemoryAppRepository()
+    const service = new GrokChatService(repository, {
+      apiBaseUrl: "http://127.0.0.1:8787",
+      apiKey: "test-key",
+      defaultModel: "grok-4.1-fast",
+      voiceEnabled: false,
+      themeMode: "light",
+      fontSizeMode: "default",
+    })
+
+    const streamChunk = [
+      JSON.stringify({
+        type: "response.created",
+        response: {
+          id: "resp_retry_inprogress_1",
+        },
+      }),
+      JSON.stringify({
+        type: "response.output_text.delta",
+        delta: "Recovered after in-progress",
+      }),
+      JSON.stringify({
+        type: "response.completed",
+        response: {
+          id: "resp_retry_inprogress_1",
+          output: [
+            {
+              type: "message",
+              content: [
+                {
+                  type: "output_text",
+                  text: "Recovered after in-progress",
+                },
+              ],
+            },
+          ],
+        },
+      }),
+    ].join("")
+
+    const requestBodies: string[] = []
+    let responsesCallCount = 0
+    const mockedFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url
+      if (url.endsWith("/v1/responses")) {
+        requestBodies.push(typeof init?.body === "string" ? init.body : "")
+        responsesCallCount += 1
+        if (responsesCallCount === 1) {
+          return new Response(
+            JSON.stringify({
+              error: {
+                code: "session_in_progress",
+                message: "session has an active turn",
+                type: "invalid_request_error",
+              },
+            }),
+            {
+              status: 409,
+              headers: {
+                "Content-Type": "application/json",
+              },
+            }
+          )
+        }
+        return createStreamingResponse([streamChunk])
+      }
+      if (url.includes("/v1/sessions/sess_retry_inprogress_1/turns/turn_retry_inprogress_1")) {
+        return new Response(
+          JSON.stringify({
+            session_id: "sess_retry_inprogress_1",
+            client_turn_id: "turn_retry_inprogress_1",
+            status: "in_progress",
+            updated_at: 1772670000200,
+          }),
+          {
+            status: 200,
+            headers: {
+              "Content-Type": "application/json",
+            },
+          }
+        )
+      }
+      if (url.includes("/v1/sessions/sess_retry_inprogress_1/state")) {
+        return new Response(
+          JSON.stringify({
+            session_id: "sess_retry_inprogress_1",
+            last_response_id: "resp_prev_retry_inprogress_1",
+            in_progress: true,
+            active_client_turn_id: "turn_retry_inprogress_1",
+            updated_at: 1772670000201,
+          }),
+          {
+            status: 200,
+            headers: {
+              "Content-Type": "application/json",
+            },
+          }
+        )
+      }
+      return new Response("{}", { status: 404 })
+    }) as unknown as typeof fetch
+    ;(mockedFetch as unknown as { preconnect: (url: string) => void }).preconnect = () => {}
+    ;(service as unknown as { runtimeFetch: typeof fetch }).runtimeFetch = mockedFetch
+
+    const events: Array<{ type: string; code?: string }> = []
+    await service.streamTurn(
+      {
+        model: "grok-4.1-fast",
+        text: "recover from in progress",
+        anchors: {
+          conversationId: "conv_retry_inprogress_1",
+          sessionId: "sess_retry_inprogress_1",
+          lastResponseId: "resp_prev_retry_inprogress_1",
+        },
+        clientTurnId: "turn_retry_inprogress_1",
+      },
+      (event) => {
+        events.push(event)
+      }
+    )
+
+    expect(requestBodies).toHaveLength(2)
+    const firstBody = JSON.parse(requestBodies[0] || "{}") as Record<string, unknown>
+    const secondBody = JSON.parse(requestBodies[1] || "{}") as Record<string, unknown>
+    expect(firstBody["client_turn_id"]).toBe("turn_retry_inprogress_1")
+    expect(secondBody["client_turn_id"]).toBe("turn_retry_inprogress_1")
+    expect(events.some((event) => event.type === "failed")).toBe(false)
+    expect(events.some((event) => event.type === "completed")).toBe(true)
+  })
+
+  it("returns turn_in_progress when in-progress recovery exceeds retry budget", async () => {
+    const repository = new MemoryAppRepository()
+    const service = new GrokChatService(repository, {
+      apiBaseUrl: "http://127.0.0.1:8787",
+      apiKey: "test-key",
+      defaultModel: "grok-4.1-fast",
+      voiceEnabled: false,
+      themeMode: "light",
+      fontSizeMode: "default",
+    })
+
+    const requestBodies: string[] = []
+    const mockedFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url
+      if (url.endsWith("/v1/responses")) {
+        requestBodies.push(typeof init?.body === "string" ? init.body : "")
+        return new Response(
+          JSON.stringify({
+            error: {
+              code: "session_in_progress",
+              message: "session has an active turn",
+              type: "invalid_request_error",
+            },
+          }),
+          {
+            status: 409,
+            headers: {
+              "Content-Type": "application/json",
+            },
+          }
+        )
+      }
+      if (url.includes("/v1/sessions/sess_retry_inprogress_fail_1/turns/turn_retry_inprogress_fail_1")) {
+        return new Response(
+          JSON.stringify({
+            session_id: "sess_retry_inprogress_fail_1",
+            client_turn_id: "turn_retry_inprogress_fail_1",
+            status: "in_progress",
+            updated_at: 1772670000300,
+          }),
+          {
+            status: 200,
+            headers: {
+              "Content-Type": "application/json",
+            },
+          }
+        )
+      }
+      if (url.includes("/v1/sessions/sess_retry_inprogress_fail_1/state")) {
+        return new Response(
+          JSON.stringify({
+            session_id: "sess_retry_inprogress_fail_1",
+            last_response_id: "resp_prev_retry_inprogress_fail_1",
+            in_progress: true,
+            active_client_turn_id: "turn_retry_inprogress_fail_1",
+            updated_at: 1772670000301,
+          }),
+          {
+            status: 200,
+            headers: {
+              "Content-Type": "application/json",
+            },
+          }
+        )
+      }
+      return new Response("{}", { status: 404 })
+    }) as unknown as typeof fetch
+    ;(mockedFetch as unknown as { preconnect: (url: string) => void }).preconnect = () => {}
+    ;(service as unknown as { runtimeFetch: typeof fetch }).runtimeFetch = mockedFetch
+
+    const events: Array<{ type: string; code?: string }> = []
+    await service.streamTurn(
+      {
+        model: "grok-4.1-fast",
+        text: "in progress forever",
+        anchors: {
+          conversationId: "conv_retry_inprogress_fail_1",
+          sessionId: "sess_retry_inprogress_fail_1",
+          lastResponseId: "resp_prev_retry_inprogress_fail_1",
+        },
+        clientTurnId: "turn_retry_inprogress_fail_1",
+      },
+      (event) => {
+        events.push(event)
+      }
+    )
+
+    expect(requestBodies).toHaveLength(2)
+    const failed = events.find((event) => event.type === "failed")
+    expect(failed?.code).toBe("turn_in_progress")
+  })
+
   it("sends previous_response_id when only response anchor is provided", async () => {
     const repository = new MemoryAppRepository()
     const service = new GrokChatService(repository, {
