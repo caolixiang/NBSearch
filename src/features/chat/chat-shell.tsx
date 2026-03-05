@@ -939,6 +939,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
         ...(sessionId ? { sessionId } : {}),
         ...(sessionId && lastResponseId ? { lastResponseId } : {}),
       }
+      const clientTurnId = `turn_${crypto.randomUUID()}`
 
       const optimisticMessage: DomainChatMessage = {
         id: `tmp_usr_${crypto.randomUUID()}`,
@@ -1063,6 +1064,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
             text: content,
             attachments: selectedAttachments,
             anchors,
+            clientTurnId,
             deepSearch,
           },
           (event) => {
@@ -1317,33 +1319,15 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
         return ""
       })()
 
-      const keptMessages = currentMessages.slice(0, targetIndex)
       const leadAnchorMessageId = currentMessages[previousUserIndex]?.id || null
       const currentConversation =
         conversations.find((item) => item.id === conversationId) || null
       const sessionId =
         currentConversation?.anchors.sessionId?.trim() ||
         `sess_${conversationId}`
+      const clientTurnId = `turn_${crypto.randomUUID()}`
 
       clearLastErrorForConversation(conversationId)
-      await repository.truncateMessagesAfter(conversationId, targetAssistant.id, true)
-      const now = Date.now()
-      await repository.upsertConversation({
-        id: conversationId,
-        title: currentConversation?.title || "",
-        anchors: {
-          sessionId,
-          conversationId,
-          lastResponseId: parentResponseId,
-        },
-        hasDeepSearch: currentConversation?.hasDeepSearch || false,
-        createdAt: currentConversation?.createdAt || now,
-        updatedAt: now,
-      })
-      setMessagesForConversation(conversationId, keptMessages)
-      const keptCaches = buildReasoningCaches(keptMessages)
-      setPersistedReasoningForConversation(conversationId, keptCaches.reasoningByMessageId)
-      setPersistedReasoningDurationForConversation(conversationId, keptCaches.reasoningDurationByMessageId)
 
       const startedAt = Date.now()
       let assistantText = ""
@@ -1457,6 +1441,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
               sessionId,
               lastResponseId: parentResponseId,
             },
+            clientTurnId,
             regenerateTargetResponseId: targetResponseId,
           },
           (event) => {
@@ -1564,6 +1549,29 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
               }
               shouldAutoScrollRef.current = true
               clearStreamingState()
+              void (async () => {
+                try {
+                  // Confirm-then-commit: only cut old branch after upstream regenerate completes.
+                  await repository.truncateMessagesAfter(conversationId, targetAssistant.id, true)
+                  await repository.appendMessage(conversationId, completedAssistantMessage)
+                  const now = Date.now()
+                  const latestConversations = await repository.listConversations()
+                  const latestConversation =
+                    latestConversations.find((item) => item.id === conversationId) || currentConversation
+                  await repository.upsertConversation({
+                    id: conversationId,
+                    title: latestConversation?.title || currentConversation?.title || "",
+                    anchors: event.result.anchors,
+                    hasDeepSearch:
+                      latestConversation?.hasDeepSearch || currentConversation?.hasDeepSearch || false,
+                    createdAt: latestConversation?.createdAt || currentConversation?.createdAt || now,
+                    updatedAt: now,
+                  })
+                } catch (error) {
+                  const message = error instanceof Error ? error.message : "重生成提交失败"
+                  setLastErrorForConversation(conversationId, message)
+                }
+              })()
               const scrollNode = messagesScrollRef.current
               if (scrollNode) {
                 setProgrammaticScrollTop(scrollNode, scrollNode.scrollHeight)
