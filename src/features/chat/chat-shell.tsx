@@ -33,6 +33,10 @@ import {
   resolveSelectedModel,
 } from "@/infrastructure/models/catalog"
 import { resolveDeepSearchExpertModelId, resolveFastModelId } from "./model-selection"
+import {
+  type PendingAutoDetachState,
+  resolvePendingAutoDetachDecision,
+} from "./pending-recovery-auto-detach"
 
 function newConversationId(): string {
   return `conv_${crypto.randomUUID()}`
@@ -42,6 +46,9 @@ const DRAFT_CONVERSATION_ID = "draft_new_conversation"
 const CHAT_INPUT_REVEAL_DELAY_MS = 500
 const MODEL_SYNC_NOTICE_DURATION_MS = 2200
 const PENDING_RECOVERY_POLL_INTERVAL_MS = 2500
+const PENDING_RECOVERY_AUTO_DETACH_AFTER_MS = 18_000
+const PENDING_RECOVERY_AUTO_DETACH_RETRY_INTERVAL_MS = 15_000
+const PENDING_RECOVERY_AUTO_DETACH_MAX_ATTEMPTS = 12
 
 type ModelSyncNotice = {
   message: string
@@ -389,6 +396,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
   const modelSyncNoticeTimerRef = useRef<number | null>(null)
   const bottomLockRef = useRef(false)
   const attemptedPendingRecoveryMessageIdByConversationRef = useRef<Record<string, string>>({})
+  const autoDetachedPendingStateByConversationRef = useRef<Record<string, PendingAutoDetachState>>({})
 
   const clearModelSyncNoticeTimer = useCallback(() => {
     if (modelSyncNoticeTimerRef.current !== null) {
@@ -938,6 +946,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     const pendingUserMessage = getLastPendingUserMessage(activeMessages)
     if (!pendingUserMessage) {
       attemptedPendingRecoveryMessageIdByConversationRef.current[activeConversationId] = ""
+      delete autoDetachedPendingStateByConversationRef.current[activeConversationId]
       setPendingRecoverySyncingForConversation(activeConversationId, false)
       setPendingRecoveryPreviewForConversation(activeConversationId, "")
       return
@@ -947,6 +956,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     if (attemptedMessageId === pendingUserMessage.id) {
       return
     }
+    delete autoDetachedPendingStateByConversationRef.current[activeConversationId]
     attemptedPendingRecoveryMessageIdByConversationRef.current[activeConversationId] = pendingUserMessage.id
     void attemptRecoverPendingAssistant(activeConversationId, activeMessages)
   }, [
@@ -1481,6 +1491,77 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     ]
   )
 
+  const triggerDetachedRetryForPending = useCallback(
+    async (conversationId: string, pendingUserMessage: DomainChatMessage): Promise<boolean> => {
+      const retryPayload = parseRetryableUserMessageContent(pendingUserMessage.content)
+      if (!retryPayload.text) {
+        setLastErrorForConversation(conversationId, "重试失败：缺少可发送文本。")
+        return false
+      }
+      if (retryPayload.hasAttachmentMarker) {
+        setLastErrorForConversation(conversationId, "该问题包含附件，请重新上传后发送。")
+        return false
+      }
+      setPendingRecoverySyncingForConversation(conversationId, false)
+      setPendingRecoveryPreviewForConversation(conversationId, "")
+      await handleSendMessage(retryPayload.text, [], {
+        retryExistingUserMessageId: pendingUserMessage.id,
+        forceDetachedRetry: true,
+      })
+      return true
+    },
+    [
+      handleSendMessage,
+      setLastErrorForConversation,
+      setPendingRecoveryPreviewForConversation,
+      setPendingRecoverySyncingForConversation,
+    ]
+  )
+
+  useEffect(() => {
+    if (!activeConversationId || activeConversationId === DRAFT_CONVERSATION_ID) {
+      return
+    }
+    if (!isActivePendingRecoverySyncing || isActiveConversationStreaming) {
+      return
+    }
+    const currentMessages = messagesByConversationIdRef.current[activeConversationId] || []
+    const pendingUserMessage = getLastPendingUserMessage(currentMessages)
+    if (!pendingUserMessage) {
+      return
+    }
+    if (activePendingRecoveryPreview.trim().length > 0) {
+      return
+    }
+    const pendingAgeMs = Math.max(0, Date.now() - pendingUserMessage.createdAt)
+    if (pendingAgeMs < PENDING_RECOVERY_AUTO_DETACH_AFTER_MS) {
+      return
+    }
+    const now = Date.now()
+    const decision = resolvePendingAutoDetachDecision({
+      pendingMessageId: pendingUserMessage.id,
+      now,
+      pendingAgeMs,
+      thresholdMs: PENDING_RECOVERY_AUTO_DETACH_AFTER_MS,
+      retryIntervalMs: PENDING_RECOVERY_AUTO_DETACH_RETRY_INTERVAL_MS,
+      maxAttempts: PENDING_RECOVERY_AUTO_DETACH_MAX_ATTEMPTS,
+      state: autoDetachedPendingStateByConversationRef.current[activeConversationId],
+    })
+    if (!decision.shouldTrigger || !decision.nextState) {
+      return
+    }
+    autoDetachedPendingStateByConversationRef.current[activeConversationId] = decision.nextState
+    setLastErrorForConversation(activeConversationId, "同步超时，正在自动重试。")
+    void triggerDetachedRetryForPending(activeConversationId, pendingUserMessage)
+  }, [
+    activeConversationId,
+    activePendingRecoveryPreview,
+    isActiveConversationStreaming,
+    isActivePendingRecoverySyncing,
+    setLastErrorForConversation,
+    triggerDetachedRetryForPending,
+  ])
+
   const handleRetryPendingTurn = useCallback(async (): Promise<void> => {
     const conversationId = activeConversationIdRef.current
     if (!conversationId || conversationId === DRAFT_CONVERSATION_ID) {
@@ -1501,6 +1582,21 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     if (recoveryStatus === "recovered") {
       return
     }
+    if (recoveryStatus === "in_progress") {
+      const previousAutoState = autoDetachedPendingStateByConversationRef.current[conversationId]
+      const previousAttempts =
+        previousAutoState && previousAutoState.messageId === pendingUserMessage.id
+          ? previousAutoState.attempts
+          : 0
+      autoDetachedPendingStateByConversationRef.current[conversationId] = {
+        messageId: pendingUserMessage.id,
+        attempts: previousAttempts + 1,
+        lastAttemptAt: Date.now(),
+      }
+      await triggerDetachedRetryForPending(conversationId, pendingUserMessage)
+      return
+    }
+
     const retryPayload = parseRetryableUserMessageContent(pendingUserMessage.content)
     if (!retryPayload.text) {
       setLastErrorForConversation(conversationId, "重试失败：缺少可发送文本。")
@@ -1510,24 +1606,17 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       setLastErrorForConversation(conversationId, "该问题包含附件，请重新上传后发送。")
       return
     }
-    if (recoveryStatus === "in_progress") {
-      setPendingRecoverySyncingForConversation(conversationId, false)
-      setPendingRecoveryPreviewForConversation(conversationId, "")
-    }
-
     await handleSendMessage(retryPayload.text, [], {
       retryExistingUserMessageId: pendingUserMessage.id,
-      ...(recoveryStatus === "in_progress" ? { forceDetachedRetry: true } : {}),
     })
   }, [
     attemptRecoverPendingAssistant,
     clearLastErrorForConversation,
     handleSendMessage,
     messagesByConversationId,
-    setPendingRecoveryPreviewForConversation,
-    setPendingRecoverySyncingForConversation,
     setLastErrorForConversation,
     streamingStateByConversationId,
+    triggerDetachedRetryForPending,
   ])
 
   const handleRegenerateMessage = useCallback(
