@@ -47,6 +47,7 @@ const CHAT_INPUT_REVEAL_DELAY_MS = 500
 const MODEL_SYNC_NOTICE_DURATION_MS = 2200
 const PENDING_RECOVERY_POLL_INTERVAL_MS = 2500
 const PENDING_RECOVERY_AUTO_DETACH_AFTER_MS = 18_000
+const PENDING_RECOVERY_AUTO_DETACH_AFTER_MS_WITH_ANCHOR = 90_000
 const PENDING_RECOVERY_AUTO_DETACH_RETRY_INTERVAL_MS = 15_000
 const PENDING_RECOVERY_AUTO_DETACH_MAX_ATTEMPTS = 12
 
@@ -132,6 +133,22 @@ function getLastPendingUserMessage(messages: DomainChatMessage[]): DomainChatMes
     }
   }
   return null
+}
+
+function resolvePendingAutoDetachThresholdMs(
+  messages: DomainChatMessage[],
+  pendingUserMessageId: string
+): number {
+  const pendingIndex = messages.findIndex((message) => message.id === pendingUserMessageId && message.role === "user")
+  if (pendingIndex <= 0) {
+    return PENDING_RECOVERY_AUTO_DETACH_AFTER_MS
+  }
+  for (let index = pendingIndex - 1; index >= 0; index -= 1) {
+    if (messages[index]?.role === "assistant") {
+      return PENDING_RECOVERY_AUTO_DETACH_AFTER_MS_WITH_ANCHOR
+    }
+  }
+  return PENDING_RECOVERY_AUTO_DETACH_AFTER_MS
 }
 
 function parseRetryableUserMessageContent(content: string): {
@@ -1533,8 +1550,12 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     if (activePendingRecoveryPreview.trim().length > 0) {
       return
     }
+    const autoDetachThresholdMs = resolvePendingAutoDetachThresholdMs(
+      currentMessages,
+      pendingUserMessage.id
+    )
     const pendingAgeMs = Math.max(0, Date.now() - pendingUserMessage.createdAt)
-    if (pendingAgeMs < PENDING_RECOVERY_AUTO_DETACH_AFTER_MS) {
+    if (pendingAgeMs < autoDetachThresholdMs) {
       return
     }
     const now = Date.now()
@@ -1542,7 +1563,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       pendingMessageId: pendingUserMessage.id,
       now,
       pendingAgeMs,
-      thresholdMs: PENDING_RECOVERY_AUTO_DETACH_AFTER_MS,
+      thresholdMs: autoDetachThresholdMs,
       retryIntervalMs: PENDING_RECOVERY_AUTO_DETACH_RETRY_INTERVAL_MS,
       maxAttempts: PENDING_RECOVERY_AUTO_DETACH_MAX_ATTEMPTS,
       state: autoDetachedPendingStateByConversationRef.current[activeConversationId],
@@ -1583,6 +1604,16 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       return
     }
     if (recoveryStatus === "in_progress") {
+      const autoDetachThresholdMs = resolvePendingAutoDetachThresholdMs(
+        currentMessages,
+        pendingUserMessage.id
+      )
+      const pendingAgeMs = Math.max(0, Date.now() - pendingUserMessage.createdAt)
+      if (pendingAgeMs < autoDetachThresholdMs) {
+        setPendingRecoverySyncingForConversation(conversationId, true)
+        setLastErrorForConversation(conversationId, "上一轮仍在处理中，正在继续同步。")
+        return
+      }
       const previousAutoState = autoDetachedPendingStateByConversationRef.current[conversationId]
       const previousAttempts =
         previousAutoState && previousAutoState.messageId === pendingUserMessage.id
@@ -1614,6 +1645,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     clearLastErrorForConversation,
     handleSendMessage,
     messagesByConversationId,
+    setPendingRecoverySyncingForConversation,
     setLastErrorForConversation,
     streamingStateByConversationId,
     triggerDetachedRetryForPending,
