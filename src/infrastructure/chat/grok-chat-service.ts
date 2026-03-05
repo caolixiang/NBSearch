@@ -341,6 +341,8 @@ const TURN_RECOVERY_IN_PROGRESS_RETRY_MAX_ATTEMPTS_DEFAULT = 1
 const TURN_RECOVERY_IN_PROGRESS_RETRY_DELAY_MS_DEFAULT = 600
 const TURN_RECOVERY_IN_PROGRESS_RETRY_MAX_ATTEMPTS_MAX = 10
 const TURN_RECOVERY_IN_PROGRESS_RETRY_DELAY_MS_MAX = 30_000
+const PENDING_RECOVERY_COMPLETION_FETCH_MAX_ATTEMPTS = 3
+const PENDING_RECOVERY_COMPLETION_FETCH_DELAY_MS = 500
 const TURN_RECOVERY_HTTP_RETRYABLE_CODES = new Set([
   "session_in_progress",
   "turn_in_progress",
@@ -2001,6 +2003,34 @@ export class GrokChatService implements ChatService {
       }
     }
 
+    const recoverAfterCompletion = async (
+      initialPreviewContent: string
+    ): Promise<{
+      recovered: boolean
+      previewContent: string
+      result?: ChatTurnResult
+    }> => {
+      let latestPreview = initialPreviewContent
+      for (let attempt = 0; attempt < PENDING_RECOVERY_COMPLETION_FETCH_MAX_ATTEMPTS; attempt += 1) {
+        const recovered = await tryRecoverFromMessages()
+        latestPreview = recovered.previewContent || latestPreview
+        if (recovered.result) {
+          return {
+            recovered: true,
+            previewContent: latestPreview,
+            result: recovered.result,
+          }
+        }
+        if (attempt < PENDING_RECOVERY_COMPLETION_FETCH_MAX_ATTEMPTS - 1) {
+          await waitForRetryDelay(PENDING_RECOVERY_COMPLETION_FETCH_DELAY_MS)
+        }
+      }
+      return {
+        recovered: false,
+        previewContent: latestPreview,
+      }
+    }
+
     let latestPreviewContent = ""
 
     const recoveredImmediately = await tryRecoverFromMessages()
@@ -2015,9 +2045,17 @@ export class GrokChatService implements ChatService {
 
     let sessionState = await this.queryGatewaySessionState(sessionId)
     if (!sessionState?.inProgress) {
+      const completionFetch = await recoverAfterCompletion(latestPreviewContent)
+      if (completionFetch.recovered && completionFetch.result) {
+        return {
+          recovered: true,
+          previewContent: completionFetch.previewContent || undefined,
+          result: completionFetch.result,
+        }
+      }
       return {
         recovered: false,
-        previewContent: latestPreviewContent || undefined,
+        previewContent: completionFetch.previewContent || undefined,
       }
     }
 
@@ -2034,9 +2072,17 @@ export class GrokChatService implements ChatService {
       }
       sessionState = await this.queryGatewaySessionState(sessionId)
       if (!sessionState?.inProgress) {
+        const completionFetch = await recoverAfterCompletion(latestPreviewContent)
+        if (completionFetch.recovered && completionFetch.result) {
+          return {
+            recovered: true,
+            previewContent: completionFetch.previewContent || undefined,
+            result: completionFetch.result,
+          }
+        }
         return {
           recovered: false,
-          previewContent: latestPreviewContent || undefined,
+          previewContent: completionFetch.previewContent || undefined,
         }
       }
     }
