@@ -9,5 +9,16 @@ export interface ChatService {
 
   listMessages(conversationId: string): Promise<ChatMessage[]>
 
+  recoverPendingAssistant(input: {
+    conversationId: string
+    anchors: Partial<ChatAnchors>
+  }): Promise<{
+    recovered: boolean
+    result?: {
+      assistantMessage: ChatMessage
+      anchors: ChatAnchors
+    }
+  }>
+
   upsertAnchors(anchors: ChatAnchors): Promise<void>
 }

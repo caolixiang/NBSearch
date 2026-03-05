@@ -1931,6 +1931,52 @@ export class GrokChatService implements ChatService {
     return refreshed.messages
   }
 
+  async recoverPendingAssistant(input: {
+    conversationId: string
+    anchors: Partial<ChatAnchors>
+  }): Promise<{
+    recovered: boolean
+    result?: ChatTurnResult
+  }> {
+    const conversationId = (input.conversationId || "").trim()
+    const sessionId = (input.anchors.sessionId || "").trim()
+    if (!conversationId || !sessionId) {
+      return { recovered: false }
+    }
+
+    const fallbackPreviousResponseId = (input.anchors.lastResponseId || "").trim()
+    const recoveredRows = await this.queryGatewaySessionMessages(sessionId, fallbackPreviousResponseId)
+    const candidate = recoveredRows
+      .filter((row) => row.role === "assistant")
+      .sort((a, b) => a.createdAt - b.createdAt)
+      .at(-1)
+    if (!candidate) {
+      return { recovered: false }
+    }
+
+    const turnState: GatewayTurnState = {
+      status: "completed",
+      responseId: candidate.responseId || candidate.id,
+      errorCode: "",
+      errorMessage: "",
+      updatedAt: candidate.createdAt || Date.now(),
+    }
+    const result = await this.persistRecoveredCompletedTurn({
+      conversationId,
+      sessionId,
+      turnState,
+      fallbackPreviousResponseId,
+    })
+    if (!result) {
+      return { recovered: false }
+    }
+
+    return {
+      recovered: true,
+      result,
+    }
+  }
+
   private buildGatewayV1Url(pathname: string): string {
     const base = normalizeGatewayBaseUrl(this.apiUrl)
     const normalizedPath = pathname.startsWith("/") ? pathname : `/${pathname}`
@@ -2447,7 +2493,7 @@ export class GrokChatService implements ChatService {
         currentConversation?.hasDeepSearch || false
       )
     )
-    if (!isRegenerate) {
+    if (!isRegenerate && !input.retryExistingUserMessage) {
       const userMessage = buildUserMessage(buildUserMessageText(input.text, input.attachments))
       await this.repository.appendMessage(conversationId, userMessage)
     }

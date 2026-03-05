@@ -26,6 +26,7 @@ export interface SendChatTurnInput {
   anchors: Partial<ChatAnchors>
   clientTurnId?: string
   deepSearch?: boolean
+  retryExistingUserMessage?: boolean
   regenerateTargetResponseId?: string
 }
 

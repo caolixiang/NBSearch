@@ -83,6 +83,68 @@ function buildUserMessageContent(text: string, attachments?: File[]): string {
   return `${content}\n\n${attachmentLines.join("\n")}`
 }
 
+function resolveSendAnchors(
+  conversationId: string,
+  currentConversation: ConversationRecord | undefined,
+  currentMessages: DomainChatMessage[]
+): Partial<ChatAnchors> {
+  const sessionId = (currentConversation?.anchors.sessionId || "").trim()
+  let lastResponseId = (currentConversation?.anchors.lastResponseId || "").trim()
+  if (!lastResponseId) {
+    for (let index = currentMessages.length - 1; index >= 0; index -= 1) {
+      const candidate = currentMessages[index]
+      if (candidate?.role !== "assistant") {
+        continue
+      }
+      const responseId = (candidate.responseId || "").trim()
+      if (responseId) {
+        lastResponseId = responseId
+        break
+      }
+    }
+  }
+  return {
+    conversationId,
+    ...(sessionId ? { sessionId } : {}),
+    ...(sessionId && lastResponseId ? { lastResponseId } : {}),
+  }
+}
+
+function getLastPendingUserMessage(messages: DomainChatMessage[]): DomainChatMessage | null {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index]
+    if (!message) {
+      continue
+    }
+    if (message.role === "assistant") {
+      return null
+    }
+    if (message.role === "user") {
+      return message
+    }
+  }
+  return null
+}
+
+function parseRetryableUserMessageContent(content: string): {
+  text: string
+  hasAttachmentMarker: boolean
+} {
+  const textLines: string[] = []
+  let hasAttachmentMarker = false
+  for (const line of content.split(/\r?\n/)) {
+    if (/^\s*\[附件\]\s+.+$/.test(line)) {
+      hasAttachmentMarker = true
+      continue
+    }
+    textLines.push(line)
+  }
+  return {
+    text: textLines.join("\n").trim(),
+    hasAttachmentMarker,
+  }
+}
+
 function buildReasoningCaches(list: DomainChatMessage[]): {
   reasoningByMessageId: Record<string, ChatReasoningEventDetail[]>
   reasoningDurationByMessageId: Record<string, number>
@@ -368,6 +430,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
   const chatInputRevealTimerRef = useRef<number | null>(null)
   const modelSyncNoticeTimerRef = useRef<number | null>(null)
   const bottomLockRef = useRef(false)
+  const attemptedPendingRecoveryMessageIdByConversationRef = useRef<Record<string, string>>({})
 
   const clearModelSyncNoticeTimer = useCallback(() => {
     if (modelSyncNoticeTimerRef.current !== null) {
@@ -428,6 +491,15 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
   const activeVisibleError = useMemo(() => {
     return normalizeConversationError(activeLastError)
   }, [activeLastError])
+  const activePendingUserMessage = useMemo(() => {
+    if (!activeConversationId || activeConversationId === DRAFT_CONVERSATION_ID) {
+      return null
+    }
+    if (isConversationStreaming(streamingStateByConversationId, activeConversationId)) {
+      return null
+    }
+    return getLastPendingUserMessage(activeMessages)
+  }, [activeConversationId, activeMessages, streamingStateByConversationId])
 
   const activeStreamingState = useMemo(() => {
     return getConversationStreamingState(streamingStateByConversationId, activeConversationId)
@@ -612,6 +684,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     activeStreamingState?.lastHeartbeatAt,
     activeStreamingState?.startedAt,
   ])
+  const shouldShowRetryPendingButton = Boolean(activePendingUserMessage && !isActiveConversationStreaming)
   const shouldShowHeaderNewConversationButton = conversations.length > 0
 
   const resetComposerForNewConversation = useCallback(() => {
@@ -722,6 +795,47 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     [chatService, setMessagesForConversation, setPersistedReasoningDurationForConversation, setPersistedReasoningForConversation]
   )
 
+  const attemptRecoverPendingAssistant = useCallback(
+    async (conversationId: string, messages: DomainChatMessage[]): Promise<boolean> => {
+      if (conversationId === DRAFT_CONVERSATION_ID) {
+        return false
+      }
+      const pendingUserMessage = getLastPendingUserMessage(messages)
+      if (!pendingUserMessage) {
+        return false
+      }
+      const conversation = conversations.find((item) => item.id === conversationId)
+      const anchors = resolveSendAnchors(conversationId, conversation, messages)
+      const recovery = await chatService.recoverPendingAssistant({
+        conversationId,
+        anchors,
+      })
+      if (!recovery.recovered) {
+        return false
+      }
+      clearLastErrorForConversation(conversationId)
+      attemptedPendingRecoveryMessageIdByConversationRef.current[conversationId] = ""
+      shouldAutoScrollRef.current = activeConversationIdRef.current === conversationId
+      await refreshConversations()
+      await loadMessages(conversationId)
+      if (activeConversationIdRef.current === conversationId) {
+        const node = messagesScrollRef.current
+        if (node) {
+          setProgrammaticScrollTop(node, node.scrollHeight)
+        }
+      }
+      return true
+    },
+    [
+      chatService,
+      clearLastErrorForConversation,
+      conversations,
+      loadMessages,
+      refreshConversations,
+      setProgrammaticScrollTop,
+    ]
+  )
+
   const createConversation = useCallback(
     async (title = ""): Promise<string> => {
       const id = newConversationId()
@@ -784,6 +898,32 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       abortControllerByConversationIdRef.current = {}
     }
   }, [clearChatInputRevealTimer, loadMessages, refreshConversations])
+
+  useEffect(() => {
+    if (!activeConversationId || activeConversationId === DRAFT_CONVERSATION_ID) {
+      return
+    }
+    if (isConversationStreaming(streamingStateByConversationId, activeConversationId)) {
+      return
+    }
+    const pendingUserMessage = getLastPendingUserMessage(activeMessages)
+    if (!pendingUserMessage) {
+      attemptedPendingRecoveryMessageIdByConversationRef.current[activeConversationId] = ""
+      return
+    }
+    const attemptedMessageId =
+      attemptedPendingRecoveryMessageIdByConversationRef.current[activeConversationId] || ""
+    if (attemptedMessageId === pendingUserMessage.id) {
+      return
+    }
+    attemptedPendingRecoveryMessageIdByConversationRef.current[activeConversationId] = pendingUserMessage.id
+    void attemptRecoverPendingAssistant(activeConversationId, activeMessages)
+  }, [
+    activeConversationId,
+    activeMessages,
+    attemptRecoverPendingAssistant,
+    streamingStateByConversationId,
+  ])
 
   useEffect(() => {
     const node = messagesScrollRef.current
@@ -902,12 +1042,17 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
   }, [activeConversationId, clearChatInputRevealTimer])
 
   const handleSendMessage = useCallback(
-    async (text: string, attachments?: File[], options?: { deepSearch?: boolean }): Promise<void> => {
+    async (
+      text: string,
+      attachments?: File[],
+      options?: { deepSearch?: boolean; retryExistingUserMessageId?: string }
+    ): Promise<void> => {
       const content = text.trim()
       const selectedAttachments = Array.isArray(attachments)
         ? attachments.filter((file) => Boolean(file))
         : []
-      const deepSearch = options?.deepSearch === true
+      const retryExistingUserMessageId = options?.retryExistingUserMessageId?.trim() || ""
+      const deepSearch = retryExistingUserMessageId ? false : options?.deepSearch === true
       if (!content && selectedAttachments.length === 0) {
         return
       }
@@ -919,37 +1064,22 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       clearLastErrorForConversation(conversationId)
       const current = conversations.find((item) => item.id === conversationId)
       const currentMessages = messagesByConversationId[conversationId] || []
-      const sessionId = (current?.anchors.sessionId || "").trim()
-      let lastResponseId = (current?.anchors.lastResponseId || "").trim()
-      if (!lastResponseId) {
-        for (let index = currentMessages.length - 1; index >= 0; index -= 1) {
-          const candidate = currentMessages[index]
-          if (candidate?.role !== "assistant") {
-            continue
-          }
-          const responseId = (candidate.responseId || "").trim()
-          if (responseId) {
-            lastResponseId = responseId
-            break
-          }
-        }
-      }
-      const anchors: Partial<ChatAnchors> = {
-        conversationId,
-        ...(sessionId ? { sessionId } : {}),
-        ...(sessionId && lastResponseId ? { lastResponseId } : {}),
-      }
+      const anchors = resolveSendAnchors(conversationId, current, currentMessages)
       const clientTurnId = `turn_${crypto.randomUUID()}`
 
-      const optimisticMessage: DomainChatMessage = {
-        id: `tmp_usr_${crypto.randomUUID()}`,
-        role: "user",
-        content: optimisticContent,
-        createdAt: Date.now(),
-        status: "completed",
-      }
+      const optimisticMessage: DomainChatMessage | null = retryExistingUserMessageId
+        ? null
+        : {
+            id: `tmp_usr_${crypto.randomUUID()}`,
+            role: "user",
+            content: optimisticContent,
+            createdAt: Date.now(),
+            status: "completed",
+          }
       shouldAutoScrollRef.current = activeConversationIdRef.current === conversationId
-      appendMessageForConversation(conversationId, optimisticMessage)
+      if (optimisticMessage) {
+        appendMessageForConversation(conversationId, optimisticMessage)
+      }
 
       const startedAt = Date.now()
       let assistantText = ""
@@ -970,7 +1100,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
         reasoningDurationSeconds: 0,
         startedAt,
         lastHeartbeatAt: startedAt,
-        leadAnchorMessageId: optimisticMessage.id,
+        leadAnchorMessageId: retryExistingUserMessageId || optimisticMessage?.id || null,
       })
 
       const syncStreamingState = () => {
@@ -1066,6 +1196,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
             anchors,
             clientTurnId,
             deepSearch,
+            retryExistingUserMessage: Boolean(retryExistingUserMessageId),
           },
           (event) => {
             if (event.type === "heartbeat") {
@@ -1235,6 +1366,8 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
         const wasAborted = controller.signal.aborted
         clearStreamingState()
         if (wasAborted) {
+          setLastErrorForConversation(conversationId, "已终止，可重试。")
+          resetDeepSearchAfterTurn()
           return
         }
         setLastErrorForConversation(conversationId, error instanceof Error ? error.message : "chat_stream_error")
@@ -1262,6 +1395,49 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       upsertPersistedReasoningEntry,
     ]
   )
+
+  const handleRetryPendingTurn = useCallback(async (): Promise<void> => {
+    const conversationId = activeConversationIdRef.current
+    if (!conversationId || conversationId === DRAFT_CONVERSATION_ID) {
+      return
+    }
+    if (isConversationStreaming(streamingStateByConversationId, conversationId)) {
+      return
+    }
+
+    const currentMessages = messagesByConversationId[conversationId] || []
+    const pendingUserMessage = getLastPendingUserMessage(currentMessages)
+    if (!pendingUserMessage) {
+      return
+    }
+
+    clearLastErrorForConversation(conversationId)
+    const recovered = await attemptRecoverPendingAssistant(conversationId, currentMessages)
+    if (recovered) {
+      return
+    }
+
+    const retryPayload = parseRetryableUserMessageContent(pendingUserMessage.content)
+    if (!retryPayload.text) {
+      setLastErrorForConversation(conversationId, "重试失败：缺少可发送文本。")
+      return
+    }
+    if (retryPayload.hasAttachmentMarker) {
+      setLastErrorForConversation(conversationId, "该问题包含附件，请重新上传后发送。")
+      return
+    }
+
+    await handleSendMessage(retryPayload.text, [], {
+      retryExistingUserMessageId: pendingUserMessage.id,
+    })
+  }, [
+    attemptRecoverPendingAssistant,
+    clearLastErrorForConversation,
+    handleSendMessage,
+    messagesByConversationId,
+    setLastErrorForConversation,
+    streamingStateByConversationId,
+  ])
 
   const handleRegenerateMessage = useCallback(
     async (targetMessage: RenderChatMessage): Promise<void> => {
@@ -1791,7 +1967,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
             refreshStatusTone={modelSyncNotice?.tone}
           />
           <div className="flex min-w-0 items-center gap-2">
-            {activeConnectionHealth || activeVisibleError ? (
+            {activeConnectionHealth || activeVisibleError || shouldShowRetryPendingButton ? (
               <div className="flex min-w-0 items-center gap-2">
                 {activeConnectionHealth ? (
                   <span
@@ -1811,6 +1987,20 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
                   <span className="truncate text-xs text-destructive">
                     {activeVisibleError}
                   </span>
+                ) : null}
+                {shouldShowRetryPendingButton ? (
+                  <button
+                    type="button"
+                    className={cn(
+                      "inline-flex shrink-0 items-center rounded-full border border-border bg-secondary px-3 py-1 text-xs text-foreground transition-colors",
+                      "hover:bg-secondary/80 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    )}
+                    onClick={() => {
+                      void handleRetryPendingTurn()
+                    }}
+                  >
+                    重试
+                  </button>
                 ) : null}
               </div>
             ) : null}
