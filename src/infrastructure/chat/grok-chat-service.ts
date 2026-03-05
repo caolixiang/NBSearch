@@ -1953,6 +1953,16 @@ export class GrokChatService implements ChatService {
     }
 
     const fallbackPreviousResponseId = (input.anchors.lastResponseId || "").trim()
+    const isSessionAnchorAheadOfLocal = (state: GatewaySessionState | null): boolean => {
+      const sessionLastResponseId = state?.lastResponseId.trim() || ""
+      if (!sessionLastResponseId) {
+        return false
+      }
+      if (!fallbackPreviousResponseId) {
+        return true
+      }
+      return sessionLastResponseId !== fallbackPreviousResponseId
+    }
     const pickLatestAssistantRow = (rows: GatewaySessionMessage[]): GatewaySessionMessage | null => {
       return rows
         .filter((row) => row.role === "assistant")
@@ -2103,6 +2113,13 @@ export class GrokChatService implements ChatService {
           result: completionFetch.result,
         }
       }
+      if (isSessionAnchorAheadOfLocal(sessionState)) {
+        return {
+          recovered: false,
+          inProgress: true,
+          previewContent: completionFetch.previewContent || undefined,
+        }
+      }
       return {
         recovered: false,
         previewContent: completionFetch.previewContent || undefined,
@@ -2157,6 +2174,13 @@ export class GrokChatService implements ChatService {
             recovered: true,
             previewContent: completionFetch.previewContent || undefined,
             result: completionFetch.result,
+          }
+        }
+        if (isSessionAnchorAheadOfLocal(sessionState)) {
+          return {
+            recovered: false,
+            inProgress: true,
+            previewContent: completionFetch.previewContent || undefined,
           }
         }
         return {

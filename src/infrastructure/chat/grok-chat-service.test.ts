@@ -1525,6 +1525,69 @@ describe("streamTurn heartbeats and timeout", () => {
     expect(recovered.inProgress).toBeUndefined()
   })
 
+  it("keeps syncing when session anchor advanced but messages are not visible yet", async () => {
+    const repository = new MemoryAppRepository()
+    const service = new GrokChatService(repository, {
+      apiBaseUrl: "http://127.0.0.1:8787",
+      apiKey: "test-key",
+      defaultModel: "grok-4.1-fast",
+      voiceEnabled: false,
+      themeMode: "light",
+      fontSizeMode: "default",
+      turnRecoveryPollInProgressMaxAttempts: 0,
+      turnRecoveryPollInProgressDelayMs: 0,
+    })
+
+    const mockedFetch = (async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url
+      if (url.includes("/v1/sessions/sess_recover_anchor_advanced_1/messages")) {
+        return new Response(
+          JSON.stringify({
+            session_id: "sess_recover_anchor_advanced_1",
+            messages: [],
+          }),
+          {
+            status: 200,
+            headers: {
+              "Content-Type": "application/json",
+            },
+          }
+        )
+      }
+      if (url.includes("/v1/sessions/sess_recover_anchor_advanced_1/state")) {
+        return new Response(
+          JSON.stringify({
+            session_id: "sess_recover_anchor_advanced_1",
+            last_response_id: "resp_server_new_anchor_1",
+            in_progress: false,
+            active_client_turn_id: null,
+            updated_at: 1772670001700,
+          }),
+          {
+            status: 200,
+            headers: {
+              "Content-Type": "application/json",
+            },
+          }
+        )
+      }
+      return new Response("{}", { status: 404 })
+    }) as unknown as typeof fetch
+    ;(mockedFetch as unknown as { preconnect: (url: string) => void }).preconnect = () => {}
+    ;(service as unknown as { runtimeFetch: typeof fetch }).runtimeFetch = mockedFetch
+
+    const recovered = await service.recoverPendingAssistant({
+      conversationId: "conv_recover_anchor_advanced_1",
+      anchors: {
+        sessionId: "sess_recover_anchor_advanced_1",
+        lastResponseId: "resp_prev_anchor_advanced_1",
+      },
+    })
+
+    expect(recovered.recovered).toBe(false)
+    expect(recovered.inProgress).toBe(true)
+  })
+
   it("recovers after completion when session messages become visible with delay", async () => {
     const repository = new MemoryAppRepository()
     const service = new GrokChatService(repository, {
