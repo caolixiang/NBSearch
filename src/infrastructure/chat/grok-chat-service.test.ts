@@ -1355,6 +1355,176 @@ describe("streamTurn heartbeats and timeout", () => {
     expect(recovered.previewContent).toContain("正在同步上游结果")
   })
 
+  it("recovers pending assistant from active turn state before session finishes", async () => {
+    const repository = new MemoryAppRepository()
+    const service = new GrokChatService(repository, {
+      apiBaseUrl: "http://127.0.0.1:8787",
+      apiKey: "test-key",
+      defaultModel: "grok-4.1-fast",
+      voiceEnabled: false,
+      themeMode: "light",
+      fontSizeMode: "default",
+      turnRecoveryPollInProgressMaxAttempts: 0,
+      turnRecoveryPollInProgressDelayMs: 0,
+    })
+
+    const mockedFetch = (async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url
+      if (url.includes("/v1/sessions/sess_recover_turn_completed_1/messages")) {
+        return new Response(
+          JSON.stringify({
+            session_id: "sess_recover_turn_completed_1",
+            messages: [
+              {
+                id: "msg_asst_recover_turn_completed_1",
+                response_id: "resp_recover_turn_completed_1",
+                previous_response_id: "resp_prev_turn_completed_1",
+                role: "assistant",
+                content: "Recovered from active turn state",
+                status: "completed",
+                created_at: 1772670001500,
+              },
+            ],
+          }),
+          {
+            status: 200,
+            headers: {
+              "Content-Type": "application/json",
+            },
+          }
+        )
+      }
+      if (url.includes("/v1/sessions/sess_recover_turn_completed_1/turns/turn_pending_completed_1")) {
+        return new Response(
+          JSON.stringify({
+            session_id: "sess_recover_turn_completed_1",
+            client_turn_id: "turn_pending_completed_1",
+            status: "completed",
+            response_id: "resp_recover_turn_completed_1",
+            updated_at: 1772670001501,
+          }),
+          {
+            status: 200,
+            headers: {
+              "Content-Type": "application/json",
+            },
+          }
+        )
+      }
+      if (url.includes("/v1/sessions/sess_recover_turn_completed_1/state")) {
+        return new Response(
+          JSON.stringify({
+            session_id: "sess_recover_turn_completed_1",
+            last_response_id: "resp_recover_turn_completed_1",
+            in_progress: true,
+            active_client_turn_id: "turn_pending_completed_1",
+            updated_at: 1772670001502,
+          }),
+          {
+            status: 200,
+            headers: {
+              "Content-Type": "application/json",
+            },
+          }
+        )
+      }
+      return new Response("{}", { status: 404 })
+    }) as unknown as typeof fetch
+    ;(mockedFetch as unknown as { preconnect: (url: string) => void }).preconnect = () => {}
+    ;(service as unknown as { runtimeFetch: typeof fetch }).runtimeFetch = mockedFetch
+
+    const recovered = await service.recoverPendingAssistant({
+      conversationId: "conv_recover_turn_completed_1",
+      anchors: {
+        sessionId: "sess_recover_turn_completed_1",
+        lastResponseId: "resp_prev_turn_completed_1",
+      },
+    })
+
+    expect(recovered.recovered).toBe(true)
+    expect(recovered.result?.assistantMessage.responseId).toBe("resp_recover_turn_completed_1")
+    expect(recovered.result?.assistantMessage.content).toContain("Recovered from active turn state")
+  })
+
+  it("returns retryable pending state when active turn is not_found", async () => {
+    const repository = new MemoryAppRepository()
+    const service = new GrokChatService(repository, {
+      apiBaseUrl: "http://127.0.0.1:8787",
+      apiKey: "test-key",
+      defaultModel: "grok-4.1-fast",
+      voiceEnabled: false,
+      themeMode: "light",
+      fontSizeMode: "default",
+      turnRecoveryPollInProgressMaxAttempts: 0,
+      turnRecoveryPollInProgressDelayMs: 0,
+    })
+
+    const mockedFetch = (async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url
+      if (url.includes("/v1/sessions/sess_recover_turn_notfound_1/messages")) {
+        return new Response(
+          JSON.stringify({
+            session_id: "sess_recover_turn_notfound_1",
+            messages: [],
+          }),
+          {
+            status: 200,
+            headers: {
+              "Content-Type": "application/json",
+            },
+          }
+        )
+      }
+      if (url.includes("/v1/sessions/sess_recover_turn_notfound_1/turns/turn_pending_notfound_1")) {
+        return new Response(
+          JSON.stringify({
+            session_id: "sess_recover_turn_notfound_1",
+            client_turn_id: "turn_pending_notfound_1",
+            status: "not_found",
+            updated_at: 1772670001601,
+          }),
+          {
+            status: 200,
+            headers: {
+              "Content-Type": "application/json",
+            },
+          }
+        )
+      }
+      if (url.includes("/v1/sessions/sess_recover_turn_notfound_1/state")) {
+        return new Response(
+          JSON.stringify({
+            session_id: "sess_recover_turn_notfound_1",
+            last_response_id: "resp_prev_turn_notfound_1",
+            in_progress: true,
+            active_client_turn_id: "turn_pending_notfound_1",
+            updated_at: 1772670001600,
+          }),
+          {
+            status: 200,
+            headers: {
+              "Content-Type": "application/json",
+            },
+          }
+        )
+      }
+      return new Response("{}", { status: 404 })
+    }) as unknown as typeof fetch
+    ;(mockedFetch as unknown as { preconnect: (url: string) => void }).preconnect = () => {}
+    ;(service as unknown as { runtimeFetch: typeof fetch }).runtimeFetch = mockedFetch
+
+    const recovered = await service.recoverPendingAssistant({
+      conversationId: "conv_recover_turn_notfound_1",
+      anchors: {
+        sessionId: "sess_recover_turn_notfound_1",
+        lastResponseId: "resp_prev_turn_notfound_1",
+      },
+    })
+
+    expect(recovered.recovered).toBe(false)
+    expect(recovered.inProgress).toBeUndefined()
+  })
+
   it("recovers after completion when session messages become visible with delay", async () => {
     const repository = new MemoryAppRepository()
     const service = new GrokChatService(repository, {

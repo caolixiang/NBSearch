@@ -2003,6 +2003,56 @@ export class GrokChatService implements ChatService {
       }
     }
 
+    const tryRecoverFromTurnState = async (
+      turnState: GatewayTurnState
+    ): Promise<{
+      recovered: boolean
+      inProgress: boolean
+      terminal: boolean
+      result?: ChatTurnResult
+    }> => {
+      if (turnState.status === "completed") {
+        const recovered = await this.persistRecoveredCompletedTurn({
+          conversationId,
+          sessionId,
+          turnState,
+          fallbackPreviousResponseId,
+        })
+        if (recovered) {
+          return {
+            recovered: true,
+            inProgress: false,
+            terminal: true,
+            result: recovered,
+          }
+        }
+        return {
+          recovered: false,
+          inProgress: false,
+          terminal: false,
+        }
+      }
+      if (turnState.status === "in_progress") {
+        return {
+          recovered: false,
+          inProgress: true,
+          terminal: false,
+        }
+      }
+      if (turnState.status === "failed" || turnState.status === "not_found") {
+        return {
+          recovered: false,
+          inProgress: false,
+          terminal: true,
+        }
+      }
+      return {
+        recovered: false,
+        inProgress: false,
+        terminal: false,
+      }
+    }
+
     const recoverAfterCompletion = async (
       initialPreviewContent: string
     ): Promise<{
@@ -2059,6 +2109,35 @@ export class GrokChatService implements ChatService {
       }
     }
 
+    let activeClientTurnId = sessionState.activeClientTurnId.trim()
+    if (activeClientTurnId) {
+      const activeTurnState = await this.queryGatewayTurnState(sessionId, activeClientTurnId)
+      if (activeTurnState) {
+        const turnRecovery = await tryRecoverFromTurnState(activeTurnState)
+        if (turnRecovery.recovered && turnRecovery.result) {
+          return {
+            recovered: true,
+            previewContent: latestPreviewContent || undefined,
+            result: turnRecovery.result,
+          }
+        }
+        if (turnRecovery.terminal && !turnRecovery.inProgress) {
+          const completionFetch = await recoverAfterCompletion(latestPreviewContent)
+          if (completionFetch.recovered && completionFetch.result) {
+            return {
+              recovered: true,
+              previewContent: completionFetch.previewContent || undefined,
+              result: completionFetch.result,
+            }
+          }
+          return {
+            recovered: false,
+            previewContent: completionFetch.previewContent || undefined,
+          }
+        }
+      }
+    }
+
     for (let attempt = 0; attempt < this.turnRecoveryPollInProgressMaxAttempts; attempt += 1) {
       await waitForRetryDelay(this.turnRecoveryPollInProgressDelayMs)
       const recovered = await tryRecoverFromMessages()
@@ -2083,6 +2162,34 @@ export class GrokChatService implements ChatService {
         return {
           recovered: false,
           previewContent: completionFetch.previewContent || undefined,
+        }
+      }
+      activeClientTurnId = sessionState.activeClientTurnId.trim()
+      if (activeClientTurnId) {
+        const activeTurnState = await this.queryGatewayTurnState(sessionId, activeClientTurnId)
+        if (activeTurnState) {
+          const turnRecovery = await tryRecoverFromTurnState(activeTurnState)
+          if (turnRecovery.recovered && turnRecovery.result) {
+            return {
+              recovered: true,
+              previewContent: latestPreviewContent || undefined,
+              result: turnRecovery.result,
+            }
+          }
+          if (turnRecovery.terminal && !turnRecovery.inProgress) {
+            const completionFetch = await recoverAfterCompletion(latestPreviewContent)
+            if (completionFetch.recovered && completionFetch.result) {
+              return {
+                recovered: true,
+                previewContent: completionFetch.previewContent || undefined,
+                result: completionFetch.result,
+              }
+            }
+            return {
+              recovered: false,
+              previewContent: completionFetch.previewContent || undefined,
+            }
+          }
         }
       }
     }
