@@ -1953,6 +1953,33 @@ export class GrokChatService implements ChatService {
     }
 
     const fallbackPreviousResponseId = (input.anchors.lastResponseId || "").trim()
+    const localMessages = await this.repository.listMessages(conversationId).catch(() => [])
+    let latestLocalAssistantCreatedAt = 0
+    for (const message of localMessages) {
+      if (message.role !== "assistant") {
+        continue
+      }
+      if (message.createdAt > latestLocalAssistantCreatedAt) {
+        latestLocalAssistantCreatedAt = message.createdAt
+      }
+    }
+    let pendingUserCreatedAt = 0
+    for (let index = localMessages.length - 1; index >= 0; index -= 1) {
+      const message = localMessages[index]
+      if (message.role === "assistant") {
+        break
+      }
+      if (message.role === "user") {
+        pendingUserCreatedAt = message.createdAt
+        break
+      }
+    }
+    const minRecoverAssistantCreatedAt =
+      pendingUserCreatedAt > 0
+        ? pendingUserCreatedAt
+        : latestLocalAssistantCreatedAt > 0
+          ? latestLocalAssistantCreatedAt + 1
+          : 0
     const isSessionAnchorAheadOfLocal = (state: GatewaySessionState | null): boolean => {
       const sessionLastResponseId = state?.lastResponseId.trim() || ""
       if (!sessionLastResponseId) {
@@ -1964,10 +1991,20 @@ export class GrokChatService implements ChatService {
       return sessionLastResponseId !== fallbackPreviousResponseId
     }
     const pickLatestAssistantRow = (rows: GatewaySessionMessage[]): GatewaySessionMessage | null => {
-      return rows
-        .filter((row) => row.role === "assistant")
-        .sort((a, b) => a.createdAt - b.createdAt)
-        .at(-1) || null
+      const assistantRows = rows.filter((row) => row.role === "assistant")
+      if (assistantRows.length === 0) {
+        return null
+      }
+      if (minRecoverAssistantCreatedAt > 0) {
+        const recentRows = assistantRows
+          .filter((row) => row.createdAt >= minRecoverAssistantCreatedAt)
+          .sort((a, b) => a.createdAt - b.createdAt)
+        if (recentRows.length > 0) {
+          return recentRows.at(-1) || null
+        }
+        return null
+      }
+      return assistantRows.sort((a, b) => a.createdAt - b.createdAt).at(-1) || null
     }
 
     const tryRecoverFromMessages = async (): Promise<{
@@ -2313,6 +2350,20 @@ export class GrokChatService implements ChatService {
         headers: this.createGatewayAuthHeaders(),
       })
       if (!response.ok) {
+        if (afterResponseId.trim()) {
+          const contentType = (response.headers.get("content-type") || "").toLowerCase()
+          if (contentType.includes("json")) {
+            const payload = await response.json().catch(() => null)
+            const errorCode = readTrimmedString(
+              payload && typeof payload === "object"
+                ? (payload as { error?: { code?: unknown } }).error?.code
+                : ""
+            )
+            if (errorCode === "invalid_after_response_id") {
+              return this.queryGatewaySessionMessages(normalizedSessionId, "")
+            }
+          }
+        }
         return []
       }
       const contentType = (response.headers.get("content-type") || "").toLowerCase()
