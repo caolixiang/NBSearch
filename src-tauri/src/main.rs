@@ -80,6 +80,8 @@ struct GatewayConfigToml {
     gateway: GatewayConfigTomlSection,
     #[serde(default)]
     appearance: AppearanceConfigTomlSection,
+    #[serde(default)]
+    recovery: RecoveryConfigTomlSection,
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -98,6 +100,14 @@ struct AppearanceConfigTomlSection {
     font_size: String,
 }
 
+#[derive(Serialize, Deserialize, Default)]
+struct RecoveryConfigTomlSection {
+    #[serde(default)]
+    turn_in_progress_retry_max_attempts: Option<u32>,
+    #[serde(default)]
+    turn_in_progress_retry_delay_ms: Option<u64>,
+}
+
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct GatewayConfigPayload {
@@ -105,6 +115,8 @@ struct GatewayConfigPayload {
     api_key: String,
     theme: String,
     font_size: String,
+    turn_in_progress_retry_max_attempts: u32,
+    turn_in_progress_retry_delay_ms: u64,
     config_path: String,
 }
 
@@ -226,6 +238,23 @@ fn normalize_font_size_mode(value: &str) -> String {
         "large" => "large".to_string(),
         _ => "default".to_string(),
     }
+}
+
+const TURN_IN_PROGRESS_RETRY_MAX_ATTEMPTS_DEFAULT: u32 = 1;
+const TURN_IN_PROGRESS_RETRY_MAX_ATTEMPTS_MAX: u32 = 10;
+const TURN_IN_PROGRESS_RETRY_DELAY_MS_DEFAULT: u64 = 600;
+const TURN_IN_PROGRESS_RETRY_DELAY_MS_MAX: u64 = 30_000;
+
+fn normalize_turn_in_progress_retry_max_attempts(value: Option<u32>) -> u32 {
+    value
+        .map(|v| v.min(TURN_IN_PROGRESS_RETRY_MAX_ATTEMPTS_MAX))
+        .unwrap_or(TURN_IN_PROGRESS_RETRY_MAX_ATTEMPTS_DEFAULT)
+}
+
+fn normalize_turn_in_progress_retry_delay_ms(value: Option<u64>) -> u64 {
+    value
+        .map(|v| v.min(TURN_IN_PROGRESS_RETRY_DELAY_MS_MAX))
+        .unwrap_or(TURN_IN_PROGRESS_RETRY_DELAY_MS_DEFAULT)
 }
 
 fn canonicalize_image_cache_key(url: &str) -> String {
@@ -761,6 +790,12 @@ fn read_gateway_config(app: tauri::AppHandle) -> Result<GatewayConfigPayload, St
         api_key: parsed.gateway.api_key.trim().to_string(),
         theme: normalize_theme_mode(parsed.appearance.theme.as_str()),
         font_size: normalize_font_size_mode(parsed.appearance.font_size.as_str()),
+        turn_in_progress_retry_max_attempts: normalize_turn_in_progress_retry_max_attempts(
+            parsed.recovery.turn_in_progress_retry_max_attempts,
+        ),
+        turn_in_progress_retry_delay_ms: normalize_turn_in_progress_retry_delay_ms(
+            parsed.recovery.turn_in_progress_retry_delay_ms,
+        ),
         config_path: config_path.to_string_lossy().to_string(),
     })
 }
@@ -782,6 +817,12 @@ fn save_gateway_config(
         api_key: parsed.gateway.api_key,
         theme: normalize_theme_mode(parsed.appearance.theme.as_str()),
         font_size: normalize_font_size_mode(parsed.appearance.font_size.as_str()),
+        turn_in_progress_retry_max_attempts: normalize_turn_in_progress_retry_max_attempts(
+            parsed.recovery.turn_in_progress_retry_max_attempts,
+        ),
+        turn_in_progress_retry_delay_ms: normalize_turn_in_progress_retry_delay_ms(
+            parsed.recovery.turn_in_progress_retry_delay_ms,
+        ),
         config_path: config_path.to_string_lossy().to_string(),
     })
 }

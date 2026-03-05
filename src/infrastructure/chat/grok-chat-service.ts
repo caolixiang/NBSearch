@@ -330,8 +330,10 @@ const TURN_RECOVERY_MESSAGES_LIMIT = 100
 const TURN_RECOVERY_NOT_FOUND_RETRY_MAX_ATTEMPTS = 1
 const TURN_RECOVERY_POLL_IN_PROGRESS_MAX_ATTEMPTS = 2
 const TURN_RECOVERY_POLL_IN_PROGRESS_DELAY_MS = 700
-const TURN_RECOVERY_IN_PROGRESS_RETRY_MAX_ATTEMPTS = 1
-const TURN_RECOVERY_IN_PROGRESS_RETRY_DELAY_MS = 600
+const TURN_RECOVERY_IN_PROGRESS_RETRY_MAX_ATTEMPTS_DEFAULT = 1
+const TURN_RECOVERY_IN_PROGRESS_RETRY_DELAY_MS_DEFAULT = 600
+const TURN_RECOVERY_IN_PROGRESS_RETRY_MAX_ATTEMPTS_MAX = 10
+const TURN_RECOVERY_IN_PROGRESS_RETRY_DELAY_MS_MAX = 30_000
 const TURN_RECOVERY_HTTP_RETRYABLE_CODES = new Set([
   "session_in_progress",
   "turn_in_progress",
@@ -406,6 +408,23 @@ function readSafeInteger(value: unknown): number {
     }
   }
   return 0
+}
+
+function normalizeTurnRecoverySetting(
+  value: unknown,
+  fallback: number,
+  max: number
+): number {
+  if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
+    return Math.min(max, Math.floor(value))
+  }
+  if (typeof value === "string") {
+    const parsed = Number.parseInt(value, 10)
+    if (Number.isFinite(parsed) && parsed >= 0) {
+      return Math.min(max, parsed)
+    }
+  }
+  return fallback
 }
 
 function coerceGatewayTurnState(payload: unknown): GatewayTurnState | null {
@@ -1824,6 +1843,8 @@ export class GrokChatService implements ChatService {
   private readonly apiUrl: string
   private readonly apiKey: string
   private readonly runtimeFetch: typeof fetch
+  private readonly turnInProgressRetryMaxAttempts: number
+  private readonly turnInProgressRetryDelayMs: number
 
   constructor(
     private readonly repository: AppRepository,
@@ -1832,6 +1853,16 @@ export class GrokChatService implements ChatService {
     this.apiUrl = normalizeApiBaseUrl(config.apiBaseUrl)
     this.apiKey = config.apiKey || ""
     this.runtimeFetch = createRuntimeFetch(fetch)
+    this.turnInProgressRetryMaxAttempts = normalizeTurnRecoverySetting(
+      config.turnInProgressRetryMaxAttempts,
+      TURN_RECOVERY_IN_PROGRESS_RETRY_MAX_ATTEMPTS_DEFAULT,
+      TURN_RECOVERY_IN_PROGRESS_RETRY_MAX_ATTEMPTS_MAX
+    )
+    this.turnInProgressRetryDelayMs = normalizeTurnRecoverySetting(
+      config.turnInProgressRetryDelayMs,
+      TURN_RECOVERY_IN_PROGRESS_RETRY_DELAY_MS_DEFAULT,
+      TURN_RECOVERY_IN_PROGRESS_RETRY_DELAY_MS_MAX
+    )
   }
 
   async listMessages(conversationId: string): Promise<ChatMessage[]> {
@@ -2624,9 +2655,9 @@ export class GrokChatService implements ChatService {
               continue
             }
             if (recovery.kind === "in_progress") {
-              if (turnInProgressRetryAttempts < TURN_RECOVERY_IN_PROGRESS_RETRY_MAX_ATTEMPTS) {
+              if (turnInProgressRetryAttempts < this.turnInProgressRetryMaxAttempts) {
                 turnInProgressRetryAttempts += 1
-                await waitForRetryDelay(TURN_RECOVERY_IN_PROGRESS_RETRY_DELAY_MS, signal)
+                await waitForRetryDelay(this.turnInProgressRetryDelayMs, signal)
                 continue
               }
               emitFailed("turn_in_progress", "turn_is_still_in_progress")
@@ -2680,9 +2711,9 @@ export class GrokChatService implements ChatService {
               continue
             }
             if (recovery.kind === "in_progress") {
-              if (turnInProgressRetryAttempts < TURN_RECOVERY_IN_PROGRESS_RETRY_MAX_ATTEMPTS) {
+              if (turnInProgressRetryAttempts < this.turnInProgressRetryMaxAttempts) {
                 turnInProgressRetryAttempts += 1
-                await waitForRetryDelay(TURN_RECOVERY_IN_PROGRESS_RETRY_DELAY_MS, signal)
+                await waitForRetryDelay(this.turnInProgressRetryDelayMs, signal)
                 continue
               }
               emitFailed("turn_in_progress", "turn_is_still_in_progress")
@@ -2715,9 +2746,9 @@ export class GrokChatService implements ChatService {
               continue
             }
             if (recovery.kind === "in_progress") {
-              if (turnInProgressRetryAttempts < TURN_RECOVERY_IN_PROGRESS_RETRY_MAX_ATTEMPTS) {
+              if (turnInProgressRetryAttempts < this.turnInProgressRetryMaxAttempts) {
                 turnInProgressRetryAttempts += 1
-                await waitForRetryDelay(TURN_RECOVERY_IN_PROGRESS_RETRY_DELAY_MS, signal)
+                await waitForRetryDelay(this.turnInProgressRetryDelayMs, signal)
                 continue
               }
               emitFailed("turn_in_progress", "turn_is_still_in_progress")
@@ -2929,9 +2960,9 @@ export class GrokChatService implements ChatService {
               continue
             }
             if (recovery.kind === "in_progress") {
-              if (turnInProgressRetryAttempts < TURN_RECOVERY_IN_PROGRESS_RETRY_MAX_ATTEMPTS) {
+              if (turnInProgressRetryAttempts < this.turnInProgressRetryMaxAttempts) {
                 turnInProgressRetryAttempts += 1
-                await waitForRetryDelay(TURN_RECOVERY_IN_PROGRESS_RETRY_DELAY_MS, signal)
+                await waitForRetryDelay(this.turnInProgressRetryDelayMs, signal)
                 continue
               }
               emitFailed("turn_in_progress", "turn_is_still_in_progress", gatewayResponseId)

@@ -13,6 +13,8 @@ export interface AppConfig {
   voiceEnabled: boolean
   themeMode: AppThemeMode
   fontSizeMode: AppFontSizeMode
+  turnInProgressRetryMaxAttempts?: number
+  turnInProgressRetryDelayMs?: number
 }
 
 export interface AppServices {

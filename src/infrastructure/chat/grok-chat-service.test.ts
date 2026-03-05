@@ -1316,7 +1316,7 @@ describe("streamTurn heartbeats and timeout", () => {
     expect(events.some((event) => event.type === "completed")).toBe(true)
   })
 
-  it("returns turn_in_progress when in-progress recovery exceeds retry budget", async () => {
+  it("returns turn_in_progress immediately when configured in-progress retry budget is 0", async () => {
     const repository = new MemoryAppRepository()
     const service = new GrokChatService(repository, {
       apiBaseUrl: "http://127.0.0.1:8787",
@@ -1325,6 +1325,8 @@ describe("streamTurn heartbeats and timeout", () => {
       voiceEnabled: false,
       themeMode: "light",
       fontSizeMode: "default",
+      turnInProgressRetryMaxAttempts: 0,
+      turnInProgressRetryDelayMs: 0,
     })
 
     const requestBodies: string[] = []
@@ -1403,7 +1405,7 @@ describe("streamTurn heartbeats and timeout", () => {
       }
     )
 
-    expect(requestBodies).toHaveLength(2)
+    expect(requestBodies).toHaveLength(1)
     const failed = events.find((event) => event.type === "failed")
     expect(failed?.code).toBe("turn_in_progress")
   })

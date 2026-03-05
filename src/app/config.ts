@@ -20,6 +20,8 @@ interface GatewayConfigPayload {
   apiKey?: string
   theme?: string
   fontSize?: string
+  turnInProgressRetryMaxAttempts?: number
+  turnInProgressRetryDelayMs?: number
   configPath?: string
 }
 
@@ -45,6 +47,35 @@ function normalizeFontSizeMode(value: string | undefined): AppFontSizeMode {
   return "default"
 }
 
+function normalizeRetryMaxAttempts(value: unknown, fallback: number): number {
+  if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
+    return Math.min(10, Math.floor(value))
+  }
+  if (typeof value === "string") {
+    const parsed = Number.parseInt(value, 10)
+    if (Number.isFinite(parsed) && parsed >= 0) {
+      return Math.min(10, parsed)
+    }
+  }
+  return fallback
+}
+
+function normalizeRetryDelayMs(value: unknown, fallback: number): number {
+  if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
+    return Math.min(30_000, Math.floor(value))
+  }
+  if (typeof value === "string") {
+    const parsed = Number.parseInt(value, 10)
+    if (Number.isFinite(parsed) && parsed >= 0) {
+      return Math.min(30_000, parsed)
+    }
+  }
+  return fallback
+}
+
+const DEFAULT_TURN_IN_PROGRESS_RETRY_MAX_ATTEMPTS = 1
+const DEFAULT_TURN_IN_PROGRESS_RETRY_DELAY_MS = 600
+
 function readEnvAppConfig(): AppConfig {
   const useEnvGatewayDefaults = import.meta.env.DEV
   const envApiBaseUrl = import.meta.env.VITE_APP_API_BASE_URL?.trim() || ""
@@ -57,6 +88,14 @@ function readEnvAppConfig(): AppConfig {
     voiceEnabled: parseBool(import.meta.env.VITE_APP_VOICE_ENABLED, true),
     themeMode: normalizeThemeMode(import.meta.env.VITE_APP_THEME_MODE),
     fontSizeMode: normalizeFontSizeMode(import.meta.env.VITE_APP_FONT_SIZE_MODE),
+    turnInProgressRetryMaxAttempts: normalizeRetryMaxAttempts(
+      import.meta.env.VITE_APP_TURN_IN_PROGRESS_RETRY_MAX_ATTEMPTS,
+      DEFAULT_TURN_IN_PROGRESS_RETRY_MAX_ATTEMPTS
+    ),
+    turnInProgressRetryDelayMs: normalizeRetryDelayMs(
+      import.meta.env.VITE_APP_TURN_IN_PROGRESS_RETRY_DELAY_MS,
+      DEFAULT_TURN_IN_PROGRESS_RETRY_DELAY_MS
+    ),
   }
 }
 
@@ -119,6 +158,14 @@ export async function loadAppConfig(): Promise<AppConfig> {
   const fileApiKey = normalizeGatewayValue(fileConfig?.apiKey)
   const fileThemeMode = normalizeThemeMode(fileConfig?.theme)
   const fileFontSizeMode = normalizeFontSizeMode(fileConfig?.fontSize)
+  const fileRetryMaxAttempts = normalizeRetryMaxAttempts(
+    fileConfig?.turnInProgressRetryMaxAttempts,
+    envConfig.turnInProgressRetryMaxAttempts ?? DEFAULT_TURN_IN_PROGRESS_RETRY_MAX_ATTEMPTS
+  )
+  const fileRetryDelayMs = normalizeRetryDelayMs(
+    fileConfig?.turnInProgressRetryDelayMs,
+    envConfig.turnInProgressRetryDelayMs ?? DEFAULT_TURN_IN_PROGRESS_RETRY_DELAY_MS
+  )
   const hasFileTheme = typeof fileConfig?.theme === "string" && fileConfig.theme.trim().length > 0
   const hasFileFontSize =
     typeof fileConfig?.fontSize === "string" && fileConfig.fontSize.trim().length > 0
@@ -130,5 +177,7 @@ export async function loadAppConfig(): Promise<AppConfig> {
     apiKey: fileApiKey || envConfig.apiKey,
     themeMode: hasFileTheme ? fileThemeMode : envConfig.themeMode,
     fontSizeMode: hasFileFontSize ? fileFontSizeMode : envConfig.fontSizeMode,
+    turnInProgressRetryMaxAttempts: fileRetryMaxAttempts,
+    turnInProgressRetryDelayMs: fileRetryDelayMs,
   }
 }
