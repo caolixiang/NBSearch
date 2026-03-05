@@ -41,7 +41,7 @@ function newConversationId(): string {
 const DRAFT_CONVERSATION_ID = "draft_new_conversation"
 const CHAT_INPUT_REVEAL_DELAY_MS = 500
 const MODEL_SYNC_NOTICE_DURATION_MS = 2200
-const PENDING_RETRY_FORCE_DETACH_AFTER_MS = 30_000
+const PENDING_RECOVERY_POLL_INTERVAL_MS = 2500
 
 type ModelSyncNotice = {
   message: string
@@ -265,55 +265,6 @@ function resolveReasoningDurationSeconds(
   return Math.max(1, Math.round((endMs - reasoningStartedAtMs) / 1000))
 }
 
-function normalizeConversationError(message: string): string {
-  const text = message.trim()
-  if (!text) {
-    return ""
-  }
-  if (/stream_idle_timeout/i.test(text)) {
-    return "连接超时，流式已中断，请重试。"
-  }
-  return text
-}
-
-function resolveStreamingConnectionHealth(
-  isStreaming: boolean,
-  lastHeartbeatAt: number | undefined,
-  startedAt: number | undefined,
-  now: number
-): {
-  level: "healthy" | "degraded" | "waiting"
-  label: string
-} | null {
-  if (!isStreaming) {
-    return null
-  }
-  const base = lastHeartbeatAt || startedAt || 0
-  if (base <= 0) {
-    return {
-      level: "waiting",
-      label: "连接中...",
-    }
-  }
-  const idleMs = Math.max(0, now - base)
-  if (idleMs <= 6000) {
-    return {
-      level: "healthy",
-      label: "连接稳定",
-    }
-  }
-  if (idleMs <= 12000) {
-    return {
-      level: "degraded",
-      label: `连接波动 · ${Math.max(1, Math.round(idleMs / 1000))}s`,
-    }
-  }
-  return {
-    level: "waiting",
-    label: `等待数据 · ${Math.max(1, Math.round(idleMs / 1000))}s`,
-  }
-}
-
 function appendReasoningEvent(
   previous: ChatReasoningEventDetail[],
   detail: ChatReasoningEventDetail
@@ -390,7 +341,6 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     streamingStateByConversationId,
     persistedReasoningByConversationId,
     persistedReasoningDurationByConversationId,
-    lastErrorByConversationId,
     setHasDraftConversation,
     setDraftConversationUpdatedAt,
     setActiveConversationId,
@@ -421,9 +371,16 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
   })
   const [deepSearchEnabled, setDeepSearchEnabled] = useState(false)
   const [isRefreshingModels, setIsRefreshingModels] = useState(false)
+  const [pendingRecoverySyncingByConversationId, setPendingRecoverySyncingByConversationId] = useState<
+    Record<string, boolean>
+  >({})
+  const [pendingRecoveryPreviewByConversationId, setPendingRecoveryPreviewByConversationId] = useState<
+    Record<string, string>
+  >({})
 
   const abortControllerByConversationIdRef = useRef<Record<string, AbortController>>({})
   const activeConversationIdRef = useRef<string | null>(null)
+  const messagesByConversationIdRef = useRef(messagesByConversationId)
   const messagesScrollRef = useRef<HTMLDivElement | null>(null)
   const shouldAutoScrollRef = useRef(true)
   const lastScrollTopRef = useRef(0)
@@ -462,6 +419,63 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     activeConversationIdRef.current = activeConversationId
   }, [activeConversationId])
 
+  useEffect(() => {
+    messagesByConversationIdRef.current = messagesByConversationId
+  }, [messagesByConversationId])
+
+  const setPendingRecoverySyncingForConversation = useCallback(
+    (conversationId: string, syncing: boolean) => {
+      if (!conversationId) {
+        return
+      }
+      setPendingRecoverySyncingByConversationId((previous) => {
+        if (syncing) {
+          if (previous[conversationId]) {
+            return previous
+          }
+          return {
+            ...previous,
+            [conversationId]: true,
+          }
+        }
+        if (!previous[conversationId]) {
+          return previous
+        }
+        const next = { ...previous }
+        delete next[conversationId]
+        return next
+      })
+    },
+    []
+  )
+
+  const setPendingRecoveryPreviewForConversation = useCallback(
+    (conversationId: string, previewContent: string) => {
+      if (!conversationId) {
+        return
+      }
+      const normalizedPreview = previewContent.trim()
+      setPendingRecoveryPreviewByConversationId((previous) => {
+        if (!normalizedPreview) {
+          if (!previous[conversationId]) {
+            return previous
+          }
+          const next = { ...previous }
+          delete next[conversationId]
+          return next
+        }
+        if (previous[conversationId] === normalizedPreview) {
+          return previous
+        }
+        return {
+          ...previous,
+          [conversationId]: normalizedPreview,
+        }
+      })
+    },
+    []
+  )
+
   const activeMessages = useMemo(() => {
     if (!activeConversationId) {
       return []
@@ -483,15 +497,6 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     return persistedReasoningDurationByConversationId[activeConversationId] || {}
   }, [activeConversationId, persistedReasoningDurationByConversationId])
 
-  const activeLastError = useMemo(() => {
-    if (!activeConversationId) {
-      return ""
-    }
-    return lastErrorByConversationId[activeConversationId] || ""
-  }, [activeConversationId, lastErrorByConversationId])
-  const activeVisibleError = useMemo(() => {
-    return normalizeConversationError(activeLastError)
-  }, [activeLastError])
   const activePendingUserMessage = useMemo(() => {
     if (!activeConversationId || activeConversationId === DRAFT_CONVERSATION_ID) {
       return null
@@ -501,6 +506,18 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     }
     return getLastPendingUserMessage(activeMessages)
   }, [activeConversationId, activeMessages, streamingStateByConversationId])
+  const isActivePendingRecoverySyncing = useMemo(() => {
+    if (!activeConversationId) {
+      return false
+    }
+    return Boolean(pendingRecoverySyncingByConversationId[activeConversationId])
+  }, [activeConversationId, pendingRecoverySyncingByConversationId])
+  const activePendingRecoveryPreview = useMemo(() => {
+    if (!activeConversationId) {
+      return ""
+    }
+    return pendingRecoveryPreviewByConversationId[activeConversationId] || ""
+  }, [activeConversationId, pendingRecoveryPreviewByConversationId])
 
   const activeStreamingState = useMemo(() => {
     return getConversationStreamingState(streamingStateByConversationId, activeConversationId)
@@ -672,19 +689,6 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     }
     return map
   }, [activeConversationTitle, assistantRoundByMessageId])
-  const activeConnectionHealth = useMemo(() => {
-    return resolveStreamingConnectionHealth(
-      isActiveConversationStreaming,
-      activeStreamingState?.lastHeartbeatAt,
-      activeStreamingState?.startedAt,
-      Date.now()
-    )
-  }, [
-    isActiveConversationStreaming,
-    activeStreamingReasoningDurationSeconds,
-    activeStreamingState?.lastHeartbeatAt,
-    activeStreamingState?.startedAt,
-  ])
   const shouldShowRetryPendingButton = Boolean(activePendingUserMessage && !isActiveConversationStreaming)
   const shouldShowHeaderNewConversationButton = conversations.length > 0
 
@@ -719,6 +723,8 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     isActiveConversationStreaming &&
     activeStreamingAssistantText.trim().length === 0 &&
     !isThinkingStreaming
+  const shouldShowPendingRecoveryWarmup =
+    Boolean(activePendingUserMessage) && !isActiveConversationStreaming && isActivePendingRecoverySyncing
   const messageBottomSpacerPx = useMemo(() => {
     const base = isThinkingStreaming ? 40 : 16
     // Keep enough trailing scroll range even when composer is auto-collapsed,
@@ -802,10 +808,14 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       messages: DomainChatMessage[]
     ): Promise<"recovered" | "in_progress" | "none"> => {
       if (conversationId === DRAFT_CONVERSATION_ID) {
+        setPendingRecoverySyncingForConversation(conversationId, false)
+        setPendingRecoveryPreviewForConversation(conversationId, "")
         return "none"
       }
       const pendingUserMessage = getLastPendingUserMessage(messages)
       if (!pendingUserMessage) {
+        setPendingRecoverySyncingForConversation(conversationId, false)
+        setPendingRecoveryPreviewForConversation(conversationId, "")
         return "none"
       }
       const conversation = conversations.find((item) => item.id === conversationId)
@@ -814,13 +824,21 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
         conversationId,
         anchors,
       })
+      if (recovery.previewContent) {
+        setPendingRecoveryPreviewForConversation(conversationId, recovery.previewContent)
+      }
       if (!recovery.recovered) {
         if (recovery.inProgress) {
-          setLastErrorForConversation(conversationId, "上一轮仍在处理中，请稍后点击重试。")
+          setPendingRecoverySyncingForConversation(conversationId, true)
+          setLastErrorForConversation(conversationId, "上一轮仍在处理中，正在自动同步结果。")
           return "in_progress"
         }
+        setPendingRecoverySyncingForConversation(conversationId, false)
+        setPendingRecoveryPreviewForConversation(conversationId, "")
         return "none"
       }
+      setPendingRecoverySyncingForConversation(conversationId, false)
+      setPendingRecoveryPreviewForConversation(conversationId, "")
       clearLastErrorForConversation(conversationId)
       attemptedPendingRecoveryMessageIdByConversationRef.current[conversationId] = ""
       shouldAutoScrollRef.current = activeConversationIdRef.current === conversationId
@@ -841,6 +859,8 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       loadMessages,
       refreshConversations,
       setLastErrorForConversation,
+      setPendingRecoveryPreviewForConversation,
+      setPendingRecoverySyncingForConversation,
       setProgrammaticScrollTop,
     ]
   )
@@ -918,6 +938,8 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     const pendingUserMessage = getLastPendingUserMessage(activeMessages)
     if (!pendingUserMessage) {
       attemptedPendingRecoveryMessageIdByConversationRef.current[activeConversationId] = ""
+      setPendingRecoverySyncingForConversation(activeConversationId, false)
+      setPendingRecoveryPreviewForConversation(activeConversationId, "")
       return
     }
     const attemptedMessageId =
@@ -931,6 +953,43 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     activeConversationId,
     activeMessages,
     attemptRecoverPendingAssistant,
+    setPendingRecoveryPreviewForConversation,
+    setPendingRecoverySyncingForConversation,
+    streamingStateByConversationId,
+  ])
+
+  useEffect(() => {
+    if (!activeConversationId || activeConversationId === DRAFT_CONVERSATION_ID) {
+      return
+    }
+    if (!isActivePendingRecoverySyncing) {
+      return
+    }
+    if (isConversationStreaming(streamingStateByConversationId, activeConversationId)) {
+      return
+    }
+
+    const timer = window.setInterval(() => {
+      const latestMessages = messagesByConversationIdRef.current[activeConversationId] || []
+      const pendingUserMessage = getLastPendingUserMessage(latestMessages)
+      if (!pendingUserMessage) {
+        setPendingRecoverySyncingForConversation(activeConversationId, false)
+        setPendingRecoveryPreviewForConversation(activeConversationId, "")
+        attemptedPendingRecoveryMessageIdByConversationRef.current[activeConversationId] = ""
+        return
+      }
+      void attemptRecoverPendingAssistant(activeConversationId, latestMessages)
+    }, PENDING_RECOVERY_POLL_INTERVAL_MS)
+
+    return () => {
+      window.clearInterval(timer)
+    }
+  }, [
+    activeConversationId,
+    attemptRecoverPendingAssistant,
+    isActivePendingRecoverySyncing,
+    setPendingRecoveryPreviewForConversation,
+    setPendingRecoverySyncingForConversation,
     streamingStateByConversationId,
   ])
 
@@ -1377,7 +1436,8 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
               pendingCardAttachmentDetails = []
               clearStreamingState()
               if (event.code === "turn_in_progress") {
-                setLastErrorForConversation(conversationId, "上一轮仍在处理中，请稍后点击重试。")
+                setPendingRecoverySyncingForConversation(conversationId, true)
+                setLastErrorForConversation(conversationId, "上一轮仍在处理中，正在自动同步结果。")
               } else {
                 setLastErrorForConversation(conversationId, event.message)
               }
@@ -1412,6 +1472,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       setStreamingStateForConversation,
       setConversations,
       setLastErrorForConversation,
+      setPendingRecoverySyncingForConversation,
       refreshConversations,
       selectedModel,
       streamingStateByConversationId,
@@ -1449,12 +1510,9 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       setLastErrorForConversation(conversationId, "该问题包含附件，请重新上传后发送。")
       return
     }
-
     if (recoveryStatus === "in_progress") {
-      const pendingAgeMs = Math.max(0, Date.now() - pendingUserMessage.createdAt)
-      if (pendingAgeMs < PENDING_RETRY_FORCE_DETACH_AFTER_MS) {
-        return
-      }
+      setPendingRecoverySyncingForConversation(conversationId, false)
+      setPendingRecoveryPreviewForConversation(conversationId, "")
     }
 
     await handleSendMessage(retryPayload.text, [], {
@@ -1466,6 +1524,8 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     clearLastErrorForConversation,
     handleSendMessage,
     messagesByConversationId,
+    setPendingRecoveryPreviewForConversation,
+    setPendingRecoverySyncingForConversation,
     setLastErrorForConversation,
     streamingStateByConversationId,
   ])
@@ -1800,7 +1860,8 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
               pendingCardAttachmentDetails = []
               clearStreamingState()
               if (event.code === "turn_in_progress") {
-                setLastErrorForConversation(conversationId, "上一轮仍在处理中，请稍后点击重试。")
+                setPendingRecoverySyncingForConversation(conversationId, true)
+                setLastErrorForConversation(conversationId, "上一轮仍在处理中，正在自动同步结果。")
               } else {
                 setLastErrorForConversation(conversationId, event.message)
               }
@@ -1829,6 +1890,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       repository,
       selectedModel,
       setLastErrorForConversation,
+      setPendingRecoverySyncingForConversation,
       setMessagesForConversation,
       setPersistedReasoningDurationForConversation,
       setPersistedReasoningForConversation,
@@ -2002,43 +2064,6 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
             refreshStatusTone={modelSyncNotice?.tone}
           />
           <div className="flex min-w-0 items-center gap-2">
-            {activeConnectionHealth || activeVisibleError || shouldShowRetryPendingButton ? (
-              <div className="flex min-w-0 items-center gap-2">
-                {activeConnectionHealth ? (
-                  <span
-                    className={cn(
-                      "inline-flex shrink-0 items-center rounded-full border px-2 py-0.5 text-[11px]",
-                      activeConnectionHealth.level === "healthy"
-                        ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
-                        : activeConnectionHealth.level === "degraded"
-                          ? "border-amber-500/25 bg-amber-500/10 text-amber-700 dark:text-amber-300"
-                          : "border-border bg-muted text-muted-foreground"
-                    )}
-                  >
-                    {activeConnectionHealth.label}
-                  </span>
-                ) : null}
-                {activeVisibleError ? (
-                  <span className="truncate text-xs text-destructive">
-                    {activeVisibleError}
-                  </span>
-                ) : null}
-                {shouldShowRetryPendingButton ? (
-                  <button
-                    type="button"
-                    className={cn(
-                      "inline-flex shrink-0 items-center rounded-full border border-border bg-secondary px-3 py-1 text-xs text-foreground transition-colors",
-                      "hover:bg-secondary/80 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                    )}
-                    onClick={() => {
-                      void handleRetryPendingTurn()
-                    }}
-                  >
-                    重试
-                  </button>
-                ) : null}
-              </div>
-            ) : null}
             {shouldShowHeaderNewConversationButton ? (
               <div className="group/new-chat relative ms-1">
                 <span className="pointer-events-none absolute top-[calc(100%+8px)] right-0 z-20 -translate-y-1 whitespace-nowrap rounded-[16px] border border-black/10 bg-background/96 px-4 py-1 text-sm leading-6 text-foreground opacity-0 shadow-sm backdrop-blur transition-all duration-200 ease-in-out group-hover/new-chat:translate-y-0 group-hover/new-chat:opacity-100 group-focus-within/new-chat:translate-y-0 group-focus-within/new-chat:opacity-100">
@@ -2112,6 +2137,32 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
                   />
                 </div>
               ))}
+              {activePendingRecoveryPreview ? (
+                <div data-message-id="pending_recovery_preview" className="px-6 py-2">
+                  <div className="w-fit max-w-[min(92%,56rem)] rounded-3xl bg-secondary/40 px-4 py-3 text-sm leading-7 text-foreground whitespace-pre-wrap">
+                    {activePendingRecoveryPreview}
+                  </div>
+                </div>
+              ) : null}
+              {shouldShowPendingRecoveryWarmup ? (
+                <TypingIndicator label="同步中" />
+              ) : null}
+              {shouldShowRetryPendingButton ? (
+                <div className="px-6 pb-2">
+                  <button
+                    type="button"
+                    className={cn(
+                      "inline-flex items-center rounded-full border border-border bg-secondary px-3 py-1 text-xs text-foreground transition-colors",
+                      "hover:bg-secondary/80 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    )}
+                    onClick={() => {
+                      void handleRetryPendingTurn()
+                    }}
+                  >
+                    重试
+                  </button>
+                </div>
+              ) : null}
               {shouldShowThinkingWarmup ? (
                 <TypingIndicator elapsedSeconds={activeStreamingReasoningDurationSeconds} />
               ) : null}

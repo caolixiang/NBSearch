@@ -1284,6 +1284,77 @@ describe("streamTurn heartbeats and timeout", () => {
     expect(messages).toHaveLength(0)
   })
 
+  it("returns preview content while pending assistant is still streaming", async () => {
+    const repository = new MemoryAppRepository()
+    const service = new GrokChatService(repository, {
+      apiBaseUrl: "http://127.0.0.1:8787",
+      apiKey: "test-key",
+      defaultModel: "grok-4.1-fast",
+      voiceEnabled: false,
+      themeMode: "light",
+      fontSizeMode: "default",
+      turnRecoveryPollInProgressMaxAttempts: 0,
+      turnRecoveryPollInProgressDelayMs: 0,
+    })
+
+    const mockedFetch = (async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url
+      if (url.includes("/v1/sessions/sess_recover_pending_preview_1/messages")) {
+        return new Response(
+          JSON.stringify({
+            session_id: "sess_recover_pending_preview_1",
+            messages: [
+              {
+                id: "msg_asst_recover_pending_preview_1",
+                response_id: "resp_recover_pending_preview_1",
+                role: "assistant",
+                content: "正在同步上游结果...",
+                status: "in_progress",
+                created_at: 1772670001400,
+              },
+            ],
+          }),
+          {
+            status: 200,
+            headers: {
+              "Content-Type": "application/json",
+            },
+          }
+        )
+      }
+      if (url.includes("/v1/sessions/sess_recover_pending_preview_1/state")) {
+        return new Response(
+          JSON.stringify({
+            session_id: "sess_recover_pending_preview_1",
+            in_progress: true,
+            updated_at: 1772670001401,
+          }),
+          {
+            status: 200,
+            headers: {
+              "Content-Type": "application/json",
+            },
+          }
+        )
+      }
+      return new Response("{}", { status: 404 })
+    }) as unknown as typeof fetch
+    ;(mockedFetch as unknown as { preconnect: (url: string) => void }).preconnect = () => {}
+    ;(service as unknown as { runtimeFetch: typeof fetch }).runtimeFetch = mockedFetch
+
+    const recovered = await service.recoverPendingAssistant({
+      conversationId: "conv_recover_pending_preview_1",
+      anchors: {
+        sessionId: "sess_recover_pending_preview_1",
+        lastResponseId: "resp_prev_pending_preview_1",
+      },
+    })
+
+    expect(recovered.recovered).toBe(false)
+    expect(recovered.inProgress).toBe(true)
+    expect(recovered.previewContent).toContain("正在同步上游结果")
+  })
+
   it("retries original send once when turn status is not_found after transport failure", async () => {
     const repository = new MemoryAppRepository()
     const service = new GrokChatService(repository, {

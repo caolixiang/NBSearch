@@ -567,7 +567,11 @@ function coerceGatewaySessionMessages(payload: unknown): GatewaySessionMessage[]
     }
     const statusRaw = readTrimmedString(item.status).toLowerCase()
     const status: "streaming" | "completed" | "failed" =
-      statusRaw === "failed" ? "failed" : statusRaw === "streaming" ? "streaming" : "completed"
+      statusRaw === "failed"
+        ? "failed"
+        : statusRaw === "streaming" || statusRaw === "in_progress"
+          ? "streaming"
+          : "completed"
     const responseId = readTrimmedString(item.response_id) || readTrimmedString(item.responseId)
     const id = readTrimmedString(item.id) || responseId || `msg_${crypto.randomUUID()}`
     const content =
@@ -1937,6 +1941,7 @@ export class GrokChatService implements ChatService {
   }): Promise<{
     recovered: boolean
     inProgress?: boolean
+    previewContent?: string
     result?: ChatTurnResult
   }> {
     const conversationId = (input.conversationId || "").trim()
@@ -1946,14 +1951,34 @@ export class GrokChatService implements ChatService {
     }
 
     const fallbackPreviousResponseId = (input.anchors.lastResponseId || "").trim()
-    const tryRecoverFromMessages = async (): Promise<ChatTurnResult | null> => {
-      const recoveredRows = await this.queryGatewaySessionMessages(sessionId, fallbackPreviousResponseId)
-      const candidate = recoveredRows
+    const pickLatestAssistantRow = (rows: GatewaySessionMessage[]): GatewaySessionMessage | null => {
+      return rows
         .filter((row) => row.role === "assistant")
         .sort((a, b) => a.createdAt - b.createdAt)
-        .at(-1)
+        .at(-1) || null
+    }
+
+    const tryRecoverFromMessages = async (): Promise<{
+      result: ChatTurnResult | null
+      previewContent: string
+      assistantStatus: GatewaySessionMessage["status"] | null
+    }> => {
+      const recoveredRows = await this.queryGatewaySessionMessages(sessionId, fallbackPreviousResponseId)
+      const candidate = pickLatestAssistantRow(recoveredRows)
       if (!candidate) {
-        return null
+        return {
+          result: null,
+          previewContent: "",
+          assistantStatus: null,
+        }
+      }
+      const previewContent = candidate.content.trim()
+      if (candidate.status !== "completed") {
+        return {
+          result: null,
+          previewContent,
+          assistantStatus: candidate.status,
+        }
       }
 
       const turnState: GatewayTurnState = {
@@ -1963,43 +1988,64 @@ export class GrokChatService implements ChatService {
         errorMessage: "",
         updatedAt: candidate.createdAt || Date.now(),
       }
-      return this.persistRecoveredCompletedTurn({
+      const result = await this.persistRecoveredCompletedTurn({
         conversationId,
         sessionId,
         turnState,
         fallbackPreviousResponseId,
       })
+      return {
+        result,
+        previewContent,
+        assistantStatus: candidate.status,
+      }
     }
 
+    let latestPreviewContent = ""
+
     const recoveredImmediately = await tryRecoverFromMessages()
-    if (recoveredImmediately) {
+    latestPreviewContent = recoveredImmediately.previewContent
+    if (recoveredImmediately.result) {
       return {
         recovered: true,
-        result: recoveredImmediately,
+        previewContent: recoveredImmediately.previewContent || undefined,
+        result: recoveredImmediately.result,
       }
     }
 
     let sessionState = await this.queryGatewaySessionState(sessionId)
     if (!sessionState?.inProgress) {
-      return { recovered: false }
+      return {
+        recovered: false,
+        previewContent: latestPreviewContent || undefined,
+      }
     }
 
     for (let attempt = 0; attempt < this.turnRecoveryPollInProgressMaxAttempts; attempt += 1) {
       await waitForRetryDelay(this.turnRecoveryPollInProgressDelayMs)
       const recovered = await tryRecoverFromMessages()
-      if (recovered) {
+      latestPreviewContent = recovered.previewContent || latestPreviewContent
+      if (recovered.result) {
         return {
           recovered: true,
-          result: recovered,
+          previewContent: latestPreviewContent || undefined,
+          result: recovered.result,
         }
       }
       sessionState = await this.queryGatewaySessionState(sessionId)
       if (!sessionState?.inProgress) {
-        return { recovered: false }
+        return {
+          recovered: false,
+          previewContent: latestPreviewContent || undefined,
+        }
       }
     }
 
-    return { recovered: false, inProgress: true }
+    return {
+      recovered: false,
+      inProgress: true,
+      previewContent: latestPreviewContent || undefined,
+    }
   }
 
   private buildGatewayV1Url(pathname: string): string {

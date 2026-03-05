@@ -767,12 +767,18 @@ export function ChatMessage({
   )
 }
 
-export function TypingIndicator({ elapsedSeconds = 0 }: { elapsedSeconds?: number }) {
+export function TypingIndicator({
+  elapsedSeconds = 0,
+  label = "思考中",
+}: {
+  elapsedSeconds?: number
+  label?: string
+}) {
   return (
     <div className="flex px-6 py-4">
       <div className="inline-flex items-center gap-2 rounded-full bg-secondary/40 px-3 py-1.5 text-sm text-muted-foreground">
         <span className="inline-flex size-2 rounded-full bg-(--color-claude-warm-gray) animate-pulse" />
-        <span className="whitespace-nowrap">{elapsedSeconds > 0 ? `思考中 · ${elapsedSeconds}s` : "思考中"}</span>
+        <span className="whitespace-nowrap">{elapsedSeconds > 0 ? `${label} · ${elapsedSeconds}s` : label}</span>
       </div>
     </div>
   )
