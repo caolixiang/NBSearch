@@ -133,25 +133,6 @@ function getLastPendingUserMessage(messages: DomainChatMessage[]): DomainChatMes
   return null
 }
 
-function parseRetryableUserMessageContent(content: string): {
-  text: string
-  hasAttachmentMarker: boolean
-} {
-  const textLines: string[] = []
-  let hasAttachmentMarker = false
-  for (const line of content.split(/\r?\n/)) {
-    if (/^\s*\[附件\]\s+.+$/.test(line)) {
-      hasAttachmentMarker = true
-      continue
-    }
-    textLines.push(line)
-  }
-  return {
-    text: textLines.join("\n").trim(),
-    hasAttachmentMarker,
-  }
-}
-
 function buildReasoningCaches(list: DomainChatMessage[]): {
   reasoningByMessageId: Record<string, ChatReasoningEventDetail[]>
   reasoningDurationByMessageId: Record<string, number>
@@ -696,7 +677,6 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     }
     return map
   }, [activeConversationTitle, assistantRoundByMessageId])
-  const shouldShowRetryPendingButton = Boolean(activePendingUserMessage && !isActiveConversationStreaming)
   const shouldShowHeaderNewConversationButton = conversations.length > 0
 
   const resetComposerForNewConversation = useCallback(() => {
@@ -1484,7 +1464,8 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
         const wasAborted = controller.signal.aborted
         clearStreamingState()
         if (wasAborted) {
-          setLastErrorForConversation(conversationId, "已终止，可重试。")
+          setPendingRecoverySyncingForConversation(conversationId, true)
+          setLastErrorForConversation(conversationId, "已终止，正在自动同步结果。")
           resetDeepSearchAfterTurn()
           return
         }
@@ -1514,54 +1495,6 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       upsertPersistedReasoningEntry,
     ]
   )
-
-  const handleRetryPendingTurn = useCallback(async (): Promise<void> => {
-    const conversationId = activeConversationIdRef.current
-    if (!conversationId || conversationId === DRAFT_CONVERSATION_ID) {
-      return
-    }
-    if (isConversationStreaming(streamingStateByConversationId, conversationId)) {
-      return
-    }
-
-    const currentMessages = messagesByConversationId[conversationId] || []
-    const pendingUserMessage = getLastPendingUserMessage(currentMessages)
-    if (!pendingUserMessage) {
-      return
-    }
-
-    clearLastErrorForConversation(conversationId)
-    const recoveryStatus = await attemptRecoverPendingAssistant(conversationId, currentMessages)
-    if (recoveryStatus === "recovered") {
-      return
-    }
-    if (recoveryStatus === "in_progress") {
-      setPendingRecoverySyncingForConversation(conversationId, true)
-      setLastErrorForConversation(conversationId, "上一轮仍在处理中，正在继续同步。")
-      return
-    }
-
-    const retryPayload = parseRetryableUserMessageContent(pendingUserMessage.content)
-    if (!retryPayload.text) {
-      setLastErrorForConversation(conversationId, "重试失败：缺少可发送文本。")
-      return
-    }
-    if (retryPayload.hasAttachmentMarker) {
-      setLastErrorForConversation(conversationId, "该问题包含附件，请重新上传后发送。")
-      return
-    }
-    await handleSendMessage(retryPayload.text, [], {
-      retryExistingUserMessageId: pendingUserMessage.id,
-    })
-  }, [
-    attemptRecoverPendingAssistant,
-    clearLastErrorForConversation,
-    handleSendMessage,
-    messagesByConversationId,
-    setPendingRecoverySyncingForConversation,
-    setLastErrorForConversation,
-    streamingStateByConversationId,
-  ])
 
   const handleRegenerateMessage = useCallback(
     async (targetMessage: RenderChatMessage): Promise<void> => {
@@ -2179,22 +2112,6 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
               ) : null}
               {shouldShowPendingRecoveryWarmup ? (
                 <TypingIndicator label="同步中" />
-              ) : null}
-              {shouldShowRetryPendingButton ? (
-                <div className="px-6 pb-2">
-                  <button
-                    type="button"
-                    className={cn(
-                      "inline-flex items-center rounded-full border border-border bg-secondary px-3 py-1 text-xs text-foreground transition-colors",
-                      "hover:bg-secondary/80 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                    )}
-                    onClick={() => {
-                      void handleRetryPendingTurn()
-                    }}
-                  >
-                    重试
-                  </button>
-                </div>
               ) : null}
               {shouldShowThinkingWarmup ? (
                 <TypingIndicator elapsedSeconds={activeStreamingReasoningDurationSeconds} />
