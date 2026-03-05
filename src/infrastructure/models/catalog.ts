@@ -9,7 +9,6 @@ const SELECTED_MODEL_STORAGE_KEY = "chat-app:selected-model:v1"
 type RemoteModelRecord = Record<string, unknown>
 
 const TYPE_DESCRIPTIONS: Record<string, string> = {
-  mini: "更轻更快",
   fast: "低延迟会话模式",
   expert: "更强推理与复杂任务",
   latest: "最新实验模型",
@@ -40,18 +39,19 @@ export const DEFAULT_MODEL_OPTIONS: ModelOption[] = [
     description: "低延迟会话模式",
     visualKind: "spark",
   },
-  {
-    id: "openai/gpt-5-mini",
-    name: "GPT-5 Mini",
-    shortName: "GPT-5 Mini",
-    provider: "OpenAI",
-    description: "快速且高效",
-    visualKind: "compute",
-  },
 ]
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+function isMiniModelCandidate(modelId: string, modelType: string): boolean {
+  const normalizedId = modelId.trim().toLowerCase()
+  const normalizedType = modelType.trim().toLowerCase()
+  if (normalizedType === "mini") {
+    return true
+  }
+  return normalizedId.includes("mini")
 }
 
 function hasLocalStorage(): boolean {
@@ -153,9 +153,6 @@ function inferDescription(id: string, raw: RemoteModelRecord): string {
   if (normalizedId.includes("claude-opus")) {
     return "最强推理能力"
   }
-  if (normalizedId.includes("gpt-5-mini")) {
-    return "快速且高效"
-  }
   return "可用于当前聊天会话"
 }
 
@@ -199,6 +196,11 @@ function normalizeStoredModelOption(value: unknown): ModelOption | null {
     return null
   }
 
+  const normalizedType = typeof value.type === "string" ? value.type : ""
+  if (isMiniModelCandidate(id, normalizedType)) {
+    return null
+  }
+
   return {
     id,
     name,
@@ -222,6 +224,9 @@ function normalizeRemoteModel(value: unknown): ModelOption | null {
   const rawName = value.display_name ?? value.name
   const name = typeof rawName === "string" && rawName.trim() ? rawName.trim() : humanizeModelId(id)
   const type = typeof value.type === "string" ? value.type.trim() : ""
+  if (isMiniModelCandidate(id, type)) {
+    return null
+  }
 
   return {
     id,

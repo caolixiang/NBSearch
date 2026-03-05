@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test"
 import { normalizeRemoteModelList, resolveSelectedModel } from "./catalog"
 
 describe("normalizeRemoteModelList", () => {
-  it("parses /v1/models/tauri_chat_models payload and keeps order", () => {
+  it("parses /v1/models/tauri_chat_models payload, drops mini, and keeps order", () => {
     const payload = {
       object: "list",
       data: [
@@ -13,9 +13,9 @@ describe("normalizeRemoteModelList", () => {
     }
 
     const models = normalizeRemoteModelList(payload)
-    expect(models.map((item) => item.id)).toEqual(["grok-4.1-mini", "grok-4.1-fast"])
-    expect(models[0]?.description).toBe("更轻更快")
-    expect(models[1]?.shortName).toBe("Grok 4.1")
+    expect(models.map((item) => item.id)).toEqual(["grok-4.1-fast"])
+    expect(models[0]?.description).toBe("低延迟会话模式")
+    expect(models[0]?.shortName).toBe("Grok 4.1")
   })
 
   it("returns empty list for invalid payload", () => {

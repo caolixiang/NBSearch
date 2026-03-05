@@ -5,15 +5,6 @@ import { ChevronDown, Check, Zap, Brain, Sparkles, Cpu, RotateCw, Bot } from "lu
 import { cn } from "@/lib/utils"
 import type { ModelOption } from "@/domain/models/types"
 
-function isHiddenMiniModel(model: ModelOption): boolean {
-  const id = model.id.trim().toLowerCase()
-  const name = model.name.trim().toLowerCase()
-  if (id === "grok-4.1-mini" || id.includes("grok-4.1-mini")) {
-    return true
-  }
-  return name === "grok 4.1 mini" || name.includes("grok 4.1 mini")
-}
-
 function resolveModelDisplayName(model: ModelOption): string {
   const id = model.id.trim().toLowerCase()
   const name = model.name.trim().toLowerCase()
@@ -76,11 +67,7 @@ export function ModelSelector({
   const [isOpen, setIsOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
-  const visibleModels = models.filter((model) => !isHiddenMiniModel(model))
-  const selectableModels = visibleModels.length > 0 ? visibleModels : models
-  const selectedFromAll = models.find((model) => model.id === selectedModel)
-  const selectedFromVisible = selectableModels.find((model) => model.id === selectedModel)
-  const selected = selectedFromVisible || selectedFromAll || selectableModels[0]
+  const selected = models.find((model) => model.id === selectedModel) || models[0]
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -91,17 +78,6 @@ export function ModelSelector({
     document.addEventListener("mousedown", handleClickOutside)
     return () => document.removeEventListener("mousedown", handleClickOutside)
   }, [])
-
-  useEffect(() => {
-    if (!selectedFromAll || !isHiddenMiniModel(selectedFromAll)) {
-      return
-    }
-    const fallback = selectableModels[0]
-    if (!fallback || fallback.id === selectedFromAll.id) {
-      return
-    }
-    onModelChange(fallback.id)
-  }, [onModelChange, selectableModels, selectedFromAll])
 
   return (
     <div className="flex items-center gap-2">
@@ -128,7 +104,7 @@ export function ModelSelector({
         {isOpen && (
           <div className="absolute left-0 top-full z-50 mt-1 w-72 overflow-hidden rounded-xl border border-border bg-card shadow-lg">
             <div className="p-1.5">
-              {selectableModels.map((model) => (
+              {models.map((model) => (
                 <button
                   key={model.id}
                   onClick={() => {
