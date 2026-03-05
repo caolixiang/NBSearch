@@ -13,6 +13,13 @@ export interface AppConfig {
   voiceEnabled: boolean
   themeMode: AppThemeMode
   fontSizeMode: AppFontSizeMode
+  streamIdleTimeoutMs?: number
+  streamIdleRetryMaxAttempts?: number
+  streamIdleRetryDelayMs?: number
+  turnRecoveryMessagesLimit?: number
+  turnRecoveryNotFoundRetryMaxAttempts?: number
+  turnRecoveryPollInProgressMaxAttempts?: number
+  turnRecoveryPollInProgressDelayMs?: number
   turnInProgressRetryMaxAttempts?: number
   turnInProgressRetryDelayMs?: number
 }

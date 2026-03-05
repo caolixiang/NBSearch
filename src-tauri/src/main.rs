@@ -103,6 +103,20 @@ struct AppearanceConfigTomlSection {
 #[derive(Serialize, Deserialize, Default)]
 struct RecoveryConfigTomlSection {
     #[serde(default)]
+    stream_idle_timeout_ms: Option<u64>,
+    #[serde(default)]
+    stream_idle_retry_max_attempts: Option<u32>,
+    #[serde(default)]
+    stream_idle_retry_delay_ms: Option<u64>,
+    #[serde(default)]
+    turn_recovery_messages_limit: Option<u32>,
+    #[serde(default)]
+    turn_recovery_not_found_retry_max_attempts: Option<u32>,
+    #[serde(default)]
+    turn_recovery_poll_in_progress_max_attempts: Option<u32>,
+    #[serde(default)]
+    turn_recovery_poll_in_progress_delay_ms: Option<u64>,
+    #[serde(default)]
     turn_in_progress_retry_max_attempts: Option<u32>,
     #[serde(default)]
     turn_in_progress_retry_delay_ms: Option<u64>,
@@ -115,6 +129,13 @@ struct GatewayConfigPayload {
     api_key: String,
     theme: String,
     font_size: String,
+    stream_idle_timeout_ms: u64,
+    stream_idle_retry_max_attempts: u32,
+    stream_idle_retry_delay_ms: u64,
+    turn_recovery_messages_limit: u32,
+    turn_recovery_not_found_retry_max_attempts: u32,
+    turn_recovery_poll_in_progress_max_attempts: u32,
+    turn_recovery_poll_in_progress_delay_ms: u64,
     turn_in_progress_retry_max_attempts: u32,
     turn_in_progress_retry_delay_ms: u64,
     config_path: String,
@@ -240,21 +261,99 @@ fn normalize_font_size_mode(value: &str) -> String {
     }
 }
 
+const STREAM_IDLE_TIMEOUT_MS_DEFAULT: u64 = 20_000;
+const STREAM_IDLE_TIMEOUT_MS_MAX: u64 = 120_000;
+const STREAM_IDLE_RETRY_MAX_ATTEMPTS_DEFAULT: u32 = 1;
+const STREAM_IDLE_RETRY_MAX_ATTEMPTS_MAX: u32 = 10;
+const STREAM_IDLE_RETRY_DELAY_MS_DEFAULT: u64 = 450;
+const STREAM_IDLE_RETRY_DELAY_MS_MAX: u64 = 30_000;
+const TURN_RECOVERY_MESSAGES_LIMIT_DEFAULT: u32 = 100;
+const TURN_RECOVERY_MESSAGES_LIMIT_MAX: u32 = 500;
+const TURN_RECOVERY_NOT_FOUND_RETRY_MAX_ATTEMPTS_DEFAULT: u32 = 1;
+const TURN_RECOVERY_NOT_FOUND_RETRY_MAX_ATTEMPTS_MAX: u32 = 10;
+const TURN_RECOVERY_POLL_IN_PROGRESS_MAX_ATTEMPTS_DEFAULT: u32 = 2;
+const TURN_RECOVERY_POLL_IN_PROGRESS_MAX_ATTEMPTS_MAX: u32 = 20;
+const TURN_RECOVERY_POLL_IN_PROGRESS_DELAY_MS_DEFAULT: u64 = 700;
+const TURN_RECOVERY_POLL_IN_PROGRESS_DELAY_MS_MAX: u64 = 30_000;
 const TURN_IN_PROGRESS_RETRY_MAX_ATTEMPTS_DEFAULT: u32 = 1;
 const TURN_IN_PROGRESS_RETRY_MAX_ATTEMPTS_MAX: u32 = 10;
 const TURN_IN_PROGRESS_RETRY_DELAY_MS_DEFAULT: u64 = 600;
 const TURN_IN_PROGRESS_RETRY_DELAY_MS_MAX: u64 = 30_000;
 
+fn normalize_u32(value: Option<u32>, default_value: u32, max_value: u32) -> u32 {
+    value.map(|v| v.min(max_value)).unwrap_or(default_value)
+}
+
+fn normalize_u64(value: Option<u64>, default_value: u64, max_value: u64) -> u64 {
+    value.map(|v| v.min(max_value)).unwrap_or(default_value)
+}
+
+fn normalize_stream_idle_timeout_ms(value: Option<u64>) -> u64 {
+    normalize_u64(value, STREAM_IDLE_TIMEOUT_MS_DEFAULT, STREAM_IDLE_TIMEOUT_MS_MAX)
+}
+
+fn normalize_stream_idle_retry_max_attempts(value: Option<u32>) -> u32 {
+    normalize_u32(
+        value,
+        STREAM_IDLE_RETRY_MAX_ATTEMPTS_DEFAULT,
+        STREAM_IDLE_RETRY_MAX_ATTEMPTS_MAX,
+    )
+}
+
+fn normalize_stream_idle_retry_delay_ms(value: Option<u64>) -> u64 {
+    normalize_u64(
+        value,
+        STREAM_IDLE_RETRY_DELAY_MS_DEFAULT,
+        STREAM_IDLE_RETRY_DELAY_MS_MAX,
+    )
+}
+
+fn normalize_turn_recovery_messages_limit(value: Option<u32>) -> u32 {
+    normalize_u32(
+        value,
+        TURN_RECOVERY_MESSAGES_LIMIT_DEFAULT,
+        TURN_RECOVERY_MESSAGES_LIMIT_MAX,
+    )
+}
+
+fn normalize_turn_recovery_not_found_retry_max_attempts(value: Option<u32>) -> u32 {
+    normalize_u32(
+        value,
+        TURN_RECOVERY_NOT_FOUND_RETRY_MAX_ATTEMPTS_DEFAULT,
+        TURN_RECOVERY_NOT_FOUND_RETRY_MAX_ATTEMPTS_MAX,
+    )
+}
+
+fn normalize_turn_recovery_poll_in_progress_max_attempts(value: Option<u32>) -> u32 {
+    normalize_u32(
+        value,
+        TURN_RECOVERY_POLL_IN_PROGRESS_MAX_ATTEMPTS_DEFAULT,
+        TURN_RECOVERY_POLL_IN_PROGRESS_MAX_ATTEMPTS_MAX,
+    )
+}
+
+fn normalize_turn_recovery_poll_in_progress_delay_ms(value: Option<u64>) -> u64 {
+    normalize_u64(
+        value,
+        TURN_RECOVERY_POLL_IN_PROGRESS_DELAY_MS_DEFAULT,
+        TURN_RECOVERY_POLL_IN_PROGRESS_DELAY_MS_MAX,
+    )
+}
+
 fn normalize_turn_in_progress_retry_max_attempts(value: Option<u32>) -> u32 {
-    value
-        .map(|v| v.min(TURN_IN_PROGRESS_RETRY_MAX_ATTEMPTS_MAX))
-        .unwrap_or(TURN_IN_PROGRESS_RETRY_MAX_ATTEMPTS_DEFAULT)
+    normalize_u32(
+        value,
+        TURN_IN_PROGRESS_RETRY_MAX_ATTEMPTS_DEFAULT,
+        TURN_IN_PROGRESS_RETRY_MAX_ATTEMPTS_MAX,
+    )
 }
 
 fn normalize_turn_in_progress_retry_delay_ms(value: Option<u64>) -> u64 {
-    value
-        .map(|v| v.min(TURN_IN_PROGRESS_RETRY_DELAY_MS_MAX))
-        .unwrap_or(TURN_IN_PROGRESS_RETRY_DELAY_MS_DEFAULT)
+    normalize_u64(
+        value,
+        TURN_IN_PROGRESS_RETRY_DELAY_MS_DEFAULT,
+        TURN_IN_PROGRESS_RETRY_DELAY_MS_MAX,
+    )
 }
 
 fn canonicalize_image_cache_key(url: &str) -> String {
@@ -785,17 +884,44 @@ fn resolve_storage_paths(app: tauri::AppHandle) -> Result<StoragePaths, String> 
 fn read_gateway_config(app: tauri::AppHandle) -> Result<GatewayConfigPayload, String> {
     let config_path = resolve_app_config_toml_path(&app)?;
     let parsed = read_gateway_config_toml(&config_path)?;
+    let stream_idle_timeout_ms =
+        normalize_stream_idle_timeout_ms(parsed.recovery.stream_idle_timeout_ms);
+    let stream_idle_retry_max_attempts =
+        normalize_stream_idle_retry_max_attempts(parsed.recovery.stream_idle_retry_max_attempts);
+    let stream_idle_retry_delay_ms =
+        normalize_stream_idle_retry_delay_ms(parsed.recovery.stream_idle_retry_delay_ms);
+    let turn_recovery_messages_limit =
+        normalize_turn_recovery_messages_limit(parsed.recovery.turn_recovery_messages_limit);
+    let turn_recovery_not_found_retry_max_attempts = normalize_turn_recovery_not_found_retry_max_attempts(
+        parsed.recovery
+            .turn_recovery_not_found_retry_max_attempts,
+    );
+    let turn_recovery_poll_in_progress_max_attempts = normalize_turn_recovery_poll_in_progress_max_attempts(
+        parsed.recovery
+            .turn_recovery_poll_in_progress_max_attempts,
+    );
+    let turn_recovery_poll_in_progress_delay_ms = normalize_turn_recovery_poll_in_progress_delay_ms(
+        parsed.recovery.turn_recovery_poll_in_progress_delay_ms,
+    );
+    let turn_in_progress_retry_max_attempts = normalize_turn_in_progress_retry_max_attempts(
+        parsed.recovery.turn_in_progress_retry_max_attempts,
+    );
+    let turn_in_progress_retry_delay_ms =
+        normalize_turn_in_progress_retry_delay_ms(parsed.recovery.turn_in_progress_retry_delay_ms);
     Ok(GatewayConfigPayload {
         api_base_url: parsed.gateway.api_base_url.trim().to_string(),
         api_key: parsed.gateway.api_key.trim().to_string(),
         theme: normalize_theme_mode(parsed.appearance.theme.as_str()),
         font_size: normalize_font_size_mode(parsed.appearance.font_size.as_str()),
-        turn_in_progress_retry_max_attempts: normalize_turn_in_progress_retry_max_attempts(
-            parsed.recovery.turn_in_progress_retry_max_attempts,
-        ),
-        turn_in_progress_retry_delay_ms: normalize_turn_in_progress_retry_delay_ms(
-            parsed.recovery.turn_in_progress_retry_delay_ms,
-        ),
+        stream_idle_timeout_ms,
+        stream_idle_retry_max_attempts,
+        stream_idle_retry_delay_ms,
+        turn_recovery_messages_limit,
+        turn_recovery_not_found_retry_max_attempts,
+        turn_recovery_poll_in_progress_max_attempts,
+        turn_recovery_poll_in_progress_delay_ms,
+        turn_in_progress_retry_max_attempts,
+        turn_in_progress_retry_delay_ms,
         config_path: config_path.to_string_lossy().to_string(),
     })
 }
@@ -810,13 +936,43 @@ fn save_gateway_config(
     let mut parsed = read_gateway_config_toml(&config_path).unwrap_or_default();
     parsed.gateway.api_base_url = api_base_url.trim().to_string();
     parsed.gateway.api_key = api_key.trim().to_string();
-    let normalized_retry_max_attempts = normalize_turn_in_progress_retry_max_attempts(
+
+    let stream_idle_timeout_ms =
+        normalize_stream_idle_timeout_ms(parsed.recovery.stream_idle_timeout_ms);
+    let stream_idle_retry_max_attempts =
+        normalize_stream_idle_retry_max_attempts(parsed.recovery.stream_idle_retry_max_attempts);
+    let stream_idle_retry_delay_ms =
+        normalize_stream_idle_retry_delay_ms(parsed.recovery.stream_idle_retry_delay_ms);
+    let turn_recovery_messages_limit =
+        normalize_turn_recovery_messages_limit(parsed.recovery.turn_recovery_messages_limit);
+    let turn_recovery_not_found_retry_max_attempts = normalize_turn_recovery_not_found_retry_max_attempts(
+        parsed.recovery
+            .turn_recovery_not_found_retry_max_attempts,
+    );
+    let turn_recovery_poll_in_progress_max_attempts = normalize_turn_recovery_poll_in_progress_max_attempts(
+        parsed.recovery
+            .turn_recovery_poll_in_progress_max_attempts,
+    );
+    let turn_recovery_poll_in_progress_delay_ms = normalize_turn_recovery_poll_in_progress_delay_ms(
+        parsed.recovery.turn_recovery_poll_in_progress_delay_ms,
+    );
+    let turn_in_progress_retry_max_attempts = normalize_turn_in_progress_retry_max_attempts(
         parsed.recovery.turn_in_progress_retry_max_attempts,
     );
-    let normalized_retry_delay_ms =
+    let turn_in_progress_retry_delay_ms =
         normalize_turn_in_progress_retry_delay_ms(parsed.recovery.turn_in_progress_retry_delay_ms);
-    parsed.recovery.turn_in_progress_retry_max_attempts = Some(normalized_retry_max_attempts);
-    parsed.recovery.turn_in_progress_retry_delay_ms = Some(normalized_retry_delay_ms);
+    parsed.recovery.stream_idle_timeout_ms = Some(stream_idle_timeout_ms);
+    parsed.recovery.stream_idle_retry_max_attempts = Some(stream_idle_retry_max_attempts);
+    parsed.recovery.stream_idle_retry_delay_ms = Some(stream_idle_retry_delay_ms);
+    parsed.recovery.turn_recovery_messages_limit = Some(turn_recovery_messages_limit);
+    parsed.recovery.turn_recovery_not_found_retry_max_attempts =
+        Some(turn_recovery_not_found_retry_max_attempts);
+    parsed.recovery.turn_recovery_poll_in_progress_max_attempts =
+        Some(turn_recovery_poll_in_progress_max_attempts);
+    parsed.recovery.turn_recovery_poll_in_progress_delay_ms =
+        Some(turn_recovery_poll_in_progress_delay_ms);
+    parsed.recovery.turn_in_progress_retry_max_attempts = Some(turn_in_progress_retry_max_attempts);
+    parsed.recovery.turn_in_progress_retry_delay_ms = Some(turn_in_progress_retry_delay_ms);
     write_gateway_config_toml(&config_path, &parsed)?;
 
     Ok(GatewayConfigPayload {
@@ -824,8 +980,15 @@ fn save_gateway_config(
         api_key: parsed.gateway.api_key,
         theme: normalize_theme_mode(parsed.appearance.theme.as_str()),
         font_size: normalize_font_size_mode(parsed.appearance.font_size.as_str()),
-        turn_in_progress_retry_max_attempts: normalized_retry_max_attempts,
-        turn_in_progress_retry_delay_ms: normalized_retry_delay_ms,
+        stream_idle_timeout_ms,
+        stream_idle_retry_max_attempts,
+        stream_idle_retry_delay_ms,
+        turn_recovery_messages_limit,
+        turn_recovery_not_found_retry_max_attempts,
+        turn_recovery_poll_in_progress_max_attempts,
+        turn_recovery_poll_in_progress_delay_ms,
+        turn_in_progress_retry_max_attempts,
+        turn_in_progress_retry_delay_ms,
         config_path: config_path.to_string_lossy().to_string(),
     })
 }

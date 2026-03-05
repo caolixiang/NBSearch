@@ -20,6 +20,13 @@ interface GatewayConfigPayload {
   apiKey?: string
   theme?: string
   fontSize?: string
+  streamIdleTimeoutMs?: number
+  streamIdleRetryMaxAttempts?: number
+  streamIdleRetryDelayMs?: number
+  turnRecoveryMessagesLimit?: number
+  turnRecoveryNotFoundRetryMaxAttempts?: number
+  turnRecoveryPollInProgressMaxAttempts?: number
+  turnRecoveryPollInProgressDelayMs?: number
   turnInProgressRetryMaxAttempts?: number
   turnInProgressRetryDelayMs?: number
   configPath?: string
@@ -47,32 +54,26 @@ function normalizeFontSizeMode(value: string | undefined): AppFontSizeMode {
   return "default"
 }
 
-function normalizeRetryMaxAttempts(value: unknown, fallback: number): number {
+function normalizeIntegerInRange(value: unknown, fallback: number, min: number, max: number): number {
   if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
-    return Math.min(10, Math.floor(value))
+    return Math.min(max, Math.max(min, Math.floor(value)))
   }
   if (typeof value === "string") {
     const parsed = Number.parseInt(value, 10)
     if (Number.isFinite(parsed) && parsed >= 0) {
-      return Math.min(10, parsed)
+      return Math.min(max, Math.max(min, parsed))
     }
   }
   return fallback
 }
 
-function normalizeRetryDelayMs(value: unknown, fallback: number): number {
-  if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
-    return Math.min(30_000, Math.floor(value))
-  }
-  if (typeof value === "string") {
-    const parsed = Number.parseInt(value, 10)
-    if (Number.isFinite(parsed) && parsed >= 0) {
-      return Math.min(30_000, parsed)
-    }
-  }
-  return fallback
-}
-
+const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 20_000
+const DEFAULT_STREAM_IDLE_RETRY_MAX_ATTEMPTS = 1
+const DEFAULT_STREAM_IDLE_RETRY_DELAY_MS = 450
+const DEFAULT_TURN_RECOVERY_MESSAGES_LIMIT = 100
+const DEFAULT_TURN_RECOVERY_NOT_FOUND_RETRY_MAX_ATTEMPTS = 1
+const DEFAULT_TURN_RECOVERY_POLL_IN_PROGRESS_MAX_ATTEMPTS = 2
+const DEFAULT_TURN_RECOVERY_POLL_IN_PROGRESS_DELAY_MS = 700
 const DEFAULT_TURN_IN_PROGRESS_RETRY_MAX_ATTEMPTS = 1
 const DEFAULT_TURN_IN_PROGRESS_RETRY_DELAY_MS = 600
 
@@ -88,13 +89,59 @@ function readEnvAppConfig(): AppConfig {
     voiceEnabled: parseBool(import.meta.env.VITE_APP_VOICE_ENABLED, true),
     themeMode: normalizeThemeMode(import.meta.env.VITE_APP_THEME_MODE),
     fontSizeMode: normalizeFontSizeMode(import.meta.env.VITE_APP_FONT_SIZE_MODE),
-    turnInProgressRetryMaxAttempts: normalizeRetryMaxAttempts(
-      import.meta.env.VITE_APP_TURN_IN_PROGRESS_RETRY_MAX_ATTEMPTS,
-      DEFAULT_TURN_IN_PROGRESS_RETRY_MAX_ATTEMPTS
+    streamIdleTimeoutMs: normalizeIntegerInRange(
+      import.meta.env.VITE_APP_STREAM_IDLE_TIMEOUT_MS,
+      DEFAULT_STREAM_IDLE_TIMEOUT_MS,
+      1_000,
+      120_000
     ),
-    turnInProgressRetryDelayMs: normalizeRetryDelayMs(
+    streamIdleRetryMaxAttempts: normalizeIntegerInRange(
+      import.meta.env.VITE_APP_STREAM_IDLE_RETRY_MAX_ATTEMPTS,
+      DEFAULT_STREAM_IDLE_RETRY_MAX_ATTEMPTS,
+      0,
+      10
+    ),
+    streamIdleRetryDelayMs: normalizeIntegerInRange(
+      import.meta.env.VITE_APP_STREAM_IDLE_RETRY_DELAY_MS,
+      DEFAULT_STREAM_IDLE_RETRY_DELAY_MS,
+      0,
+      30_000
+    ),
+    turnRecoveryMessagesLimit: normalizeIntegerInRange(
+      import.meta.env.VITE_APP_TURN_RECOVERY_MESSAGES_LIMIT,
+      DEFAULT_TURN_RECOVERY_MESSAGES_LIMIT,
+      1,
+      500
+    ),
+    turnRecoveryNotFoundRetryMaxAttempts: normalizeIntegerInRange(
+      import.meta.env.VITE_APP_TURN_RECOVERY_NOT_FOUND_RETRY_MAX_ATTEMPTS,
+      DEFAULT_TURN_RECOVERY_NOT_FOUND_RETRY_MAX_ATTEMPTS,
+      0,
+      10
+    ),
+    turnRecoveryPollInProgressMaxAttempts: normalizeIntegerInRange(
+      import.meta.env.VITE_APP_TURN_RECOVERY_POLL_IN_PROGRESS_MAX_ATTEMPTS,
+      DEFAULT_TURN_RECOVERY_POLL_IN_PROGRESS_MAX_ATTEMPTS,
+      0,
+      20
+    ),
+    turnRecoveryPollInProgressDelayMs: normalizeIntegerInRange(
+      import.meta.env.VITE_APP_TURN_RECOVERY_POLL_IN_PROGRESS_DELAY_MS,
+      DEFAULT_TURN_RECOVERY_POLL_IN_PROGRESS_DELAY_MS,
+      0,
+      30_000
+    ),
+    turnInProgressRetryMaxAttempts: normalizeIntegerInRange(
+      import.meta.env.VITE_APP_TURN_IN_PROGRESS_RETRY_MAX_ATTEMPTS,
+      DEFAULT_TURN_IN_PROGRESS_RETRY_MAX_ATTEMPTS,
+      0,
+      10
+    ),
+    turnInProgressRetryDelayMs: normalizeIntegerInRange(
       import.meta.env.VITE_APP_TURN_IN_PROGRESS_RETRY_DELAY_MS,
-      DEFAULT_TURN_IN_PROGRESS_RETRY_DELAY_MS
+      DEFAULT_TURN_IN_PROGRESS_RETRY_DELAY_MS,
+      0,
+      30_000
     ),
   }
 }
@@ -158,13 +205,59 @@ export async function loadAppConfig(): Promise<AppConfig> {
   const fileApiKey = normalizeGatewayValue(fileConfig?.apiKey)
   const fileThemeMode = normalizeThemeMode(fileConfig?.theme)
   const fileFontSizeMode = normalizeFontSizeMode(fileConfig?.fontSize)
-  const fileRetryMaxAttempts = normalizeRetryMaxAttempts(
-    fileConfig?.turnInProgressRetryMaxAttempts,
-    envConfig.turnInProgressRetryMaxAttempts ?? DEFAULT_TURN_IN_PROGRESS_RETRY_MAX_ATTEMPTS
+  const fileStreamIdleTimeoutMs = normalizeIntegerInRange(
+    fileConfig?.streamIdleTimeoutMs,
+    envConfig.streamIdleTimeoutMs ?? DEFAULT_STREAM_IDLE_TIMEOUT_MS,
+    1_000,
+    120_000
   )
-  const fileRetryDelayMs = normalizeRetryDelayMs(
+  const fileStreamIdleRetryMaxAttempts = normalizeIntegerInRange(
+    fileConfig?.streamIdleRetryMaxAttempts,
+    envConfig.streamIdleRetryMaxAttempts ?? DEFAULT_STREAM_IDLE_RETRY_MAX_ATTEMPTS,
+    0,
+    10
+  )
+  const fileStreamIdleRetryDelayMs = normalizeIntegerInRange(
+    fileConfig?.streamIdleRetryDelayMs,
+    envConfig.streamIdleRetryDelayMs ?? DEFAULT_STREAM_IDLE_RETRY_DELAY_MS,
+    0,
+    30_000
+  )
+  const fileTurnRecoveryMessagesLimit = normalizeIntegerInRange(
+    fileConfig?.turnRecoveryMessagesLimit,
+    envConfig.turnRecoveryMessagesLimit ?? DEFAULT_TURN_RECOVERY_MESSAGES_LIMIT,
+    1,
+    500
+  )
+  const fileTurnRecoveryNotFoundRetryMaxAttempts = normalizeIntegerInRange(
+    fileConfig?.turnRecoveryNotFoundRetryMaxAttempts,
+    envConfig.turnRecoveryNotFoundRetryMaxAttempts ?? DEFAULT_TURN_RECOVERY_NOT_FOUND_RETRY_MAX_ATTEMPTS,
+    0,
+    10
+  )
+  const fileTurnRecoveryPollInProgressMaxAttempts = normalizeIntegerInRange(
+    fileConfig?.turnRecoveryPollInProgressMaxAttempts,
+    envConfig.turnRecoveryPollInProgressMaxAttempts ?? DEFAULT_TURN_RECOVERY_POLL_IN_PROGRESS_MAX_ATTEMPTS,
+    0,
+    20
+  )
+  const fileTurnRecoveryPollInProgressDelayMs = normalizeIntegerInRange(
+    fileConfig?.turnRecoveryPollInProgressDelayMs,
+    envConfig.turnRecoveryPollInProgressDelayMs ?? DEFAULT_TURN_RECOVERY_POLL_IN_PROGRESS_DELAY_MS,
+    0,
+    30_000
+  )
+  const fileRetryMaxAttempts = normalizeIntegerInRange(
+    fileConfig?.turnInProgressRetryMaxAttempts,
+    envConfig.turnInProgressRetryMaxAttempts ?? DEFAULT_TURN_IN_PROGRESS_RETRY_MAX_ATTEMPTS,
+    0,
+    10
+  )
+  const fileRetryDelayMs = normalizeIntegerInRange(
     fileConfig?.turnInProgressRetryDelayMs,
-    envConfig.turnInProgressRetryDelayMs ?? DEFAULT_TURN_IN_PROGRESS_RETRY_DELAY_MS
+    envConfig.turnInProgressRetryDelayMs ?? DEFAULT_TURN_IN_PROGRESS_RETRY_DELAY_MS,
+    0,
+    30_000
   )
   const hasFileTheme = typeof fileConfig?.theme === "string" && fileConfig.theme.trim().length > 0
   const hasFileFontSize =
@@ -177,6 +270,13 @@ export async function loadAppConfig(): Promise<AppConfig> {
     apiKey: fileApiKey || envConfig.apiKey,
     themeMode: hasFileTheme ? fileThemeMode : envConfig.themeMode,
     fontSizeMode: hasFileFontSize ? fileFontSizeMode : envConfig.fontSizeMode,
+    streamIdleTimeoutMs: fileStreamIdleTimeoutMs,
+    streamIdleRetryMaxAttempts: fileStreamIdleRetryMaxAttempts,
+    streamIdleRetryDelayMs: fileStreamIdleRetryDelayMs,
+    turnRecoveryMessagesLimit: fileTurnRecoveryMessagesLimit,
+    turnRecoveryNotFoundRetryMaxAttempts: fileTurnRecoveryNotFoundRetryMaxAttempts,
+    turnRecoveryPollInProgressMaxAttempts: fileTurnRecoveryPollInProgressMaxAttempts,
+    turnRecoveryPollInProgressDelayMs: fileTurnRecoveryPollInProgressDelayMs,
     turnInProgressRetryMaxAttempts: fileRetryMaxAttempts,
     turnInProgressRetryDelayMs: fileRetryDelayMs,
   }

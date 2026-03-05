@@ -323,13 +323,20 @@ const MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024
 const ASSET_URL_RENEW_TTL_SECONDS = 7200
 const ASSET_URL_RENEW_THRESHOLD_MS = 60 * 1000
 const STREAM_HEARTBEAT_INTERVAL_MS = 2000
-const STREAM_IDLE_TIMEOUT_MS = 20_000
-const STREAM_IDLE_RETRY_MAX_ATTEMPTS = 1
-const STREAM_IDLE_RETRY_DELAY_MS = 450
-const TURN_RECOVERY_MESSAGES_LIMIT = 100
-const TURN_RECOVERY_NOT_FOUND_RETRY_MAX_ATTEMPTS = 1
-const TURN_RECOVERY_POLL_IN_PROGRESS_MAX_ATTEMPTS = 2
-const TURN_RECOVERY_POLL_IN_PROGRESS_DELAY_MS = 700
+const STREAM_IDLE_TIMEOUT_MS_DEFAULT = 20_000
+const STREAM_IDLE_TIMEOUT_MS_MAX = 120_000
+const STREAM_IDLE_RETRY_MAX_ATTEMPTS_DEFAULT = 1
+const STREAM_IDLE_RETRY_MAX_ATTEMPTS_MAX = 10
+const STREAM_IDLE_RETRY_DELAY_MS_DEFAULT = 450
+const STREAM_IDLE_RETRY_DELAY_MS_MAX = 30_000
+const TURN_RECOVERY_MESSAGES_LIMIT_DEFAULT = 100
+const TURN_RECOVERY_MESSAGES_LIMIT_MAX = 500
+const TURN_RECOVERY_NOT_FOUND_RETRY_MAX_ATTEMPTS_DEFAULT = 1
+const TURN_RECOVERY_NOT_FOUND_RETRY_MAX_ATTEMPTS_MAX = 10
+const TURN_RECOVERY_POLL_IN_PROGRESS_MAX_ATTEMPTS_DEFAULT = 2
+const TURN_RECOVERY_POLL_IN_PROGRESS_MAX_ATTEMPTS_MAX = 20
+const TURN_RECOVERY_POLL_IN_PROGRESS_DELAY_MS_DEFAULT = 700
+const TURN_RECOVERY_POLL_IN_PROGRESS_DELAY_MS_MAX = 30_000
 const TURN_RECOVERY_IN_PROGRESS_RETRY_MAX_ATTEMPTS_DEFAULT = 1
 const TURN_RECOVERY_IN_PROGRESS_RETRY_DELAY_MS_DEFAULT = 600
 const TURN_RECOVERY_IN_PROGRESS_RETRY_MAX_ATTEMPTS_MAX = 10
@@ -1843,6 +1850,13 @@ export class GrokChatService implements ChatService {
   private readonly apiUrl: string
   private readonly apiKey: string
   private readonly runtimeFetch: typeof fetch
+  private readonly streamIdleTimeoutMs: number
+  private readonly streamIdleRetryMaxAttempts: number
+  private readonly streamIdleRetryDelayMs: number
+  private readonly turnRecoveryMessagesLimit: number
+  private readonly turnRecoveryNotFoundRetryMaxAttempts: number
+  private readonly turnRecoveryPollInProgressMaxAttempts: number
+  private readonly turnRecoveryPollInProgressDelayMs: number
   private readonly turnInProgressRetryMaxAttempts: number
   private readonly turnInProgressRetryDelayMs: number
 
@@ -1853,6 +1867,41 @@ export class GrokChatService implements ChatService {
     this.apiUrl = normalizeApiBaseUrl(config.apiBaseUrl)
     this.apiKey = config.apiKey || ""
     this.runtimeFetch = createRuntimeFetch(fetch)
+    this.streamIdleTimeoutMs = normalizeTurnRecoverySetting(
+      config.streamIdleTimeoutMs,
+      STREAM_IDLE_TIMEOUT_MS_DEFAULT,
+      STREAM_IDLE_TIMEOUT_MS_MAX
+    )
+    this.streamIdleRetryMaxAttempts = normalizeTurnRecoverySetting(
+      config.streamIdleRetryMaxAttempts,
+      STREAM_IDLE_RETRY_MAX_ATTEMPTS_DEFAULT,
+      STREAM_IDLE_RETRY_MAX_ATTEMPTS_MAX
+    )
+    this.streamIdleRetryDelayMs = normalizeTurnRecoverySetting(
+      config.streamIdleRetryDelayMs,
+      STREAM_IDLE_RETRY_DELAY_MS_DEFAULT,
+      STREAM_IDLE_RETRY_DELAY_MS_MAX
+    )
+    this.turnRecoveryMessagesLimit = normalizeTurnRecoverySetting(
+      config.turnRecoveryMessagesLimit,
+      TURN_RECOVERY_MESSAGES_LIMIT_DEFAULT,
+      TURN_RECOVERY_MESSAGES_LIMIT_MAX
+    )
+    this.turnRecoveryNotFoundRetryMaxAttempts = normalizeTurnRecoverySetting(
+      config.turnRecoveryNotFoundRetryMaxAttempts,
+      TURN_RECOVERY_NOT_FOUND_RETRY_MAX_ATTEMPTS_DEFAULT,
+      TURN_RECOVERY_NOT_FOUND_RETRY_MAX_ATTEMPTS_MAX
+    )
+    this.turnRecoveryPollInProgressMaxAttempts = normalizeTurnRecoverySetting(
+      config.turnRecoveryPollInProgressMaxAttempts,
+      TURN_RECOVERY_POLL_IN_PROGRESS_MAX_ATTEMPTS_DEFAULT,
+      TURN_RECOVERY_POLL_IN_PROGRESS_MAX_ATTEMPTS_MAX
+    )
+    this.turnRecoveryPollInProgressDelayMs = normalizeTurnRecoverySetting(
+      config.turnRecoveryPollInProgressDelayMs,
+      TURN_RECOVERY_POLL_IN_PROGRESS_DELAY_MS_DEFAULT,
+      TURN_RECOVERY_POLL_IN_PROGRESS_DELAY_MS_MAX
+    )
     this.turnInProgressRetryMaxAttempts = normalizeTurnRecoverySetting(
       config.turnInProgressRetryMaxAttempts,
       TURN_RECOVERY_IN_PROGRESS_RETRY_MAX_ATTEMPTS_DEFAULT,
@@ -1962,7 +2011,7 @@ export class GrokChatService implements ChatService {
     if (afterResponseId.trim()) {
       url.searchParams.set("after_response_id", afterResponseId.trim())
     }
-    url.searchParams.set("limit", String(TURN_RECOVERY_MESSAGES_LIMIT))
+    url.searchParams.set("limit", String(this.turnRecoveryMessagesLimit))
 
     try {
       const response = await this.runtimeFetch(url.toString(), {
@@ -2086,8 +2135,8 @@ export class GrokChatService implements ChatService {
     }
 
     if (turnState.status === "in_progress") {
-      for (let attempt = 0; attempt < TURN_RECOVERY_POLL_IN_PROGRESS_MAX_ATTEMPTS; attempt += 1) {
-        await waitForRetryDelay(TURN_RECOVERY_POLL_IN_PROGRESS_DELAY_MS)
+      for (let attempt = 0; attempt < this.turnRecoveryPollInProgressMaxAttempts; attempt += 1) {
+        await waitForRetryDelay(this.turnRecoveryPollInProgressDelayMs)
         const next = await this.queryGatewayTurnState(normalizedSessionId, normalizedClientTurnId)
         if (!next) {
           break
@@ -2641,7 +2690,7 @@ export class GrokChatService implements ChatService {
               clientTurnId,
               fallbackPreviousResponseId,
               allowRetryFromNotFound:
-                turnNotFoundRetryAttempts < TURN_RECOVERY_NOT_FOUND_RETRY_MAX_ATTEMPTS,
+                turnNotFoundRetryAttempts < this.turnRecoveryNotFoundRetryMaxAttempts,
             })
             if (recovery.kind === "completed") {
               emitCompleted(recovery.result, recovery.result.assistantMessage.responseId)
@@ -2649,7 +2698,7 @@ export class GrokChatService implements ChatService {
             }
             if (
               recovery.kind === "retry_send" &&
-              turnNotFoundRetryAttempts < TURN_RECOVERY_NOT_FOUND_RETRY_MAX_ATTEMPTS
+              turnNotFoundRetryAttempts < this.turnRecoveryNotFoundRetryMaxAttempts
             ) {
               turnNotFoundRetryAttempts += 1
               continue
@@ -2697,7 +2746,7 @@ export class GrokChatService implements ChatService {
               clientTurnId,
               fallbackPreviousResponseId,
               allowRetryFromNotFound:
-                turnNotFoundRetryAttempts < TURN_RECOVERY_NOT_FOUND_RETRY_MAX_ATTEMPTS,
+                turnNotFoundRetryAttempts < this.turnRecoveryNotFoundRetryMaxAttempts,
             })
             if (recovery.kind === "completed") {
               emitCompleted(recovery.result, recovery.result.assistantMessage.responseId)
@@ -2705,7 +2754,7 @@ export class GrokChatService implements ChatService {
             }
             if (
               recovery.kind === "retry_send" &&
-              turnNotFoundRetryAttempts < TURN_RECOVERY_NOT_FOUND_RETRY_MAX_ATTEMPTS
+              turnNotFoundRetryAttempts < this.turnRecoveryNotFoundRetryMaxAttempts
             ) {
               turnNotFoundRetryAttempts += 1
               continue
@@ -2732,7 +2781,7 @@ export class GrokChatService implements ChatService {
               clientTurnId,
               fallbackPreviousResponseId,
               allowRetryFromNotFound:
-                turnNotFoundRetryAttempts < TURN_RECOVERY_NOT_FOUND_RETRY_MAX_ATTEMPTS,
+                turnNotFoundRetryAttempts < this.turnRecoveryNotFoundRetryMaxAttempts,
             })
             if (recovery.kind === "completed") {
               emitCompleted(recovery.result, recovery.result.assistantMessage.responseId)
@@ -2740,7 +2789,7 @@ export class GrokChatService implements ChatService {
             }
             if (
               recovery.kind === "retry_send" &&
-              turnNotFoundRetryAttempts < TURN_RECOVERY_NOT_FOUND_RETRY_MAX_ATTEMPTS
+              turnNotFoundRetryAttempts < this.turnRecoveryNotFoundRetryMaxAttempts
             ) {
               turnNotFoundRetryAttempts += 1
               continue
@@ -2769,8 +2818,8 @@ export class GrokChatService implements ChatService {
           let timeoutHandle: ReturnType<typeof setTimeout> | null = null
           const timeoutPromise = new Promise<ReadableStreamReadResult<Uint8Array>>((_resolve, reject) => {
             timeoutHandle = setTimeout(() => {
-              reject(new StreamIdleTimeoutError(STREAM_IDLE_TIMEOUT_MS))
-            }, STREAM_IDLE_TIMEOUT_MS)
+              reject(new StreamIdleTimeoutError(this.streamIdleTimeoutMs))
+            }, this.streamIdleTimeoutMs)
           })
           try {
             return await Promise.race([reader.read(), timeoutPromise])
@@ -2928,7 +2977,7 @@ export class GrokChatService implements ChatService {
         } catch (error) {
           const shouldRetryFromIdleTimeout =
             error instanceof StreamIdleTimeoutError &&
-            idleRetryAttempts < STREAM_IDLE_RETRY_MAX_ATTEMPTS &&
+            idleRetryAttempts < this.streamIdleRetryMaxAttempts &&
             !assistantText.trim() &&
             !gatewayFinalMessage.trim() &&
             collectedReasoningEvents.length === 0 &&
@@ -2936,7 +2985,7 @@ export class GrokChatService implements ChatService {
             !hasModeratedGeneratedImages
           if (shouldRetryFromIdleTimeout) {
             idleRetryAttempts += 1
-            await waitForRetryDelay(STREAM_IDLE_RETRY_DELAY_MS, signal)
+            await waitForRetryDelay(this.streamIdleRetryDelayMs, signal)
             continue
           }
           if (!isRegenerate) {
@@ -2946,7 +2995,7 @@ export class GrokChatService implements ChatService {
               clientTurnId,
               fallbackPreviousResponseId,
               allowRetryFromNotFound:
-                turnNotFoundRetryAttempts < TURN_RECOVERY_NOT_FOUND_RETRY_MAX_ATTEMPTS,
+                turnNotFoundRetryAttempts < this.turnRecoveryNotFoundRetryMaxAttempts,
             })
             if (recovery.kind === "completed") {
               emitCompleted(recovery.result, recovery.result.assistantMessage.responseId)
@@ -2954,7 +3003,7 @@ export class GrokChatService implements ChatService {
             }
             if (
               recovery.kind === "retry_send" &&
-              turnNotFoundRetryAttempts < TURN_RECOVERY_NOT_FOUND_RETRY_MAX_ATTEMPTS
+              turnNotFoundRetryAttempts < this.turnRecoveryNotFoundRetryMaxAttempts
             ) {
               turnNotFoundRetryAttempts += 1
               continue

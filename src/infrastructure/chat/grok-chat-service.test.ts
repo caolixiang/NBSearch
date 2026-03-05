@@ -872,6 +872,65 @@ describe("streamTurn heartbeats and timeout", () => {
     expect(idempotencyKeys).toEqual([firstClientTurnId, firstClientTurnId])
   })
 
+  it("does not retry idle timeout when configured retry budget is 0", async () => {
+    const repository = new MemoryAppRepository()
+    const service = new GrokChatService(repository, {
+      apiBaseUrl: "http://127.0.0.1:8787",
+      apiKey: "test-key",
+      defaultModel: "grok-4.1-fast",
+      voiceEnabled: false,
+      themeMode: "light",
+      fontSizeMode: "default",
+      streamIdleRetryMaxAttempts: 0,
+      streamIdleRetryDelayMs: 0,
+    })
+
+    let fetchCallCount = 0
+    const mockedFetch = (async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url
+      if (url.endsWith("/v1/responses")) {
+        fetchCallCount += 1
+        return createPendingStreamingResponse()
+      }
+      return new Response("{}", { status: 404 })
+    }) as unknown as typeof fetch
+    ;(mockedFetch as unknown as { preconnect: (url: string) => void }).preconnect = () => {}
+    ;(service as unknown as { runtimeFetch: typeof fetch }).runtimeFetch = mockedFetch
+
+    const originalSetTimeout = globalThis.setTimeout
+    globalThis.setTimeout = ((handler: TimerHandler) => {
+      return originalSetTimeout(() => {
+        if (typeof handler === "function") {
+          handler()
+        }
+      }, 0)
+    }) as unknown as typeof setTimeout
+
+    const events: Array<{ type: string; code?: string }> = []
+    try {
+      await service.streamTurn(
+        {
+          model: "grok-4.1-fast",
+          text: "no idle retry",
+          anchors: {
+            conversationId: "conv_no_idle_retry_1",
+            sessionId: "sess_no_idle_retry_1",
+            lastResponseId: "resp_prev_no_idle_retry_1",
+          },
+        },
+        (event) => {
+          events.push(event)
+        }
+      )
+    } finally {
+      globalThis.setTimeout = originalSetTimeout
+    }
+
+    expect(fetchCallCount).toBe(1)
+    const failed = events.find((event) => event.type === "failed")
+    expect(failed?.code).toBe("stream_idle_timeout")
+  })
+
   it("retries once without previous_response_id on session anchor conflict", async () => {
     const repository = new MemoryAppRepository()
     const service = new GrokChatService(repository, {
