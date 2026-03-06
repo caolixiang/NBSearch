@@ -38,6 +38,7 @@ import {
   resolveSelectedModel,
 } from "@/infrastructure/models/catalog"
 import { resolveFastModelId } from "./model-selection"
+import { commitRegeneratedAssistantMessage } from "./regenerate-message-commit"
 
 function newConversationId(): string {
   return `conv_${crypto.randomUUID()}`
@@ -1812,38 +1813,27 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
               clearStreamingState()
               void (async () => {
                 try {
-                  // Confirm-then-commit: only cut old branch after upstream regenerate completes.
-                  await repository.truncateMessagesAfter(conversationId, targetAssistant.id, true)
-                  await repository.appendMessage(conversationId, completedAssistantMessage)
-                  const now = Date.now()
-                  const latestConversations = await repository.listConversations()
-                  const latestConversation =
-                    latestConversations.find((item) => item.id === conversationId) || currentConversation
-                  await repository.upsertConversation({
-                    id: conversationId,
-                    title: latestConversation?.title || currentConversation?.title || "",
+                  await commitRegeneratedAssistantMessage({
+                    repository,
+                    conversationId,
+                    targetAssistantId: targetAssistant.id,
+                    assistantMessage: completedAssistantMessage,
                     anchors: event.result.anchors,
-                    createdAt: latestConversation?.createdAt || currentConversation?.createdAt || now,
-                    updatedAt: now,
+                    fallbackConversation: currentConversation,
                   })
+                  await refreshConversations()
+                  await loadMessages(conversationId)
+                  if (activeConversationIdRef.current === conversationId) {
+                    const node = messagesScrollRef.current
+                    if (node) {
+                      setProgrammaticScrollTop(node, node.scrollHeight)
+                    }
+                  }
                 } catch (error) {
                   const message = error instanceof Error ? error.message : "重生成提交失败"
                   setLastErrorForConversation(conversationId, message)
                 }
               })()
-              const scrollNode = messagesScrollRef.current
-              if (scrollNode) {
-                setProgrammaticScrollTop(scrollNode, scrollNode.scrollHeight)
-              }
-              void refreshConversations().then(async () => {
-                await loadMessages(conversationId)
-                if (activeConversationIdRef.current === conversationId) {
-                  const node = messagesScrollRef.current
-                  if (node) {
-                    setProgrammaticScrollTop(node, node.scrollHeight)
-                  }
-                }
-              })
               return
             }
 
