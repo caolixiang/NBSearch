@@ -19,6 +19,7 @@ import {
   isXSearchToolName,
   mergeReasoningRolloutIds,
   resolveStructuredEntryLabel,
+  shouldShowResearchDetails,
   toAgentKey,
 } from "./structured-reasoning"
 import type { AgentGroupedEntries, DeepSearchTimelineItem } from "./structured-reasoning"
@@ -408,6 +409,7 @@ function ReasoningDrawer({
   toolChain,
   researchTimeline,
   researchDetails,
+  showResearchDetails,
   onClose,
 }: {
   agentGroups: AgentGroupedEntries[]
@@ -415,6 +417,7 @@ function ReasoningDrawer({
   toolChain: StructuredReasoningToolChainItem[]
   researchTimeline: DeepSearchTimelineItem[]
   researchDetails: ChatDeepSearchDetail[]
+  showResearchDetails: boolean
   onClose: () => void
 }) {
   useEffect(() => {
@@ -454,7 +457,7 @@ function ReasoningDrawer({
             <ResearchTimelineSection items={researchTimeline} />
           ) : (
             <>
-              <ResearchDetailSection details={researchDetails} />
+              {showResearchDetails ? <ResearchDetailSection details={researchDetails} /> : null}
               <ToolChainSection toolChain={toolChain} />
               {agentGroups.length > 0 ? (
                 <div className="space-y-1">
@@ -609,8 +612,9 @@ export function StructuredReasoningPanel({
   const closeDrawer = useCallback(() => setDrawerOpen(false), [])
 
   const durationSuffix = durationSeconds > 0 ? ` ${durationSeconds}s` : ""
+  const showResearchDetails = shouldShowResearchDetails(hasAgentItems, researchTimeline.length)
   const hasAnyRecords =
-    summary.entries.length > 0 || researchDetails.length > 0 || researchTimeline.length > 0
+    summary.entries.length > 0 || researchTimeline.length > 0 || (showResearchDetails && researchDetails.length > 0)
   const showPanel = effectiveThinking || hasAnyRecords
 
   useEffect(() => {
@@ -663,6 +667,7 @@ export function StructuredReasoningPanel({
             toolChain={summary.toolChain}
             researchTimeline={researchTimeline}
             researchDetails={researchDetails}
+            showResearchDetails={showResearchDetails}
             onClose={closeDrawer}
           />
         )}

@@ -8,6 +8,7 @@ import {
   collectRolloutAgents,
   hasDeepSearchContent,
   mergeReasoningRolloutIds,
+  shouldShowResearchDetails,
 } from "./structured-reasoning"
 
 describe("buildStructuredReasoningSummary toolChain", () => {
@@ -405,5 +406,11 @@ describe("multi-agent rollout merge", () => {
       }) && agents.length <= 1
 
     expect(useResearchTimelineView).toBe(true)
+  })
+
+  it("hides research details when rendering multi-agent view", () => {
+    expect(shouldShowResearchDetails(true, 0)).toBe(false)
+    expect(shouldShowResearchDetails(false, 0)).toBe(true)
+    expect(shouldShowResearchDetails(false, 2)).toBe(false)
   })
 })

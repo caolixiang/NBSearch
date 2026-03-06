@@ -58,6 +58,10 @@ export function hasDeepSearchContent(research: Pick<ChatDeepSearchResearch, "ste
   return steps.length > 0 || details.length > 0
 }
 
+export function shouldShowResearchDetails(hasAgentItems: boolean, timelineCount: number): boolean {
+  return !hasAgentItems && timelineCount === 0
+}
+
 export function mergeReasoningRolloutIds(
   summaryRolloutIds: string[],
   research: Pick<ChatDeepSearchResearch, "uiLayout"> | undefined
