@@ -37,7 +37,7 @@ import {
   readStoredSelectedModel,
   resolveSelectedModel,
 } from "@/infrastructure/models/catalog"
-import { resolveDeepSearchExpertModelId, resolveFastModelId } from "./model-selection"
+import { resolveFastModelId } from "./model-selection"
 
 function newConversationId(): string {
   return `conv_${crypto.randomUUID()}`
@@ -368,7 +368,6 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     const models = getInitialModelOptions()
     return resolveSelectedModel(models, [readStoredSelectedModel(), runtime.config.defaultModel])
   })
-  const [deepSearchEnabled, setDeepSearchEnabled] = useState(false)
   const [isRefreshingModels, setIsRefreshingModels] = useState(false)
   const [pendingRecoverySyncingByConversationId, setPendingRecoverySyncingByConversationId] = useState<
     Record<string, boolean>
@@ -395,7 +394,6 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
         text: string,
         attachments?: File[],
         options?: {
-          deepSearch?: boolean
           retryExistingUserMessageId?: string
         }
       ) => Promise<void>)
@@ -579,14 +577,12 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       const mapped = conversations.map((item) => ({
         id: item.id,
         title: item.title,
-        hasDeepSearch: item.hasDeepSearch,
         updatedAt: new Date(item.updatedAt),
       }))
       if (hasDraftConversation) {
         mapped.unshift({
           id: DRAFT_CONVERSATION_ID,
           title: "",
-          hasDeepSearch: false,
           updatedAt: new Date(draftConversationUpdatedAt || Date.now()),
         })
       }
@@ -708,22 +704,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     if (fastModelId && fastModelId !== selectedModel) {
       setSelectedModel(fastModelId)
     }
-    setDeepSearchEnabled(false)
   }, [modelOptions, selectedModel])
-
-  const handleDeepSearchEnabledChange = useCallback(
-    (enabled: boolean) => {
-      setDeepSearchEnabled(enabled)
-      if (!enabled) {
-        return
-      }
-      const expertModelId = resolveDeepSearchExpertModelId(modelOptions, selectedModel)
-      if (expertModelId && expertModelId !== selectedModel) {
-        setSelectedModel(expertModelId)
-      }
-    },
-    [modelOptions, selectedModel]
-  )
 
   const shouldUseThinkMarkupFallback = activeStreamingReasoningEvents.length === 0
   const hasThinkMarkup = shouldUseThinkMarkupFallback && hasAnyThinkTag(activeStreamingAssistantText)
@@ -922,7 +903,6 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
         anchors: {
           conversationId: id,
         },
-        hasDeepSearch: false,
         createdAt: now,
         updatedAt: now,
       })
@@ -1193,7 +1173,6 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       text: string,
       attachments?: File[],
       options?: {
-        deepSearch?: boolean
         retryExistingUserMessageId?: string
       }
     ): Promise<void> => {
@@ -1202,7 +1181,6 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
         ? attachments.filter((file) => Boolean(file))
         : []
       const retryExistingUserMessageId = options?.retryExistingUserMessageId?.trim() || ""
-      const deepSearch = retryExistingUserMessageId ? false : options?.deepSearch === true
       if (!content && selectedAttachments.length === 0) {
         return
       }
@@ -1332,11 +1310,6 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
 
       const controller = new AbortController()
       abortControllerByConversationIdRef.current[conversationId] = controller
-      const resetDeepSearchAfterTurn = () => {
-        if (deepSearch) {
-          setDeepSearchEnabled(false)
-        }
-      }
 
       try {
         await chatService.streamTurn(
@@ -1346,7 +1319,6 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
             attachments: selectedAttachments,
             anchors,
             clientTurnId,
-            deepSearch,
             retryExistingUserMessage: Boolean(retryExistingUserMessageId),
           },
           (event) => {
@@ -1432,7 +1404,6 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
                       ...currentConversation.anchors,
                       ...event.result.anchors,
                     },
-                    hasDeepSearch: Boolean(currentConversation.hasDeepSearch || deepSearch),
                     updatedAt: now,
                   }
                   return next
@@ -1442,7 +1413,6 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
                     id: conversationId,
                     title: "",
                     anchors: event.result.anchors,
-                    hasDeepSearch: deepSearch,
                     createdAt: now,
                     updatedAt: now,
                   },
@@ -1499,7 +1469,6 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
                   }
                 }
               })
-              resetDeepSearchAfterTurn()
               return
             }
 
@@ -1513,7 +1482,6 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
               } else {
                 setLastErrorForConversation(conversationId, event.message)
               }
-              resetDeepSearchAfterTurn()
             }
           },
           controller.signal
@@ -1524,11 +1492,9 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
         if (wasAborted) {
           setPendingRecoverySyncingForConversation(conversationId, true)
           setLastErrorForConversation(conversationId, "已终止，正在自动同步结果。")
-          resetDeepSearchAfterTurn()
           return
         }
         setLastErrorForConversation(conversationId, error instanceof Error ? error.message : "chat_stream_error")
-        resetDeepSearchAfterTurn()
       }
     },
     [
@@ -1857,8 +1823,6 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
                     id: conversationId,
                     title: latestConversation?.title || currentConversation?.title || "",
                     anchors: event.result.anchors,
-                    hasDeepSearch:
-                      latestConversation?.hasDeepSearch || currentConversation?.hasDeepSearch || false,
                     createdAt: latestConversation?.createdAt || currentConversation?.createdAt || now,
                     updatedAt: now,
                   })
@@ -2082,7 +2046,6 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
             selectedModel={selectedModel}
             onModelChange={(modelId) => {
               setSelectedModel(modelId)
-              setDeepSearchEnabled(false)
             }}
             onRefresh={() => {
               void refreshModelOptions()
@@ -2193,13 +2156,11 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
         >
           <div className="min-h-0">
             <ChatInput
-              onSendMessage={(text, attachments, options) => {
-                void handleSendMessage(text, attachments, options)
+              onSendMessage={(text, attachments) => {
+                void handleSendMessage(text, attachments)
               }}
               onVoiceStart={() => setVoiceOpen(true)}
               isLoading={isActiveConversationStreaming}
-              deepSearchEnabled={deepSearchEnabled}
-              onDeepSearchChange={handleDeepSearchEnabledChange}
               onHeightChange={(height) => {
                 setChatInputHeight((prev) => (Math.abs(prev - height) < 1 ? prev : height))
               }}

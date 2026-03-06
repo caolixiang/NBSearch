@@ -5,18 +5,6 @@ import { Button } from "@/components/ui/button"
 import { ArrowUp, Square, Paperclip, Mic, MicOff, X, File as FileIcon } from "lucide-react"
 import { cn } from "@/lib/utils"
 
-// DeepSearch icon (spiral/swirl like Grok's)
-function DeepSearchIcon({ className = "size-4" }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
-      <path d="M12 2a10 10 0 0 1 0 20 10 10 0 0 1 0-20" />
-      <path d="M12 2c3 3 4.5 6.5 4.5 10S15 19 12 22" />
-      <path d="M12 2c-3 3-4.5 6.5-4.5 10S9 19 12 22" />
-      <line x1="2" y1="12" x2="22" y2="12" />
-    </svg>
-  )
-}
-
 // Audio wave icon for LiveKit voice button
 function AudioWaveIcon({ className = "size-5" }: { className?: string }) {
   return (
@@ -31,13 +19,11 @@ function AudioWaveIcon({ className = "size-5" }: { className?: string }) {
 }
 
 interface ChatInputProps {
-  onSendMessage: (text: string, attachments?: File[], options?: { deepSearch?: boolean }) => void
+  onSendMessage: (text: string, attachments?: File[]) => void
   onVoiceStart?: () => void
   isLoading: boolean
   onStop?: () => void
   onHeightChange?: (height: number) => void
-  deepSearchEnabled?: boolean
-  onDeepSearchChange?: (enabled: boolean) => void
 }
 
 export function ChatInput({
@@ -46,8 +32,6 @@ export function ChatInput({
   isLoading,
   onStop,
   onHeightChange,
-  deepSearchEnabled = false,
-  onDeepSearchChange,
 }: ChatInputProps) {
   const [input, setInput] = useState("")
   const [isRecording, setIsRecording] = useState(false)
@@ -117,15 +101,13 @@ export function ChatInput({
 
   const handleSubmit = useCallback(() => {
     if ((!input.trim() && attachments.length === 0) || isLoading) return
-    onSendMessage(input.trim(), attachments.length > 0 ? attachments : undefined, {
-      deepSearch: deepSearchEnabled,
-    })
+    onSendMessage(input.trim(), attachments.length > 0 ? attachments : undefined)
     setInput("")
     setAttachments([])
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto"
     }
-  }, [attachments, deepSearchEnabled, input, isLoading, onSendMessage])
+  }, [attachments, input, isLoading, onSendMessage])
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     const nativeEvent = e.nativeEvent as KeyboardEvent & { isComposing?: boolean }
@@ -391,22 +373,6 @@ export function ChatInput({
             )}
           </div>
         </div>
-      </div>
-
-      {/* DeepSearch toggle pill below input */}
-      <div className="mt-2 flex items-center justify-center gap-2">
-        <button
-          onClick={() => onDeepSearchChange?.(!deepSearchEnabled)}
-          className={cn(
-            "flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-xs font-medium transition-colors",
-            deepSearchEnabled
-              ? "border-foreground bg-foreground text-background"
-              : "border-border bg-card text-muted-foreground hover:text-foreground hover:border-foreground/30"
-          )}
-        >
-          <DeepSearchIcon className="size-3.5" />
-          <span>DeepSearch</span>
-        </button>
       </div>
     </div>
   )

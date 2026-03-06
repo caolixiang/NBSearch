@@ -83,7 +83,7 @@ export function MarkdownContent({
           isThinking={reasoningActive}
           isStreaming={streaming}
           durationSeconds={reasoningDurationSeconds}
-          deepSearchResearch={research}
+          researchData={research}
         />
       ) : null}
       {streaming && !content.trim() && !shouldShowStructuredReasoning ? (

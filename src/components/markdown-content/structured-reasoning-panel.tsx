@@ -337,7 +337,7 @@ function ToolChainSection({ toolChain }: { toolChain: StructuredReasoningToolCha
   )
 }
 
-function DeepSearchDetailSection({ details }: { details: ChatDeepSearchDetail[] }) {
+function ResearchDetailSection({ details }: { details: ChatDeepSearchDetail[] }) {
   if (details.length === 0) {
     return null
   }
@@ -362,7 +362,7 @@ function DeepSearchDetailSection({ details }: { details: ChatDeepSearchDetail[] 
   )
 }
 
-function DeepSearchTimelineSection({ items }: { items: DeepSearchTimelineItem[] }) {
+function ResearchTimelineSection({ items }: { items: DeepSearchTimelineItem[] }) {
   if (items.length === 0) {
     return null
   }
@@ -405,15 +405,15 @@ function ReasoningDrawer({
   agentGroups,
   agents,
   toolChain,
-  deepSearchTimeline,
-  deepSearchDetails,
+  researchTimeline,
+  researchDetails,
   onClose,
 }: {
   agentGroups: AgentGroupedEntries[]
   agents: ReturnType<typeof collectRolloutAgents>
   toolChain: StructuredReasoningToolChainItem[]
-  deepSearchTimeline: DeepSearchTimelineItem[]
-  deepSearchDetails: ChatDeepSearchDetail[]
+  researchTimeline: DeepSearchTimelineItem[]
+  researchDetails: ChatDeepSearchDetail[]
   onClose: () => void
 }) {
   useEffect(() => {
@@ -435,7 +435,7 @@ function ReasoningDrawer({
       <div className="fixed inset-y-0 right-0 z-100 flex w-full max-w-md flex-col bg-background shadow-2xl border-l border-foreground/6 animate-in slide-in-from-right duration-200">
         <div className="flex items-center justify-between border-b border-foreground/6 px-5 py-3.5">
           <div className="inline-flex items-center gap-2">
-            {deepSearchTimeline.length > 0 ? null : (
+            {researchTimeline.length > 0 ? null : (
               <AgentAvatarStack agents={agents} activeAgentKey="" thinking={false} />
             )}
             <span className="text-base font-semibold text-foreground">思考结果</span>
@@ -449,11 +449,11 @@ function ReasoningDrawer({
           </button>
         </div>
         <div className="flex-1 overflow-y-auto px-5 py-4">
-          {deepSearchTimeline.length > 0 ? (
-            <DeepSearchTimelineSection items={deepSearchTimeline} />
+          {researchTimeline.length > 0 ? (
+            <ResearchTimelineSection items={researchTimeline} />
           ) : (
             <>
-              <DeepSearchDetailSection details={deepSearchDetails} />
+              <ResearchDetailSection details={researchDetails} />
               <ToolChainSection toolChain={toolChain} />
               {agentGroups.length > 0 ? (
                 <div className="space-y-1">
@@ -490,29 +490,29 @@ export function StructuredReasoningPanel({
   isThinking,
   isStreaming = false,
   durationSeconds = 0,
-  deepSearchResearch,
+  researchData,
 }: {
   messageId?: string
   events: ChatReasoningEventDetail[]
   isThinking: boolean
   isStreaming?: boolean
   durationSeconds?: number
-  deepSearchResearch?: ChatDeepSearchResearch
+  researchData?: ChatDeepSearchResearch
 }) {
   const summary = useMemo(() => buildStructuredReasoningSummary(events), [events])
-  const deepSearchSteps = deepSearchResearch?.steps || []
-  const deepSearchDetails = deepSearchResearch?.details || []
-  const useDeepSearchView = hasDeepSearchContent(deepSearchResearch)
-  const deepSearchTimeline = useMemo(
+  const researchSteps = researchData?.steps || []
+  const researchDetails = researchData?.details || []
+  const useResearchTimelineView = hasDeepSearchContent(researchData)
+  const researchTimeline = useMemo(
     () => {
-      if (!useDeepSearchView) {
+      if (!useResearchTimelineView) {
         return []
       }
-      return deepSearchSteps.length > 0
-        ? buildDeepSearchTimeline(deepSearchSteps, summary.entries)
-        : buildDeepSearchLegacyTimeline(deepSearchDetails, summary.entries)
+      return researchSteps.length > 0
+        ? buildDeepSearchTimeline(researchSteps, summary.entries)
+        : buildDeepSearchLegacyTimeline(researchDetails, summary.entries)
     },
-    [deepSearchDetails, deepSearchSteps, summary.entries, useDeepSearchView]
+    [researchDetails, researchSteps, summary.entries, useResearchTimelineView]
   )
   const agents = useMemo(() => collectRolloutAgents(summary.rolloutIds), [summary.rolloutIds])
   const [activeTick, setActiveTick] = useState(0)
@@ -605,7 +605,7 @@ export function StructuredReasoningPanel({
   const hasAgentItems = agents.length > 1
   const durationSuffix = durationSeconds > 0 ? ` ${durationSeconds}s` : ""
   const hasAnyRecords =
-    summary.entries.length > 0 || deepSearchDetails.length > 0 || deepSearchTimeline.length > 0
+    summary.entries.length > 0 || researchDetails.length > 0 || researchTimeline.length > 0
   const showPanel = effectiveThinking || hasAnyRecords
 
   useEffect(() => {
@@ -656,8 +656,8 @@ export function StructuredReasoningPanel({
             agentGroups={agentGroups}
             agents={agents}
             toolChain={summary.toolChain}
-            deepSearchTimeline={deepSearchTimeline}
-            deepSearchDetails={deepSearchDetails}
+            researchTimeline={researchTimeline}
+            researchDetails={researchDetails}
             onClose={closeDrawer}
           />
         )}

@@ -12,35 +12,6 @@ function pickPreferredGrokOrFirst(list: ModelOption[]): string {
   return (grok || list[0]).id
 }
 
-export function resolveDeepSearchExpertModelId(models: ModelOption[], fallbackModelId: string): string {
-  const fallback = fallbackModelId || models[0]?.id || ""
-  if (models.length === 0) {
-    return fallback
-  }
-
-  const withExpertKeyword = models.filter((item) => buildSearchText(item).includes("expert"))
-  const expertId = pickPreferredGrokOrFirst(withExpertKeyword)
-  if (expertId) {
-    return expertId
-  }
-
-  const reasoningModels = models.filter((item) => item.visualKind === "reasoning")
-  const reasoningId = pickPreferredGrokOrFirst(reasoningModels)
-  if (reasoningId) {
-    return reasoningId
-  }
-
-  const grokNonFast = models.find((item) => {
-    const id = item.id.toLowerCase()
-    return id.includes("grok") && !id.includes("fast")
-  })
-  if (grokNonFast) {
-    return grokNonFast.id
-  }
-
-  return fallback
-}
-
 export function resolveFastModelId(models: ModelOption[], fallbackModelId: string): string {
   const fallback = fallbackModelId || models[0]?.id || ""
   if (models.length === 0) {
@@ -61,4 +32,3 @@ export function resolveFastModelId(models: ModelOption[], fallbackModelId: strin
 
   return fallback
 }
-

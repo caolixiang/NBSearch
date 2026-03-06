@@ -25,7 +25,6 @@ export interface SendChatTurnInput {
   attachments?: File[]
   anchors: Partial<ChatAnchors>
   clientTurnId?: string
-  deepSearch?: boolean
   retryExistingUserMessage?: boolean
   regenerateTargetResponseId?: string
 }

@@ -78,14 +78,12 @@ function createConversationRecord(
   conversationId: string,
   title: string,
   anchors: Partial<ChatAnchors>,
-  now: number,
-  hasDeepSearch = false
+  now: number
 ): ConversationRecord {
   return {
     id: conversationId,
     title,
     anchors,
-    hasDeepSearch,
     createdAt: now,
     updatedAt: now,
   }
@@ -2481,8 +2479,7 @@ export class GrokChatService implements ChatService {
         input.conversationId,
         currentTitle || fallbackConversationTitleFromPrompt(nextAssistant.content),
         anchors,
-        Date.now(),
-        currentConversation?.hasDeepSearch || false
+        Date.now()
       )
     )
 
@@ -2788,7 +2785,6 @@ export class GrokChatService implements ChatService {
       id: conversationId,
       title: currentTitle,
       anchors,
-      hasDeepSearch: currentConversation?.hasDeepSearch || false,
       createdAt: now,
       updatedAt: now,
     })
@@ -2805,7 +2801,6 @@ export class GrokChatService implements ChatService {
     const clientTurnId = input.clientTurnId?.trim() || `turn_${crypto.randomUUID()}`
     const regenerateTargetResponseId = input.regenerateTargetResponseId?.trim() || ""
     const isRegenerate = regenerateTargetResponseId.length > 0
-    const isDeepSearch = !isRegenerate && input.deepSearch === true
     const fallbackPreviousResponseId = input.anchors.lastResponseId?.trim() || ""
     const existingConversations = await this.repository.listConversations()
     const currentConversation = existingConversations.find((item) => item.id === conversationId)
@@ -2819,8 +2814,7 @@ export class GrokChatService implements ChatService {
           conversationId,
           lastResponseId: fallbackPreviousResponseId,
         },
-        Date.now(),
-        currentConversation?.hasDeepSearch || false
+        Date.now()
       )
     )
     if (!isRegenerate && !input.retryExistingUserMessage) {
@@ -2914,11 +2908,6 @@ export class GrokChatService implements ChatService {
         ]
         if (previousResponseId) {
           requestBodyPayload["previous_response_id"] = previousResponseId
-        }
-        if (isDeepSearch) {
-          requestBodyPayload["x_grok"] = {
-            deep_search: true,
-          }
         }
       }
       let upstreamConversationTitle = ""
@@ -3481,7 +3470,6 @@ export class GrokChatService implements ChatService {
       const existingConversations = await this.repository.listConversations()
       const currentConversation = existingConversations.find((item) => item.id === conversationId)
       const currentTitle = currentConversation?.title || ""
-      const nextHasDeepSearch = Boolean(currentConversation?.hasDeepSearch || isDeepSearch)
       const resolvedTitle =
         resolveConversationTitle(upstreamConversationTitle, currentTitle) ||
         fallbackConversationTitleFromPrompt(input.text)
@@ -3490,8 +3478,7 @@ export class GrokChatService implements ChatService {
           conversationId,
           resolvedTitle,
           anchors,
-          Date.now(),
-          nextHasDeepSearch
+          Date.now()
         )
       )
 

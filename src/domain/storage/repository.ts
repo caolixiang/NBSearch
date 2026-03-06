@@ -4,7 +4,6 @@ export interface ConversationRecord {
   id: string
   title: string
   anchors: Partial<ChatAnchors>
-  hasDeepSearch: boolean
   createdAt: number
   updatedAt: number
 }

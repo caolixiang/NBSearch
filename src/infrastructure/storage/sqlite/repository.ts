@@ -113,12 +113,11 @@ export class SqliteAppRepository implements AppRepository {
         session_id: string
         conversation_id: string
         last_response_id: string
-        has_deep_search: number | boolean | string
         created_at: number
         updated_at: number
       }>
     >(
-      `SELECT id, title, session_id, conversation_id, last_response_id, has_deep_search, created_at, updated_at
+      `SELECT id, title, session_id, conversation_id, last_response_id, created_at, updated_at
        FROM conversations
        ORDER BY updated_at DESC`
     )
@@ -131,10 +130,6 @@ export class SqliteAppRepository implements AppRepository {
         conversationId: row.conversation_id,
         lastResponseId: row.last_response_id,
       },
-      hasDeepSearch:
-        row.has_deep_search === true ||
-        row.has_deep_search === 1 ||
-        row.has_deep_search === "1",
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     }))
@@ -143,14 +138,13 @@ export class SqliteAppRepository implements AppRepository {
   async upsertConversation(record: ConversationRecord): Promise<void> {
     const db = await getDatabase()
     await db.execute(
-      `INSERT INTO conversations(id, title, session_id, conversation_id, last_response_id, has_deep_search, created_at, updated_at)
-       VALUES($1, $2, $3, $4, $5, $6, $7, $8)
+      `INSERT INTO conversations(id, title, session_id, conversation_id, last_response_id, created_at, updated_at)
+       VALUES($1, $2, $3, $4, $5, $6, $7)
        ON CONFLICT(id) DO UPDATE SET
          title=excluded.title,
          session_id=excluded.session_id,
          conversation_id=excluded.conversation_id,
          last_response_id=excluded.last_response_id,
-         has_deep_search=excluded.has_deep_search,
          updated_at=excluded.updated_at`,
       [
         record.id,
@@ -158,7 +152,6 @@ export class SqliteAppRepository implements AppRepository {
         record.anchors.sessionId || "",
         record.anchors.conversationId || "",
         record.anchors.lastResponseId || "",
-        record.hasDeepSearch ? 1 : 0,
         record.createdAt,
         record.updatedAt,
       ]
