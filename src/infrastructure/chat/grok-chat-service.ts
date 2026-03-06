@@ -1936,6 +1936,38 @@ export class GrokChatService implements ChatService {
     return refreshed.messages
   }
 
+  private async persistAssistantTurnResult(input: {
+    conversationId: string
+    assistantMessage: ChatMessage
+    anchors: ChatAnchors
+    resolvedTitle: string
+    commitTime: number
+    regenerateTargetResponseId?: string
+  }): Promise<void> {
+    const regenerateTargetResponseId = input.regenerateTargetResponseId?.trim() || ""
+    if (regenerateTargetResponseId) {
+      const existingMessages = await this.repository.listMessages(input.conversationId).catch(() => [])
+      const targetAssistant = existingMessages.find(
+        (row) =>
+          row.role === "assistant" &&
+          (((row.responseId || "").trim() && (row.responseId || "").trim() === regenerateTargetResponseId) ||
+            row.id === regenerateTargetResponseId)
+      )
+      if (targetAssistant) {
+        await this.repository.truncateMessagesAfter(input.conversationId, targetAssistant.id, true)
+      }
+    }
+
+    await this.repository.appendMessage(input.conversationId, input.assistantMessage)
+    await this.repository.upsertConversation(
+      createConversationRecord(
+        input.conversationId,
+        input.resolvedTitle,
+        input.anchors,
+        input.commitTime
+      )
+    )
+  }
 
   async resolveRegenerateTarget(input: {
     conversationId: string
@@ -3578,7 +3610,6 @@ export class GrokChatService implements ChatService {
         previousResponseId: input.anchors.lastResponseId || undefined,
         status: "completed",
       }
-      await this.repository.appendMessage(conversationId, assistantMessage)
       const anchors: ChatAnchors = {
         sessionId,
         conversationId,
@@ -3590,14 +3621,14 @@ export class GrokChatService implements ChatService {
       const resolvedTitle =
         resolveConversationTitle(upstreamConversationTitle, currentTitle) ||
         fallbackConversationTitleFromPrompt(input.text)
-      await this.repository.upsertConversation(
-        createConversationRecord(
-          conversationId,
-          resolvedTitle,
-          anchors,
-          Date.now()
-        )
-      )
+      await this.persistAssistantTurnResult({
+        conversationId,
+        assistantMessage,
+        anchors,
+        resolvedTitle,
+        commitTime: Date.now(),
+        regenerateTargetResponseId: isRegenerate ? regenerateTargetResponseId : undefined,
+      })
 
       emitCompleted({
           assistantMessage,

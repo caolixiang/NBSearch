@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test"
+import type { ChatTurnResult } from "../../domain/chat/types"
 import { MemoryAppRepository } from "../storage/memory/repository"
 import {
   GrokChatService,
@@ -2388,6 +2389,139 @@ describe("streamTurn heartbeats and timeout", () => {
     expect(conversation?.anchors.lastResponseId).toBe("21ba32de-5d23-4d9b-8764-222990a10c12")
   })
 
+  it("clips later turns when regenerating the first assistant turn", async () => {
+    const repository = new MemoryAppRepository()
+    const service = new GrokChatService(repository, {
+      apiBaseUrl: "http://127.0.0.1:8787",
+      apiKey: "test-key",
+      defaultModel: "grok-4.1-fast",
+      voiceEnabled: false,
+      themeMode: "light",
+      fontSizeMode: "default",
+    })
+
+    const requestBodies: string[] = []
+    const streamChunks = [
+      [
+        JSON.stringify({ type: "response.created", response: { id: "resp_old_1" } }),
+        JSON.stringify({ type: "response.output_text.delta", delta: "Answer one" }),
+        JSON.stringify({
+          type: "response.completed",
+          response: {
+            id: "resp_old_1",
+            output: [
+              {
+                type: "message",
+                content: [{ type: "output_text", text: "Answer one" }],
+              },
+            ],
+          },
+        }),
+      ].join(""),
+      [
+        JSON.stringify({ type: "response.created", response: { id: "resp_old_2" } }),
+        JSON.stringify({ type: "response.output_text.delta", delta: "Answer two" }),
+        JSON.stringify({
+          type: "response.completed",
+          response: {
+            id: "resp_old_2",
+            output: [
+              {
+                type: "message",
+                content: [{ type: "output_text", text: "Answer two" }],
+              },
+            ],
+          },
+        }),
+      ].join(""),
+      [
+        JSON.stringify({ type: "response.created", response: { id: "resp_new_1" } }),
+        JSON.stringify({ type: "response.output_text.delta", delta: "Answer one regenerated" }),
+        JSON.stringify({
+          type: "response.completed",
+          response: {
+            id: "resp_new_1",
+            output: [
+              {
+                type: "message",
+                content: [{ type: "output_text", text: "Answer one regenerated" }],
+              },
+            ],
+          },
+        }),
+      ].join(""),
+    ]
+
+    const mockedFetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      requestBodies.push(typeof init?.body === "string" ? init.body : "")
+      const nextChunk = streamChunks.shift()
+      if (!nextChunk) {
+        throw new Error("unexpected request")
+      }
+      return createStreamingResponse([nextChunk])
+    }) as unknown as typeof fetch
+    ;(mockedFetch as unknown as { preconnect: (url: string) => void }).preconnect = () => {}
+    ;(service as unknown as { runtimeFetch: typeof fetch }).runtimeFetch = mockedFetch
+
+    let firstCompleted!: ChatTurnResult
+    await service.streamTurn(
+      {
+        model: "grok-4.1-fast",
+        text: "Question one",
+        anchors: {
+          conversationId: "conv_regen_clip_1",
+          sessionId: "sess_regen_clip_1",
+        },
+      },
+      (event) => {
+        if (event.type === "completed") {
+          firstCompleted = event.result
+        }
+      }
+    )
+    expect(firstCompleted.assistantMessage.responseId).toBe("resp_old_1")
+
+    let secondCompleted!: ChatTurnResult
+    await service.streamTurn(
+      {
+        model: "grok-4.1-fast",
+        text: "Question two",
+        anchors: firstCompleted.anchors,
+      },
+      (event) => {
+        if (event.type === "completed") {
+          secondCompleted = event.result
+        }
+      }
+    )
+    expect(secondCompleted.assistantMessage.responseId).toBe("resp_old_2")
+
+    await service.streamTurn(
+      {
+        model: "grok-4.1-fast",
+        text: "",
+        anchors: secondCompleted.anchors,
+        regenerateTargetResponseId: firstCompleted.assistantMessage.responseId,
+      },
+      () => {}
+    )
+
+    expect(requestBodies).toHaveLength(3)
+    const regenerateBody = JSON.parse(requestBodies[2] || "{}") as Record<string, unknown>
+    expect(regenerateBody["x_grok"]).toEqual({
+      regenerate: true,
+      target_response_id: "resp_old_1",
+    })
+
+    const messages = await repository.listMessages("conv_regen_clip_1")
+    expect(messages.map((item) => ({ role: item.role, content: item.content, responseId: item.responseId || "" }))).toEqual([
+      { role: "user", content: "Question one", responseId: "" },
+      { role: "assistant", content: "Answer one regenerated", responseId: "resp_new_1" },
+    ])
+
+    const conversation = (await repository.listConversations()).find((item) => item.id === "conv_regen_clip_1")
+    expect(conversation?.anchors.lastResponseId).toBe("resp_new_1")
+  })
 
   it("sends x_grok regenerate payload without appending a new user message", async () => {
     const repository = new MemoryAppRepository()

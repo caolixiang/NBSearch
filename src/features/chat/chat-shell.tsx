@@ -38,7 +38,6 @@ import {
   resolveSelectedModel,
 } from "@/infrastructure/models/catalog"
 import { resolveFastModelId } from "./model-selection"
-import { commitRegeneratedAssistantMessage } from "./regenerate-message-commit"
 
 function newConversationId(): string {
   return `conv_${crypto.randomUUID()}`
@@ -641,20 +640,43 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     const hasRenderableStreamingAssistant =
       activeStreamingAssistantText.trim().length > 0 || effectiveStreamingReasoningActive
 
+    let visible = rendered
+    if (activeStreamingState && activeLeadAnchorMessageId) {
+      const anchorIndex = rendered.findIndex((message) => message.id === activeLeadAnchorMessageId)
+      if (anchorIndex >= 0 && anchorIndex < rendered.length - 1) {
+        visible = rendered.slice(0, anchorIndex + 1)
+      }
+    }
+
     if (activeStreamingState && hasRenderableStreamingAssistant) {
-      rendered.push({
+      const streamingMessage: RenderChatMessage = {
         id: "streaming_assistant",
         role: "assistant",
         content: activeStreamingAssistantText,
         reasoningEvents: activeStreamingReasoningEvents,
         reasoningActive: effectiveStreamingReasoningActive,
         reasoningDurationSeconds: activeStreamingReasoningDurationSeconds,
-      })
+      }
+      if (activeLeadAnchorMessageId) {
+        const anchorIndex = visible.findIndex((message) => message.id === activeLeadAnchorMessageId)
+        if (anchorIndex >= 0) {
+          visible = [
+            ...visible.slice(0, anchorIndex + 1),
+            streamingMessage,
+            ...visible.slice(anchorIndex + 1),
+          ]
+        } else {
+          visible = [...visible, streamingMessage]
+        }
+      } else {
+        visible = [...visible, streamingMessage]
+      }
     }
 
-    return rendered
+    return visible
   }, [
     activeConversationId,
+    activeLeadAnchorMessageId,
     activeMessages,
     activePersistedReasoningByMessageId,
     activePersistedReasoningDurationByMessageId,
@@ -1831,14 +1853,6 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
               clearStreamingState()
               void (async () => {
                 try {
-                  await commitRegeneratedAssistantMessage({
-                    repository,
-                    conversationId,
-                    targetAssistantId: targetAssistant.id,
-                    assistantMessage: completedAssistantMessage,
-                    anchors: event.result.anchors,
-                    fallbackConversation: currentConversation,
-                  })
                   await refreshConversations()
                   await loadMessages(conversationId)
                   if (activeConversationIdRef.current === conversationId) {
@@ -1848,7 +1862,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
                     }
                   }
                 } catch (error) {
-                  const message = error instanceof Error ? error.message : "重生成提交失败"
+                  const message = error instanceof Error ? error.message : "重生成刷新失败"
                   setLastErrorForConversation(conversationId, message)
                 }
               })()
