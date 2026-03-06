@@ -132,6 +132,36 @@ describe("gateway raw chunk extractors", () => {
     expect(extractGatewayResponseIdFromRawChunk(rawChunk)).toBe("6f1e2fb9-5cd8-4afd-81d1-35de913cb26a")
   })
 
+  it("prefers explicit modelResponse.responseId over wrapped bare id", () => {
+    const rawChunk = {
+      result: {
+        response: {
+          id: "c1ec99a3-f9c3-44af-8a1c-597ef5e4a9a9",
+          modelResponse: {
+            responseId: "21ba32de-5d23-4d9b-8764-222990a10c12",
+          },
+        },
+      },
+    }
+
+    expect(extractGatewayResponseIdFromRawChunk(rawChunk)).toBe("21ba32de-5d23-4d9b-8764-222990a10c12")
+  })
+
+  it("ignores wrapped userResponse ids when assistant response has not started", () => {
+    const rawChunk = {
+      result: {
+        response: {
+          userResponse: {
+            responseId: "0bf30fa6-def6-419f-bc85-10d53de4dde1",
+          },
+          responseId: "0bf30fa6-def6-419f-bc85-10d53de4dde1",
+        },
+      },
+    }
+
+    expect(extractGatewayResponseIdFromRawChunk(rawChunk)).toBe("")
+  })
+
   it("extracts token and responseId from wrapped gateway token payload", () => {
     const rawChunk = {
       result: {

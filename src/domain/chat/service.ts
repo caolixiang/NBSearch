@@ -9,6 +9,15 @@ export interface ChatService {
 
   listMessages(conversationId: string): Promise<ChatMessage[]>
 
+  resolveRegenerateTarget(input: {
+    conversationId: string
+    sessionId: string
+    messageId: string
+  }): Promise<{
+    responseId: string
+    previousResponseId: string
+  }>
+
   recoverPendingAssistant(input: {
     conversationId: string
     anchors: Partial<ChatAnchors>

@@ -1545,11 +1545,6 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       if (!targetAssistant || targetAssistant.role !== "assistant") {
         return
       }
-      const targetResponseId = (targetAssistant.responseId || targetAssistant.id || "").trim()
-      if (!targetResponseId) {
-        setLastErrorForConversation(conversationId, "重试失败：缺少目标回复 ID")
-        return
-      }
 
       let previousUserIndex = -1
       for (let index = targetIndex - 1; index >= 0; index -= 1) {
@@ -1563,7 +1558,15 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
         return
       }
 
-      const parentResponseId = (() => {
+      const leadAnchorMessageId = currentMessages[previousUserIndex]?.id || null
+      const currentConversation =
+        conversations.find((item) => item.id === conversationId) || null
+      const sessionId =
+        currentConversation?.anchors.sessionId?.trim() ||
+        `sess_${conversationId}`
+
+      let targetResponseId = targetAssistant.responseId?.trim() || ""
+      let parentResponseId = (() => {
         const direct = targetAssistant.previousResponseId?.trim()
         if (direct) {
           return direct
@@ -1573,7 +1576,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
           if (!item || item.role !== "assistant") {
             continue
           }
-          const responseId = (item.responseId || item.id || "").trim()
+          const responseId = item.responseId?.trim() || ""
           if (responseId) {
             return responseId
           }
@@ -1581,12 +1584,27 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
         return ""
       })()
 
-      const leadAnchorMessageId = currentMessages[previousUserIndex]?.id || null
-      const currentConversation =
-        conversations.find((item) => item.id === conversationId) || null
-      const sessionId =
-        currentConversation?.anchors.sessionId?.trim() ||
-        `sess_${conversationId}`
+      try {
+        const resolvedTarget = await chatService.resolveRegenerateTarget({
+          conversationId,
+          sessionId,
+          messageId: targetAssistant.id,
+        })
+        if (resolvedTarget.responseId.trim()) {
+          targetResponseId = resolvedTarget.responseId.trim()
+        }
+        if (resolvedTarget.previousResponseId.trim()) {
+          parentResponseId = resolvedTarget.previousResponseId.trim()
+        }
+      } catch {
+        // Keep local snapshot as fallback when session alignment probe fails.
+      }
+
+      if (!targetResponseId) {
+        setLastErrorForConversation(conversationId, "重试失败：缺少目标回复 ID")
+        return
+      }
+
       const clientTurnId = `turn_${crypto.randomUUID()}`
 
       clearLastErrorForConversation(conversationId)

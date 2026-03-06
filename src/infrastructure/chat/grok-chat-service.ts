@@ -1936,6 +1936,124 @@ export class GrokChatService implements ChatService {
     return refreshed.messages
   }
 
+
+  async resolveRegenerateTarget(input: {
+    conversationId: string
+    sessionId: string
+    messageId: string
+  }): Promise<{
+    responseId: string
+    previousResponseId: string
+  }> {
+    const conversationId = (input.conversationId || "").trim()
+    const sessionId = (input.sessionId || "").trim()
+    const messageId = (input.messageId || "").trim()
+    if (!conversationId || !sessionId || !messageId) {
+      return {
+        responseId: "",
+        previousResponseId: "",
+      }
+    }
+
+    const localMessages = await this.repository.listMessages(conversationId).catch(() => [])
+    const targetMessage = localMessages.find((row) => row.id === messageId && row.role === "assistant")
+    if (!targetMessage || targetMessage.role !== "assistant") {
+      return {
+        responseId: "",
+        previousResponseId: "",
+      }
+    }
+
+    const sessionMessages = await this.queryGatewaySessionMessages(sessionId, "")
+    if (sessionMessages.length === 0) {
+      return {
+        responseId: targetMessage.responseId?.trim() || "",
+        previousResponseId: targetMessage.previousResponseId?.trim() || "",
+      }
+    }
+
+    const localRenderableMessages = localMessages.filter(
+      (row) => row.role === "user" || row.role === "assistant"
+    )
+    const sessionRenderableMessages = sessionMessages.filter(
+      (row) => row.role === "user" || row.role === "assistant"
+    )
+
+    let matchedAssistant: GatewaySessionMessage | null = null
+    const targetRenderableIndex = localRenderableMessages.findIndex((row) => row.id === messageId)
+    const hasMatchingRoleShape =
+      targetRenderableIndex >= 0 &&
+      localRenderableMessages.length === sessionRenderableMessages.length &&
+      localRenderableMessages.every((row, index) => row.role === sessionRenderableMessages[index]?.role)
+
+    if (hasMatchingRoleShape) {
+      const candidate = sessionRenderableMessages[targetRenderableIndex]
+      if (candidate?.role === "assistant") {
+        matchedAssistant = candidate
+      }
+    }
+
+    if (!matchedAssistant) {
+      const localAssistants = localRenderableMessages.filter((row) => row.role === "assistant")
+      const sessionAssistants = sessionRenderableMessages.filter((row) => row.role === "assistant")
+      const targetAssistantIndex = localAssistants.findIndex((row) => row.id === messageId)
+      if (targetAssistantIndex >= 0 && targetAssistantIndex < sessionAssistants.length) {
+        matchedAssistant = sessionAssistants[targetAssistantIndex] || null
+      }
+    }
+
+    if (!matchedAssistant) {
+      const targetContent = targetMessage.content.trim()
+      if (targetContent) {
+        const exactContentMatches = sessionRenderableMessages.filter(
+          (row) => row.role === "assistant" && row.content.trim() === targetContent
+        )
+        if (exactContentMatches.length === 1) {
+          matchedAssistant = exactContentMatches[0] || null
+        }
+      }
+    }
+
+    const resolvedResponseId = matchedAssistant?.responseId.trim() || targetMessage.responseId?.trim() || ""
+    const resolvedPreviousResponseId =
+      matchedAssistant?.previousResponseId.trim() || targetMessage.previousResponseId?.trim() || ""
+
+    const currentResponseId = targetMessage.responseId?.trim() || ""
+    const currentPreviousResponseId = targetMessage.previousResponseId?.trim() || ""
+    if (
+      matchedAssistant &&
+      (resolvedResponseId !== currentResponseId || resolvedPreviousResponseId !== currentPreviousResponseId)
+    ) {
+      await this.repository.updateMessage(conversationId, {
+        ...targetMessage,
+        responseId: resolvedResponseId || undefined,
+        previousResponseId: resolvedPreviousResponseId || undefined,
+      })
+    }
+
+    const sessionState = await this.queryGatewaySessionState(sessionId)
+    if (sessionState?.lastResponseId.trim()) {
+      const existingConversations = await this.repository.listConversations()
+      const currentConversation = existingConversations.find((item) => item.id === conversationId)
+      await this.repository.upsertConversation({
+        id: conversationId,
+        title: currentConversation?.title || fallbackConversationTitleFromPrompt(targetMessage.content),
+        anchors: {
+          sessionId,
+          conversationId,
+          lastResponseId: sessionState.lastResponseId.trim(),
+        },
+        createdAt: currentConversation?.createdAt || Date.now(),
+        updatedAt: Date.now(),
+      })
+    }
+
+    return {
+      responseId: resolvedResponseId,
+      previousResponseId: resolvedPreviousResponseId,
+    }
+  }
+
   async recoverPendingAssistant(input: {
     conversationId: string
     anchors: Partial<ChatAnchors>
@@ -3461,7 +3579,6 @@ export class GrokChatService implements ChatService {
         status: "completed",
       }
       await this.repository.appendMessage(conversationId, assistantMessage)
-
       const anchors: ChatAnchors = {
         sessionId,
         conversationId,

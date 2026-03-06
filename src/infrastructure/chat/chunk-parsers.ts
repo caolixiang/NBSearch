@@ -166,77 +166,76 @@ function collectRawChunkCandidates(rawChunk: unknown): Record<string, unknown>[]
   return candidates
 }
 
-function extractResponseIdFromRecord(value: Record<string, unknown>): string {
-  const normalizeResponseId = (input: unknown): string => {
-    if (typeof input !== "string") {
-      return ""
-    }
-    const trimmed = input.trim()
-    if (!trimmed) {
-      return ""
-    }
-    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(trimmed)) {
-      return trimmed
-    }
-    if (/^resp[_-]/i.test(trimmed)) {
-      return trimmed
-    }
+function normalizeResponseIdCandidate(input: unknown): string {
+  if (typeof input !== "string") {
     return ""
   }
+  const trimmed = input.trim()
+  if (!trimmed) {
+    return ""
+  }
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(trimmed)) {
+    return trimmed
+  }
+  if (/^resp[_-]/i.test(trimmed)) {
+    return trimmed
+  }
+  return ""
+}
 
-  const responseIdFromDirect = normalizeResponseId(value.responseId) || normalizeResponseId(value.response_id)
-  if (responseIdFromDirect) {
-    return responseIdFromDirect
+function readExplicitResponseId(value: Record<string, unknown>): string {
+  const direct =
+    normalizeResponseIdCandidate(value.responseId) || normalizeResponseIdCandidate(value.response_id)
+  if (direct) {
+    return direct
   }
 
   if (isRecord(value.modelResponse)) {
-    const responseIdFromModelResponse =
-      normalizeResponseId(value.modelResponse.responseId) ||
-      normalizeResponseId(value.modelResponse.response_id) ||
-      normalizeResponseId(value.modelResponse.id)
-    if (responseIdFromModelResponse) {
-      return responseIdFromModelResponse
+    const nested = readExplicitResponseId(value.modelResponse)
+    if (nested) {
+      return nested
     }
   }
 
+  return ""
+}
+
+function extractResponseIdFromRecord(value: Record<string, unknown>): string {
+  const direct = readExplicitResponseId(value)
+  if (direct) {
+    return direct
+  }
+
   if (isRecord(value.response)) {
-    const responseIdFromResponse =
-      normalizeResponseId(value.response.responseId) ||
-      normalizeResponseId(value.response.response_id) ||
-      normalizeResponseId(value.response.id)
-    if (responseIdFromResponse) {
-      return responseIdFromResponse
+    const nestedResponseId = readExplicitResponseId(value.response)
+    if (nestedResponseId) {
+      return nestedResponseId
     }
   }
 
   if (isRecord(value.metadata)) {
-    const responseIdFromMetadata =
-      normalizeResponseId(value.metadata.responseId) || normalizeResponseId(value.metadata.response_id)
-    if (responseIdFromMetadata) {
-      return responseIdFromMetadata
+    const metadataResponseId = readExplicitResponseId(value.metadata)
+    if (metadataResponseId) {
+      return metadataResponseId
     }
   }
 
-  const id = normalizeResponseId(value.id)
-  if (id) {
-    return id
-  }
-
-  const responseIdCamel = typeof value.responseId === "string" ? value.responseId.trim() : ""
-  if (responseIdCamel) {
-    return responseIdCamel
-  }
-
-  const responseIdSnake = typeof value.response_id === "string" ? value.response_id.trim() : ""
-  if (responseIdSnake) {
-    return responseIdSnake
-  }
-
-  if (typeof value.id === "string" && value.id.trim() && value.id.trim().startsWith("resp")) {
-    return value.id.trim()
-  }
-
   return ""
+}
+
+function readAssistantResponseIdFromGatewayResponse(value: Record<string, unknown>): string {
+  if (isRecord(value.modelResponse)) {
+    const modelResponseId = readExplicitResponseId(value.modelResponse)
+    if (modelResponseId) {
+      return modelResponseId
+    }
+  }
+
+  if (isRecord(value.userResponse)) {
+    return ""
+  }
+
+  return readExplicitResponseId(value)
 }
 
 function isInternalRelayRecord(value: Record<string, unknown>): boolean {
@@ -1350,13 +1349,13 @@ function readReasoningLayout(rawChunk: unknown): {
   isThinking?: boolean
   responseId?: string
 } | null {
+  const responseId = extractGatewayResponseIdFromRawChunk(rawChunk)
   for (const candidate of collectRawChunkCandidates(rawChunk)) {
     const uiLayout = isRecord(candidate.uiLayout) ? candidate.uiLayout : null
     if (!uiLayout) {
       continue
     }
 
-    const responseId = extractResponseIdFromRecord(candidate)
     return {
       layout: {
         reasoningUiLayout: typeof uiLayout.reasoningUiLayout === "string" ? uiLayout.reasoningUiLayout : undefined,
@@ -2230,10 +2229,41 @@ export function extractGatewayFinalMessageFromRawChunk(rawChunk: unknown): strin
 }
 
 export function extractGatewayResponseIdFromRawChunk(rawChunk: unknown): string {
-  for (const candidate of collectRawChunkCandidates(rawChunk)) {
-    const responseId = extractResponseIdFromRecord(candidate)
-    if (responseId) {
-      return responseId
+  for (const parsed of parseRecords(rawChunk)) {
+    const topLevelResponseId =
+      normalizeResponseIdCandidate(parsed.response_id) || normalizeResponseIdCandidate(parsed.responseId)
+    if (topLevelResponseId) {
+      return topLevelResponseId
+    }
+
+    const eventType = typeof parsed.type === "string" ? parsed.type.trim() : ""
+    if ((eventType === "response.created" || eventType === "response.completed") && isRecord(parsed.response)) {
+      const responseObjectId = normalizeResponseIdCandidate(parsed.response.id)
+      if (responseObjectId) {
+        return responseObjectId
+      }
+    }
+
+    if (isRecord(parsed.response)) {
+      const rootResponseId = readAssistantResponseIdFromGatewayResponse(parsed.response)
+      if (rootResponseId) {
+        return rootResponseId
+      }
+    }
+
+    if (isRecord(parsed.result)) {
+      if (isRecord(parsed.result.response)) {
+        const wrappedResponseId = readAssistantResponseIdFromGatewayResponse(parsed.result.response)
+        if (wrappedResponseId) {
+          return wrappedResponseId
+        }
+      }
+      if (isRecord(parsed.result.modelResponse)) {
+        const wrappedModelResponseId = readExplicitResponseId(parsed.result.modelResponse)
+        if (wrappedModelResponseId) {
+          return wrappedModelResponseId
+        }
+      }
     }
   }
 
