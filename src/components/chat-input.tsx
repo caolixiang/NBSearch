@@ -206,7 +206,7 @@ export function ChatInput({
   }
 
   return (
-    <div ref={containerRef} className="mx-auto w-full max-w-3xl px-4 pb-4">
+    <div ref={containerRef} className="mx-auto w-full max-w-3xl px-4 pb-5">
       <div className="relative rounded-2xl border border-border bg-card shadow-sm transition-shadow focus-within:shadow-md focus-within:border-ring/40">
         {/* Attachments preview */}
         {attachments.length > 0 && (
