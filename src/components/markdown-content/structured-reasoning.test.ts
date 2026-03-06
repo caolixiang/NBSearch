@@ -5,7 +5,9 @@ import {
   buildDeepSearchLegacyTimeline,
   buildDeepSearchTimeline,
   buildStructuredReasoningSummary,
+  collectRolloutAgents,
   hasDeepSearchContent,
+  mergeReasoningRolloutIds,
 } from "./structured-reasoning"
 
 describe("buildStructuredReasoningSummary toolChain", () => {
@@ -367,5 +369,41 @@ describe("hasDeepSearchContent", () => {
         steps: [{ tags: ["header"], title: "Step", text: ["A"] }],
       })
     ).toBe(true)
+  })
+})
+
+describe("multi-agent rollout merge", () => {
+  it("merges rollout ids from research uiLayout for agent detection", () => {
+    const merged = mergeReasoningRolloutIds(
+      ["Grok"],
+      {
+        uiLayout: {
+          rolloutIds: ["Chat Room Planner", "Chat Room Critic"],
+        },
+      }
+    )
+
+    expect(merged).toEqual(["Grok", "Planner", "Critic"])
+    const agents = collectRolloutAgents(merged)
+    expect(agents.length).toBe(3)
+  })
+
+  it("allows timeline only when there is no multi-agent rollout", () => {
+    const merged = mergeReasoningRolloutIds(
+      ["Grok"],
+      {
+        uiLayout: {
+          rolloutIds: ["Grok"],
+        },
+      }
+    )
+    const agents = collectRolloutAgents(merged)
+    const useResearchTimelineView =
+      hasDeepSearchContent({
+        details: [{ title: "探索问题", bullets: ["- 要点"] }],
+        steps: [],
+      }) && agents.length <= 1
+
+    expect(useResearchTimelineView).toBe(true)
   })
 })

@@ -58,6 +58,37 @@ export function hasDeepSearchContent(research: Pick<ChatDeepSearchResearch, "ste
   return steps.length > 0 || details.length > 0
 }
 
+export function mergeReasoningRolloutIds(
+  summaryRolloutIds: string[],
+  research: Pick<ChatDeepSearchResearch, "uiLayout"> | undefined
+): string[] {
+  const merged: string[] = []
+  const seen = new Set<string>()
+  const append = (value: string | undefined) => {
+    const normalized = normalizeRolloutId(value)
+    if (seen.has(normalized)) {
+      return
+    }
+    seen.add(normalized)
+    merged.push(normalized)
+  }
+
+  for (const rolloutId of summaryRolloutIds) {
+    append(rolloutId)
+  }
+
+  const rolloutIds = Array.isArray(research?.uiLayout?.rolloutIds) ? research.uiLayout.rolloutIds : []
+  for (const rolloutId of rolloutIds) {
+    append(typeof rolloutId === "string" ? rolloutId : undefined)
+  }
+
+  if (merged.length === 0) {
+    merged.push("Grok")
+  }
+
+  return merged
+}
+
 function normalizeRolloutId(value: string | undefined): string {
   let trimmed = (value || "").trim()
   // Strip upstream "Chat Room" prefix (e.g., "Chat Room Grok" → "Grok")

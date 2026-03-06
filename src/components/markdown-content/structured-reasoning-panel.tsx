@@ -17,6 +17,7 @@ import {
   isChatroomSendToolName,
   isImageSearchToolName,
   isXSearchToolName,
+  mergeReasoningRolloutIds,
   resolveStructuredEntryLabel,
   toAgentKey,
 } from "./structured-reasoning"
@@ -502,7 +503,13 @@ export function StructuredReasoningPanel({
   const summary = useMemo(() => buildStructuredReasoningSummary(events), [events])
   const researchSteps = researchData?.steps || []
   const researchDetails = researchData?.details || []
-  const useResearchTimelineView = hasDeepSearchContent(researchData)
+  const mergedRolloutIds = useMemo(
+    () => mergeReasoningRolloutIds(summary.rolloutIds, researchData),
+    [researchData?.uiLayout?.rolloutIds, summary.rolloutIds]
+  )
+  const agents = useMemo(() => collectRolloutAgents(mergedRolloutIds), [mergedRolloutIds])
+  const hasAgentItems = agents.length > 1
+  const useResearchTimelineView = hasDeepSearchContent(researchData) && !hasAgentItems
   const researchTimeline = useMemo(
     () => {
       if (!useResearchTimelineView) {
@@ -514,7 +521,6 @@ export function StructuredReasoningPanel({
     },
     [researchDetails, researchSteps, summary.entries, useResearchTimelineView]
   )
-  const agents = useMemo(() => collectRolloutAgents(summary.rolloutIds), [summary.rolloutIds])
   const [activeTick, setActiveTick] = useState(0)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const previousEntryCountRef = useRef(summary.entries.length)
@@ -602,7 +608,6 @@ export function StructuredReasoningPanel({
 
   const closeDrawer = useCallback(() => setDrawerOpen(false), [])
 
-  const hasAgentItems = agents.length > 1
   const durationSuffix = durationSeconds > 0 ? ` ${durationSeconds}s` : ""
   const hasAnyRecords =
     summary.entries.length > 0 || researchDetails.length > 0 || researchTimeline.length > 0
