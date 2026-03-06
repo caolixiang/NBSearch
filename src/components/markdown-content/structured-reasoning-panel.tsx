@@ -1,12 +1,12 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { ChevronDown, Globe, ImageIcon, Lightbulb, Search, UserRound, Wrench, X } from "lucide-react"
+import { ChevronDown, Globe, ImageIcon, Lightbulb, Search, UserRound, X } from "lucide-react"
 import { createPortal } from "react-dom"
 import type { ChatDeepSearchResearch, ChatDeepSearchDetail, ChatReasoningEventDetail } from "@/domain/chat/types"
 import { openExternalUrl } from "@/lib/open-external-url"
 import { cn } from "@/lib/utils"
-import type { StructuredReasoningEntry, StructuredReasoningToolChainItem } from "./types"
+import type { StructuredReasoningEntry } from "./types"
 import {
   buildDeepSearchLegacyTimeline,
   buildDeepSearchTimeline,
@@ -309,36 +309,6 @@ function groupHasChatroomEntries(group: AgentGroupedEntries): boolean {
   return group.entries.some((e) => isChatroomSendToolName(e.toolName))
 }
 
-function ToolChainSection({ toolChain }: { toolChain: StructuredReasoningToolChainItem[] }) {
-  if (toolChain.length === 0) {
-    return null
-  }
-
-  return (
-    <section className="mb-4 rounded-xl border border-foreground/6 bg-secondary/20 p-3">
-      <div className="mb-2 inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-        <Wrench className="size-3.5" />
-        <span>工具链</span>
-      </div>
-      <div className="flex flex-wrap gap-2">
-        {toolChain.map((item) => {
-          const statusLabel =
-            item.runningCount > 0 ? `进行中 ${item.completedCount}/${item.usageCount}` : `已完成 ${item.usageCount}`
-          return (
-            <span
-              key={item.toolName}
-              className="inline-flex items-center gap-1.5 rounded-full border border-foreground/8 bg-background px-2.5 py-1 text-xs"
-            >
-              <span className="font-medium text-foreground">{item.toolName}</span>
-              <span className="text-muted-foreground">{statusLabel}</span>
-            </span>
-          )
-        })}
-      </div>
-    </section>
-  )
-}
-
 function ResearchDetailSection({ details }: { details: ChatDeepSearchDetail[] }) {
   if (details.length === 0) {
     return null
@@ -406,7 +376,6 @@ function ResearchTimelineSection({ items }: { items: DeepSearchTimelineItem[] })
 function ReasoningDrawer({
   agentGroups,
   agents,
-  toolChain,
   researchTimeline,
   researchDetails,
   showResearchDetails,
@@ -414,7 +383,6 @@ function ReasoningDrawer({
 }: {
   agentGroups: AgentGroupedEntries[]
   agents: ReturnType<typeof collectRolloutAgents>
-  toolChain: StructuredReasoningToolChainItem[]
   researchTimeline: DeepSearchTimelineItem[]
   researchDetails: ChatDeepSearchDetail[]
   showResearchDetails: boolean
@@ -458,7 +426,6 @@ function ReasoningDrawer({
           ) : (
             <>
               {showResearchDetails ? <ResearchDetailSection details={researchDetails} /> : null}
-              <ToolChainSection toolChain={toolChain} />
               {agentGroups.length > 0 ? (
                 <div className="space-y-1">
                   {agentGroups.map((group, groupIndex) => (
@@ -664,7 +631,6 @@ export function StructuredReasoningPanel({
           <ReasoningDrawer
             agentGroups={agentGroups}
             agents={agents}
-            toolChain={summary.toolChain}
             researchTimeline={researchTimeline}
             researchDetails={researchDetails}
             showResearchDetails={showResearchDetails}
