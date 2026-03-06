@@ -9,9 +9,52 @@ permissions:
   contents: write
 
 jobs:
+  validate-version:
+    name: validate-release-version
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Validate tag matches project version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          read_json_version() {
+            sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$1" | head -n 1
+          }
+
+          read_toml_version() {
+            sed -n 's/^version = "\([^"]*\)"$/\1/p' "$1" | head -n 1
+          }
+
+          tag_version="${GITHUB_REF_NAME#v}"
+          package_version="$(read_json_version package.json)"
+          tauri_version="$(read_json_version src-tauri/tauri.conf.json)"
+          cargo_version="$(read_toml_version src-tauri/Cargo.toml)"
+
+          if [ -z "$package_version" ] || [ -z "$tauri_version" ] || [ -z "$cargo_version" ]; then
+            echo "::error::Failed to read one or more project versions."
+            exit 1
+          fi
+
+          if [ "$package_version" != "$tauri_version" ] || [ "$package_version" != "$cargo_version" ]; then
+            echo "::error::Version mismatch across files: package.json=$package_version, tauri.conf.json=$tauri_version, Cargo.toml=$cargo_version"
+            exit 1
+          fi
+
+          if [ "$package_version" != "$tag_version" ]; then
+            echo "::error::Tag version v$tag_version does not match project version $package_version"
+            exit 1
+          fi
+
+          echo "Release version validated: $package_version"
+
   build:
     name: release-build-${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    needs: validate-version
     strategy:
       fail-fast: false
       matrix:
