@@ -18,7 +18,6 @@ import {
   buildConversationId,
   buildUserMessage,
   isRecord,
-  parseJsonObjectStrings,
 } from "./chunk-parsers"
 import {
   type GatewaySessionMessage,
@@ -27,23 +26,15 @@ import {
   StreamIdleTimeoutError,
   createGatewaySessionRecoveryClient,
   normalizeTurnRecoverySetting,
-  waitForRetryDelay,
 } from "./gateway-session-recovery"
-import {
-  type RenewedAssetUrlPayload,
-  parseRenewedAssetUrlResponse,
-  readCardAssetMeta,
-  resolveRenewAssetIdForCard,
-  shouldRenewCardAssetUrl,
-  withCardAssetMeta,
-  withCardAssetMetadata,
-} from "./gateway-media-assets"
+import { type RenewedAssetUrlPayload } from "./gateway-media-assets"
 import { refreshMessagesWithGeneratedMediaAssets } from "./gateway-media-workflows"
 import { buildCompletedGatewayTurn } from "./gateway-turn-completion"
 import { GatewayStreamAccumulator, readReasoningEventResponseId } from "./gateway-stream-accumulator"
 import { resolveGatewayRegenerateTarget } from "./gateway-regenerate-target-resolver"
 import { persistRecoveredCompletedTurnFromGateway } from "./gateway-recovered-turn-persistence"
 import { recoverPendingAssistantFromGateway } from "./gateway-pending-assistant-recovery"
+import { executeGatewayStreamTransport } from "./gateway-stream-transport"
 import {
   type GatewayTurnRecoveryOutcome,
   attemptGatewayTurnRecovery,
@@ -52,8 +43,7 @@ import {
   buildGatewayTurnRequestPayload,
   buildUserMessageText,
 } from "./gateway-turn-request-builder"
-
-const ANCHOR_RECOVERY_ERROR_CODES = new Set(["session_anchor_conflict", "invalid_previous_response_id"])
+import { hydrateGeneratedImageCardsFromGateway } from "./gateway-generated-image-renewal"
 
 function normalizeApiBaseUrl(input: string): string {
   const trimmed = input.trim().replace(/\/+$/, "")
@@ -119,26 +109,6 @@ function fallbackConversationTitleFromPrompt(prompt: string): string {
   return `${firstLine.slice(0, maxLength).trim()}...`
 }
 
-function extractGatewayErrorCode(errorText: string): string {
-  const raw = errorText.trim()
-  if (!raw) {
-    return ""
-  }
-  try {
-    const parsed = JSON.parse(raw)
-    if (!isRecord(parsed) || !isRecord(parsed.error)) {
-      return ""
-    }
-    const code = typeof parsed.error.code === "string" ? parsed.error.code.trim() : ""
-    return code || ""
-  } catch {
-    return ""
-  }
-}
-
-const ASSET_URL_RENEW_TTL_SECONDS = 7200
-const ASSET_URL_RENEW_THRESHOLD_MS = 60 * 1000
-const STREAM_HEARTBEAT_INTERVAL_MS = 2000
 const STREAM_IDLE_TIMEOUT_MS_DEFAULT = 20_000
 const STREAM_IDLE_TIMEOUT_MS_MAX = 120_000
 const STREAM_IDLE_RETRY_MAX_ATTEMPTS_DEFAULT = 1
@@ -160,11 +130,6 @@ const TURN_RECOVERY_IN_PROGRESS_RETRY_DELAY_MS_MAX = 30_000
 const PENDING_RECOVERY_COMPLETION_FETCH_MAX_ATTEMPTS = 3
 const PENDING_RECOVERY_COMPLETION_FETCH_DELAY_MS = 500
 const PENDING_RECOVERY_MESSAGE_MISSING_RETRY_AFTER_MS = 30_000
-const TURN_RECOVERY_HTTP_RETRYABLE_CODES = new Set([
-  "session_in_progress",
-  "turn_in_progress",
-  "network_timeout",
-])
 
 export class GrokChatService implements ChatService {
   private readonly apiUrl: string
@@ -238,11 +203,11 @@ export class GrokChatService implements ChatService {
 
   async listMessages(conversationId: string): Promise<ChatMessage[]> {
     const list = await this.repository.listMessages(conversationId)
+    const hydrateGeneratedImageCards = this.createGeneratedImageCardHydrator()
     const refreshed = await refreshMessagesWithGeneratedMediaAssets({
       messages: list,
       apiUrl: this.apiUrl,
-      hydrateGeneratedImageCards: (cards, sharedRenewCache) =>
-        this.hydrateGeneratedImageCards(cards, sharedRenewCache),
+      hydrateGeneratedImageCards,
     })
     if (refreshed.updated.length > 0) {
       await Promise.all(
@@ -420,6 +385,20 @@ export class GrokChatService implements ChatService {
     }
   }
 
+  private createGeneratedImageCardHydrator() {
+    return (
+      cards: ChatCardAttachmentPayload[],
+      sharedRenewCache?: Map<string, Promise<RenewedAssetUrlPayload | null>>
+    ) =>
+      hydrateGeneratedImageCardsFromGateway({
+        cards,
+        sharedRenewCache,
+        gatewayBaseUrl: this.gatewayBaseUrl,
+        runtimeFetch: this.runtimeFetch,
+        createAuthHeaders: (extra) => this.createGatewayAuthHeaders(extra),
+      })
+  }
+
   private async persistRecoveredCompletedTurn(input: {
     conversationId: string
     sessionId: string
@@ -460,85 +439,6 @@ export class GrokChatService implements ChatService {
       querySessionState: (sessionId) => recoveryClient.querySessionState(sessionId),
       persistCompletedTurn: (persistInput) => this.persistRecoveredCompletedTurn(persistInput),
     })
-  }
-
-  private async renewAssetUrl(assetId: string): Promise<RenewedAssetUrlPayload | null> {
-    const normalizedAssetId = assetId.trim()
-    if (!normalizedAssetId) {
-      return null
-    }
-    const renewUrl = `${this.gatewayBaseUrl}/assets/${encodeURIComponent(normalizedAssetId)}/url?ttl=${ASSET_URL_RENEW_TTL_SECONDS}`
-
-    try {
-      const response = await this.runtimeFetch(renewUrl, {
-        method: "GET",
-        headers: {
-          ...(this.apiKey ? { Authorization: `Bearer ${this.apiKey}` } : {}),
-        },
-      })
-      if (!response.ok) {
-        return null
-      }
-      const rawText = await response.text().catch(() => "")
-      if (!rawText.trim()) {
-        return null
-      }
-      return parseRenewedAssetUrlResponse(rawText)
-    } catch {
-      return null
-    }
-  }
-
-  private async hydrateGeneratedImageCards(
-    cards: ChatCardAttachmentPayload[],
-    sharedRenewCache?: Map<string, Promise<RenewedAssetUrlPayload | null>>
-  ): Promise<void> {
-    if (cards.length === 0) {
-      return
-    }
-
-    const renewCache = sharedRenewCache || new Map<string, Promise<RenewedAssetUrlPayload | null>>()
-    const renewOnce = (assetId: string): Promise<RenewedAssetUrlPayload | null> => {
-      const normalizedAssetId = assetId.trim()
-      if (!normalizedAssetId) {
-        return Promise.resolve(null)
-      }
-      const existing = renewCache.get(normalizedAssetId)
-      if (existing) {
-        return existing
-      }
-      const next = this.renewAssetUrl(normalizedAssetId)
-      renewCache.set(normalizedAssetId, next)
-      return next
-    }
-
-    await Promise.all(
-      cards.map(async (item, index) => {
-        if ((item.type || "").toLowerCase() !== "generated_image") {
-          return
-        }
-        const current = cards[index]
-        const renewAssetId = await resolveRenewAssetIdForCard(current)
-        if (!renewAssetId) {
-          return
-        }
-        const currentMeta = readCardAssetMeta(current)
-        if (currentMeta.asset_id !== renewAssetId) {
-          cards[index] = withCardAssetMeta(current, {
-            asset_id: renewAssetId,
-          })
-        }
-        if (!shouldRenewCardAssetUrl(cards[index])) {
-          return
-        }
-
-        const renewed = await renewOnce(renewAssetId)
-        if (!renewed) {
-          return
-        }
-        cards[index] = withCardAssetMetadata(cards[index], renewed)
-      })
-    )
   }
 
   async upsertAnchors(anchors: ChatAnchors): Promise<void> {
@@ -664,273 +564,49 @@ export class GrokChatService implements ChatService {
       })
 
       const accumulator = new GatewayStreamAccumulator(this.apiUrl)
-
-      let idleRetryAttempts = 0
-      let anchorRecoveryAttempts = 0
-      let turnNotFoundRetryAttempts = 0
-      let turnInProgressRetryAttempts = 0
-      while (true) {
-        const requestBody = JSON.stringify(requestBodyPayload)
-        let response: Response
-        try {
-          response = await this.runtimeFetch(this.apiUrl, {
-            method: "POST",
-            headers: this.createGatewayAuthHeaders({
-              "Content-Type": "application/json",
-              "Idempotency-Key": clientTurnId,
-            }),
-            body: requestBody,
-            signal,
-          })
-        } catch (error) {
-          if (!isRegenerate) {
-            const recovery = await this.attemptTurnRecovery({
-              conversationId,
-              sessionId,
-              clientTurnId,
-              fallbackPreviousResponseId,
-              allowRetryFromNotFound:
-                turnNotFoundRetryAttempts < this.turnRecoveryNotFoundRetryMaxAttempts,
-            })
-            if (recovery.kind === "completed") {
-              emitCompleted(recovery.result, recovery.result.assistantMessage.responseId)
-              return
-            }
-            if (
-              recovery.kind === "retry_send" &&
-              turnNotFoundRetryAttempts < this.turnRecoveryNotFoundRetryMaxAttempts
-            ) {
-              turnNotFoundRetryAttempts += 1
-              continue
-            }
-            if (recovery.kind === "in_progress") {
-              if (turnInProgressRetryAttempts < this.turnInProgressRetryMaxAttempts) {
-                turnInProgressRetryAttempts += 1
-                await waitForRetryDelay(this.turnInProgressRetryDelayMs, signal)
-                continue
-              }
-              emitFailed("turn_in_progress", "turn_is_still_in_progress")
-              return
-            }
-          }
-          throw error
-        }
-
-        if (!response.ok) {
-          const errorText = await response.text().catch(() => "")
-          const errorCode = extractGatewayErrorCode(errorText)
-          const currentPreviousResponseId =
-            typeof requestBodyPayload["previous_response_id"] === "string"
-              ? requestBodyPayload["previous_response_id"].trim()
-              : ""
-          const shouldRetryFromAnchorConflict =
-            !isRegenerate &&
-            currentPreviousResponseId.length > 0 &&
-            anchorRecoveryAttempts < 1 &&
-            ANCHOR_RECOVERY_ERROR_CODES.has(errorCode)
-          if (shouldRetryFromAnchorConflict) {
-            delete requestBodyPayload["previous_response_id"]
-            anchorRecoveryAttempts += 1
-            continue
-          }
-          const shouldTrySessionRecovery =
-            !isRegenerate &&
-            (TURN_RECOVERY_HTTP_RETRYABLE_CODES.has(errorCode) ||
-              ANCHOR_RECOVERY_ERROR_CODES.has(errorCode) ||
-              response.status >= 500 ||
-              response.status === 409)
-          if (shouldTrySessionRecovery) {
-            const recovery = await this.attemptTurnRecovery({
-              conversationId,
-              sessionId,
-              clientTurnId,
-              fallbackPreviousResponseId,
-              allowRetryFromNotFound:
-                turnNotFoundRetryAttempts < this.turnRecoveryNotFoundRetryMaxAttempts,
-            })
-            if (recovery.kind === "completed") {
-              emitCompleted(recovery.result, recovery.result.assistantMessage.responseId)
-              return
-            }
-            if (
-              recovery.kind === "retry_send" &&
-              turnNotFoundRetryAttempts < this.turnRecoveryNotFoundRetryMaxAttempts
-            ) {
-              turnNotFoundRetryAttempts += 1
-              continue
-            }
-            if (recovery.kind === "in_progress") {
-              if (turnInProgressRetryAttempts < this.turnInProgressRetryMaxAttempts) {
-                turnInProgressRetryAttempts += 1
-                await waitForRetryDelay(this.turnInProgressRetryDelayMs, signal)
-                continue
-              }
-              emitFailed("turn_in_progress", "turn_is_still_in_progress")
-              return
-            }
-          }
-          emitFailed(`http_${response.status}`, errorText || `HTTP ${response.status}`)
-          return
-        }
-
-        if (!response.body) {
-          if (!isRegenerate) {
-            const recovery = await this.attemptTurnRecovery({
-              conversationId,
-              sessionId,
-              clientTurnId,
-              fallbackPreviousResponseId,
-              allowRetryFromNotFound:
-                turnNotFoundRetryAttempts < this.turnRecoveryNotFoundRetryMaxAttempts,
-            })
-            if (recovery.kind === "completed") {
-              emitCompleted(recovery.result, recovery.result.assistantMessage.responseId)
-              return
-            }
-            if (
-              recovery.kind === "retry_send" &&
-              turnNotFoundRetryAttempts < this.turnRecoveryNotFoundRetryMaxAttempts
-            ) {
-              turnNotFoundRetryAttempts += 1
-              continue
-            }
-            if (recovery.kind === "in_progress") {
-              if (turnInProgressRetryAttempts < this.turnInProgressRetryMaxAttempts) {
-                turnInProgressRetryAttempts += 1
-                await waitForRetryDelay(this.turnInProgressRetryDelayMs, signal)
-                continue
-              }
-              emitFailed("turn_in_progress", "turn_is_still_in_progress")
-              return
-            }
-          }
-          emitFailed("no_body", "Response has no body")
-          return
-        }
-
-        // Read the streaming response as concatenated JSON objects
-        const reader = response.body.getReader()
-        const decoder = new TextDecoder()
-        let buffer = ""
-        let lastChunkAt = Date.now()
-        let lastHeartbeatSentAt = 0
-        const readChunkWithTimeout = async (): Promise<ReadableStreamReadResult<Uint8Array>> => {
-          let timeoutHandle: ReturnType<typeof setTimeout> | null = null
-          const timeoutPromise = new Promise<ReadableStreamReadResult<Uint8Array>>((_resolve, reject) => {
-            timeoutHandle = setTimeout(() => {
-              reject(new StreamIdleTimeoutError(this.streamIdleTimeoutMs))
-            }, this.streamIdleTimeoutMs)
-          })
-          try {
-            return await Promise.race([reader.read(), timeoutPromise])
-          } finally {
-            if (timeoutHandle) {
-              clearTimeout(timeoutHandle)
-            }
-          }
-        }
-
-        try {
-          while (true) {
-            const { done, value } = await readChunkWithTimeout()
-            if (done) {
-              break
-            }
-
-            const chunkArrivedAt = Date.now()
-            const idleMs = Math.max(0, chunkArrivedAt - lastChunkAt)
-            if (
-              lastHeartbeatSentAt === 0 ||
-              chunkArrivedAt - lastHeartbeatSentAt >= STREAM_HEARTBEAT_INTERVAL_MS
-            ) {
-              emitHeartbeat(idleMs, gatewayResponseId)
-              lastHeartbeatSentAt = chunkArrivedAt
-            }
-            lastChunkAt = chunkArrivedAt
-
-            buffer += decoder.decode(value, { stream: true })
-
-            // Parse complete JSON objects from the buffer
-            const segments = parseJsonObjectStrings(buffer)
-            if (segments.length === 0) {
-              continue
-            }
-
-            // Find the position of the last parsed segment to trim the buffer
-            let lastEnd = 0
-            for (const segment of segments) {
-              const idx = buffer.indexOf(segment, lastEnd)
-              if (idx >= 0) {
-                lastEnd = idx + segment.length
-              }
-            }
-            buffer = buffer.slice(lastEnd)
-
-            const processedChunk = accumulator.processJsonSegments(segments, chunkArrivedAt)
-            if (processedChunk.responseId) {
-              gatewayResponseId = processedChunk.responseId
-            }
-
-            for (const detail of processedChunk.reasoningDetails) {
-              emitReasoning(detail, readReasoningEventResponseId(detail))
-            }
-            if (processedChunk.delta) {
-              emitDelta(processedChunk.delta, gatewayResponseId)
-            }
-          }
-          break
-        } catch (error) {
-          const shouldRetryFromIdleTimeout =
-            error instanceof StreamIdleTimeoutError &&
-            idleRetryAttempts < this.streamIdleRetryMaxAttempts &&
-            accumulator.shouldRetryIdleTimeout()
-          if (shouldRetryFromIdleTimeout) {
-            idleRetryAttempts += 1
-            await waitForRetryDelay(this.streamIdleRetryDelayMs, signal)
-            continue
-          }
-          if (!isRegenerate) {
-            const recovery = await this.attemptTurnRecovery({
-              conversationId,
-              sessionId,
-              clientTurnId,
-              fallbackPreviousResponseId,
-              allowRetryFromNotFound:
-                turnNotFoundRetryAttempts < this.turnRecoveryNotFoundRetryMaxAttempts,
-            })
-            if (recovery.kind === "completed") {
-              emitCompleted(recovery.result, recovery.result.assistantMessage.responseId)
-              return
-            }
-            if (
-              recovery.kind === "retry_send" &&
-              turnNotFoundRetryAttempts < this.turnRecoveryNotFoundRetryMaxAttempts
-            ) {
-              turnNotFoundRetryAttempts += 1
-              continue
-            }
-            if (recovery.kind === "in_progress") {
-              if (turnInProgressRetryAttempts < this.turnInProgressRetryMaxAttempts) {
-                turnInProgressRetryAttempts += 1
-                await waitForRetryDelay(this.turnInProgressRetryDelayMs, signal)
-                continue
-              }
-              emitFailed("turn_in_progress", "turn_is_still_in_progress", gatewayResponseId)
-              return
-            }
-          }
-          throw error
-        } finally {
-          reader.releaseLock()
-        }
+      const transport = await executeGatewayStreamTransport({
+        apiUrl: this.apiUrl,
+        runtimeFetch: this.runtimeFetch,
+        createAuthHeaders: (extra) => this.createGatewayAuthHeaders(extra),
+        clientTurnId,
+        requestBodyPayload,
+        accumulator,
+        isRegenerate,
+        signal,
+        streamIdleTimeoutMs: this.streamIdleTimeoutMs,
+        streamIdleRetryMaxAttempts: this.streamIdleRetryMaxAttempts,
+        streamIdleRetryDelayMs: this.streamIdleRetryDelayMs,
+        turnRecoveryNotFoundRetryMaxAttempts: this.turnRecoveryNotFoundRetryMaxAttempts,
+        turnInProgressRetryMaxAttempts: this.turnInProgressRetryMaxAttempts,
+        turnInProgressRetryDelayMs: this.turnInProgressRetryDelayMs,
+        emitDelta,
+        emitReasoning,
+        emitHeartbeat,
+        attemptTurnRecovery: (allowRetryFromNotFound) =>
+          this.attemptTurnRecovery({
+            conversationId,
+            sessionId,
+            clientTurnId,
+            fallbackPreviousResponseId,
+            allowRetryFromNotFound,
+          }),
+      })
+      gatewayResponseId = transport.gatewayResponseId
+      if (transport.kind === "completed") {
+        emitCompleted(transport.result, transport.result.assistantMessage.responseId)
+        return
+      }
+      if (transport.kind === "failed") {
+        emitFailed(transport.code, transport.message, transport.gatewayResponseId)
+        return
       }
 
       const commitTime = Date.now()
+      const hydrateGeneratedImageCards = this.createGeneratedImageCardHydrator()
       const completion = await buildCompletedGatewayTurn({
         state: accumulator.snapshotCompletionState(),
         apiUrl: this.apiUrl,
-        hydrateGeneratedImageCards: (cards, sharedRenewCache) =>
-          this.hydrateGeneratedImageCards(cards, sharedRenewCache),
+        hydrateGeneratedImageCards,
         renewCache: new Map<string, Promise<RenewedAssetUrlPayload | null>>(),
         gatewayResponseId,
         sessionId,
