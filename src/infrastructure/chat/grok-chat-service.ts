@@ -5,20 +5,12 @@ import type {
   ChatCardAttachmentPayload,
   ChatDeepSearchResearch,
   ChatMessage,
-  ChatReasoningEventDetail,
   ChatTurnResult,
   ChatStreamEvent,
-  ChatStreamEventMeta,
   SendChatTurnInput,
 } from "../../domain/chat/types"
 import type { AppRepository, ConversationRecord } from "../../domain/storage/repository"
 import { createRuntimeFetch } from "../http/runtime-fetch"
-import {
-  type AssistantToolMetaPayload,
-  buildConversationId,
-  buildUserMessage,
-  isRecord,
-} from "./chunk-parsers"
 import {
   type GatewaySessionMessage,
   type GatewaySessionRecoveryClient,
@@ -30,7 +22,7 @@ import {
 import { type RenewedAssetUrlPayload } from "./gateway-media-assets"
 import { refreshMessagesWithGeneratedMediaAssets } from "./gateway-media-workflows"
 import { buildCompletedGatewayTurn } from "./gateway-turn-completion"
-import { GatewayStreamAccumulator, readReasoningEventResponseId } from "./gateway-stream-accumulator"
+import { GatewayStreamAccumulator } from "./gateway-stream-accumulator"
 import { resolveGatewayRegenerateTarget } from "./gateway-regenerate-target-resolver"
 import { persistRecoveredCompletedTurnFromGateway } from "./gateway-recovered-turn-persistence"
 import { recoverPendingAssistantFromGateway } from "./gateway-pending-assistant-recovery"
@@ -39,11 +31,10 @@ import {
   type GatewayTurnRecoveryOutcome,
   attemptGatewayTurnRecovery,
 } from "./gateway-turn-recovery"
-import {
-  buildGatewayTurnRequestPayload,
-  buildUserMessageText,
-} from "./gateway-turn-request-builder"
+import { buildGatewayTurnRequestPayload } from "./gateway-turn-request-builder"
 import { hydrateGeneratedImageCardsFromGateway } from "./gateway-generated-image-renewal"
+import { createGatewayStreamEventEmitter } from "./gateway-stream-event-emitter"
+import { bootstrapGatewayTurn } from "./gateway-turn-bootstrap"
 
 function normalizeApiBaseUrl(input: string): string {
   const trimmed = input.trim().replace(/\/+$/, "")
@@ -461,94 +452,41 @@ export class GrokChatService implements ChatService {
     onEvent: (event: ChatStreamEvent) => void,
     signal?: AbortSignal
   ): Promise<void> {
-    const conversationId = buildConversationId(input.anchors)
-    const anchoredSessionId = input.anchors.sessionId?.trim() || ""
-    const sessionId = anchoredSessionId || `sess_${crypto.randomUUID()}`
-    const clientTurnId = input.clientTurnId?.trim() || `turn_${crypto.randomUUID()}`
-    const regenerateTargetResponseId = input.regenerateTargetResponseId?.trim() || ""
-    const isRegenerate = regenerateTargetResponseId.length > 0
-    const fallbackPreviousResponseId = input.anchors.lastResponseId?.trim() || ""
-    const existingConversations = await this.repository.listConversations()
-    const currentConversation = existingConversations.find((item) => item.id === conversationId)
-    const currentTitle = currentConversation?.title || ""
-    const fallbackTitle = fallbackConversationTitleFromPrompt(input.text)
-    await this.repository.upsertConversation(
-      createConversationRecord(
-        conversationId,
-        currentTitle || fallbackTitle,
-        {
-          sessionId,
-          conversationId,
-          lastResponseId: fallbackPreviousResponseId,
-        },
-        Date.now()
-      )
-    )
-    if (!isRegenerate && !input.retryExistingUserMessage) {
-      const userMessage = buildUserMessage(buildUserMessageText(input.text, input.attachments))
-      await this.repository.appendMessage(conversationId, userMessage)
-    }
+    const {
+      conversationId,
+      anchoredSessionId,
+      sessionId,
+      clientTurnId,
+      regenerateTargetResponseId,
+      isRegenerate,
+      fallbackPreviousResponseId,
+      currentTitle,
+      fallbackTitle,
+    } = await bootstrapGatewayTurn({
+      turnInput: input,
+      listConversations: () => this.repository.listConversations(),
+      upsertConversation: (record) => this.repository.upsertConversation(record),
+      appendMessage: (conversationId, message) => this.repository.appendMessage(conversationId, message),
+      createConversationRecord,
+      fallbackConversationTitleFromPrompt,
+    })
 
     const requestId = `req_${crypto.randomUUID()}`
     const streamStartedAt = Date.now()
-    let gatewayResponseId = ""
-    let streamEventSeq = 0
-    const nextStreamMeta = (responseId?: string): ChatStreamEventMeta => {
-      streamEventSeq += 1
-      const meta: ChatStreamEventMeta = {
-        seq: streamEventSeq,
-        ts: Date.now(),
-        conversationId,
-      }
-      const normalizedResponseId = responseId?.trim() || gatewayResponseId.trim()
-      if (normalizedResponseId) {
-        meta.responseId = normalizedResponseId
-      }
-      return meta
-    }
-    const emitStarted = (startedRequestId: string) => {
-      onEvent({
-        type: "started",
-        requestId: startedRequestId,
-        meta: nextStreamMeta(),
-      })
-    }
-    const emitDelta = (textDelta: string, responseId?: string) => {
-      onEvent({
-        type: "delta",
-        textDelta,
-        meta: nextStreamMeta(responseId),
-      })
-    }
-    const emitReasoning = (detail: ChatReasoningEventDetail, responseId?: string) => {
-      onEvent({
-        type: "reasoning",
-        detail,
-        meta: nextStreamMeta(responseId),
-      })
-    }
-    const emitHeartbeat = (idleMs: number, responseId?: string) => {
-      onEvent({
-        type: "heartbeat",
-        idleMs,
-        meta: nextStreamMeta(responseId),
-      })
-    }
-    const emitCompleted = (result: ChatTurnResult, responseId?: string) => {
-      onEvent({
-        type: "completed",
-        result,
-        meta: nextStreamMeta(responseId),
-      })
-    }
-    const emitFailed = (code: string, message: string, responseId?: string) => {
-      onEvent({
-        type: "failed",
-        code,
-        message,
-        meta: nextStreamMeta(responseId),
-      })
-    }
+    const streamEventEmitter = createGatewayStreamEventEmitter({
+      conversationId,
+      onEvent,
+    })
+    const {
+      emitStarted,
+      emitDelta,
+      emitReasoning,
+      emitHeartbeat,
+      emitCompleted,
+      emitFailed,
+      setGatewayResponseId,
+    } = streamEventEmitter
+    let gatewayResponseId = streamEventEmitter.state.gatewayResponseId
     emitStarted(requestId)
 
     try {
@@ -592,6 +530,7 @@ export class GrokChatService implements ChatService {
           }),
       })
       gatewayResponseId = transport.gatewayResponseId
+      setGatewayResponseId(gatewayResponseId)
       if (transport.kind === "completed") {
         emitCompleted(transport.result, transport.result.assistantMessage.responseId)
         return
