@@ -2,12 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { AppFontSizeMode, AppRuntime, AppThemeMode } from "@/app/contracts"
 import { applyAppearanceSettings } from "@/app/appearance"
 import { applyAppearanceConfigToRuntime, applyGatewayConfigToRuntime } from "@/app/runtime"
-import type {
-  ChatAnchors,
-  ChatMessage as DomainChatMessage,
-  ChatReasoningEventDetail,
-} from "@/domain/chat/types"
-import type { ModelOption } from "@/domain/models/types"
+import type { ChatAnchors, ChatMessage as DomainChatMessage } from "@/domain/chat/types"
 import type { ConversationRecord } from "@/domain/storage/repository"
 import { ChatInput } from "@/components/chat-input"
 import { ChatMessage, type RenderChatMessage, TypingIndicator } from "@/components/chat-message"
@@ -17,7 +12,6 @@ import { SettingsDialog } from "@/components/settings-dialog"
 import { VoiceMode } from "@/components/voice-mode"
 import { WelcomeScreen } from "@/components/welcome-screen"
 import { cn } from "@/lib/utils"
-import { buildConversationPdfFileName } from "./export-message-pdf"
 import {
   getConversationStreamingState,
   isConversationStreaming,
@@ -28,172 +22,30 @@ import {
   type PendingRecoveryNoneRetryTracker,
 } from "./pending-recovery-bootstrap"
 import { useChatConversationStore } from "./chat-conversation-store"
-import {
-  DEFAULT_MODEL_OPTIONS,
-  fetchRemoteModelOptions,
-  persistModelOptions,
-  persistSelectedModel,
-  readStoredModelOptions,
-  readStoredSelectedModel,
-  resolveSelectedModel,
-} from "@/infrastructure/models/catalog"
 import { resolveFastModelId } from "./model-selection"
+import { createChatStreamRuntime, persistCompletedReasoning } from "./chat-stream-runtime"
 import {
-  createChatStreamRuntime,
-  hasAnyThinkTag,
-  hasOpenThinkTag,
-  persistCompletedReasoning,
-} from "./chat-stream-runtime"
-
-function newConversationId(): string {
-  return `conv_${crypto.randomUUID()}`
-}
+  buildAssistantRoundByMessageId,
+  buildPdfExportMetaByMessageId,
+  buildReasoningCaches,
+  buildSidebarConversationItems,
+  buildStreamingReasoningViewModel,
+  computeMessageBottomSpacerPx,
+  buildUserMessageContent,
+  buildVisibleMessages,
+  extractRetryableUserText,
+  findLatestAssistantMessageId,
+  getLastPendingUserMessage,
+  newConversationId,
+  resolveSendAnchors,
+} from "./chat-shell-helpers"
+import { useChatShellModels } from "./use-chat-shell-models"
+import { useChatShellScroll } from "./use-chat-shell-scroll"
 
 const DRAFT_CONVERSATION_ID = "draft_new_conversation"
 const CHAT_INPUT_REVEAL_DELAY_MS = 500
-const MODEL_SYNC_NOTICE_DURATION_MS = 2200
 const PENDING_RECOVERY_POLL_INTERVAL_MS = 2500
 const PENDING_RECOVERY_NONE_RESULT_MAX_RETRIES = 24
-
-type ModelSyncNotice = {
-  message: string
-  tone: "success" | "error"
-}
-
-function toRenderMessage(message: DomainChatMessage): RenderChatMessage | null {
-  if (message.role !== "user" && message.role !== "assistant") {
-    return null
-  }
-  if (!message.content.trim()) {
-    return null
-  }
-  return {
-    id: message.id,
-    role: message.role,
-    content: message.content,
-    createdAt: message.createdAt,
-    research: message.research,
-    responseId: message.responseId,
-    previousResponseId: message.previousResponseId,
-  }
-}
-
-function buildUserMessageContent(text: string, attachments?: File[]): string {
-  const content = text.trim()
-  const files = Array.isArray(attachments) ? attachments.filter((file) => Boolean(file)) : []
-  if (files.length === 0) {
-    return content
-  }
-  const attachmentLines = files.map((file) => `[附件] ${file.name}`)
-  if (!content) {
-    return attachmentLines.join("\n")
-  }
-  return `${content}\n\n${attachmentLines.join("\n")}`
-}
-
-function extractRetryableUserText(messageContent: string): string {
-  const lines = messageContent.split(/\r?\n/)
-  const kept: string[] = []
-  for (const line of lines) {
-    if (/^\s*\[附件\]\s+/u.test(line)) {
-      continue
-    }
-    kept.push(line)
-  }
-  return kept.join("\n").trim()
-}
-
-function resolveSendAnchors(
-  conversationId: string,
-  currentConversation: ConversationRecord | undefined,
-  currentMessages: DomainChatMessage[]
-): Partial<ChatAnchors> {
-  const sessionId = (currentConversation?.anchors.sessionId || "").trim()
-  let lastResponseId = (currentConversation?.anchors.lastResponseId || "").trim()
-  if (!lastResponseId) {
-    for (let index = currentMessages.length - 1; index >= 0; index -= 1) {
-      const candidate = currentMessages[index]
-      if (candidate?.role !== "assistant") {
-        continue
-      }
-      const responseId = (candidate.responseId || "").trim()
-      if (responseId) {
-        lastResponseId = responseId
-        break
-      }
-    }
-  }
-  return {
-    conversationId,
-    ...(sessionId ? { sessionId } : {}),
-    ...(sessionId && lastResponseId ? { lastResponseId } : {}),
-  }
-}
-
-function getLastPendingUserMessage(messages: DomainChatMessage[]): DomainChatMessage | null {
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index]
-    if (!message) {
-      continue
-    }
-    if (message.role === "assistant") {
-      return null
-    }
-    if (message.role === "user") {
-      return message
-    }
-  }
-  return null
-}
-
-function buildReasoningCaches(list: DomainChatMessage[]): {
-  reasoningByMessageId: Record<string, ChatReasoningEventDetail[]>
-  reasoningDurationByMessageId: Record<string, number>
-} {
-  const reasoningByMessageId: Record<string, ChatReasoningEventDetail[]> = {}
-  const reasoningDurationByMessageId: Record<string, number> = {}
-
-  for (const message of list) {
-    if (message.role !== "assistant") {
-      continue
-    }
-    const messageId = message.id.trim()
-    const responseId = message.responseId?.trim() || ""
-
-    if (Array.isArray(message.reasoningEvents) && message.reasoningEvents.length > 0) {
-      reasoningByMessageId[messageId] = message.reasoningEvents
-      if (responseId) {
-        reasoningByMessageId[responseId] = message.reasoningEvents
-      }
-    }
-
-    if (
-      typeof message.reasoningDurationSeconds === "number" &&
-      Number.isFinite(message.reasoningDurationSeconds) &&
-      message.reasoningDurationSeconds > 0
-    ) {
-      const normalizedDuration = Math.max(1, Math.round(message.reasoningDurationSeconds))
-      reasoningDurationByMessageId[messageId] = normalizedDuration
-      if (responseId) {
-        reasoningDurationByMessageId[responseId] = normalizedDuration
-      }
-    }
-  }
-
-  return {
-    reasoningByMessageId,
-    reasoningDurationByMessageId,
-  }
-}
-
-function getInitialModelOptions(): ModelOption[] {
-  const stored = readStoredModelOptions()
-  if (stored.length > 0) {
-    return stored
-  }
-  return DEFAULT_MODEL_OPTIONS
-}
-
 export function ChatShell({ runtime }: { runtime: AppRuntime }) {
   const repository = runtime.services.repository
   const chatService = runtime.services.chat
@@ -224,18 +76,17 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     setLastErrorForConversation,
     clearLastErrorForConversation,
   } = useChatConversationStore()
-  const [modelSyncNotice, setModelSyncNotice] = useState<ModelSyncNotice | null>(null)
+  const {
+    modelSyncNotice,
+    modelOptions,
+    selectedModel,
+    setSelectedModel,
+    isRefreshingModels,
+    refreshModelOptions,
+  } = useChatShellModels(runtime)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true)
-  const [chatInputCollapsedByScroll, setChatInputCollapsedByScroll] = useState(false)
-  const [chatInputHeight, setChatInputHeight] = useState(0)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [voiceOpen, setVoiceOpen] = useState(false)
-  const [modelOptions, setModelOptions] = useState<ModelOption[]>(() => getInitialModelOptions())
-  const [selectedModel, setSelectedModel] = useState(() => {
-    const models = getInitialModelOptions()
-    return resolveSelectedModel(models, [readStoredSelectedModel(), runtime.config.defaultModel])
-  })
-  const [isRefreshingModels, setIsRefreshingModels] = useState(false)
   const [pendingRecoverySyncingByConversationId, setPendingRecoverySyncingByConversationId] = useState<
     Record<string, boolean>
   >({})
@@ -243,16 +94,20 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     Record<string, string>
   >({})
 
+  const {
+    chatInputCollapsedByScroll,
+    chatInputHeight,
+    setChatInputHeight,
+    messagesScrollRef,
+    shouldAutoScrollRef,
+    clearChatInputRevealTimer,
+    setProgrammaticScrollTop,
+    handleMessagesScroll,
+  } = useChatShellScroll(activeConversationId, CHAT_INPUT_REVEAL_DELAY_MS)
+
   const abortControllerByConversationIdRef = useRef<Record<string, AbortController>>({})
   const activeConversationIdRef = useRef<string | null>(null)
   const messagesByConversationIdRef = useRef(messagesByConversationId)
-  const messagesScrollRef = useRef<HTMLDivElement | null>(null)
-  const shouldAutoScrollRef = useRef(true)
-  const lastScrollTopRef = useRef(0)
-  const programmaticScrollRef = useRef(false)
-  const chatInputRevealTimerRef = useRef<number | null>(null)
-  const modelSyncNoticeTimerRef = useRef<number | null>(null)
-  const bottomLockRef = useRef(false)
   const attemptedPendingRecoveryMessageIdByConversationRef = useRef<Record<string, string>>({})
   const autoRetriedPendingRecoveryMessageIdByConversationRef = useRef<Record<string, string>>({})
   const pendingRecoveryNoneRetryTrackerRef = useRef<PendingRecoveryNoneRetryTracker>({})
@@ -266,31 +121,6 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       ) => Promise<void>)
     | null
   >(null)
-
-  const clearModelSyncNoticeTimer = useCallback(() => {
-    if (modelSyncNoticeTimerRef.current !== null) {
-      window.clearTimeout(modelSyncNoticeTimerRef.current)
-      modelSyncNoticeTimerRef.current = null
-    }
-  }, [])
-
-  const showModelSyncNotice = useCallback(
-    (message: string, tone: "success" | "error") => {
-      clearModelSyncNoticeTimer()
-      setModelSyncNotice({ message, tone })
-      modelSyncNoticeTimerRef.current = window.setTimeout(() => {
-        setModelSyncNotice(null)
-        modelSyncNoticeTimerRef.current = null
-      }, MODEL_SYNC_NOTICE_DURATION_MS)
-    },
-    [clearModelSyncNoticeTimer]
-  )
-
-  useEffect(() => {
-    return () => {
-      clearModelSyncNoticeTimer()
-    }
-  }, [clearModelSyncNoticeTimer])
 
   useEffect(() => {
     activeConversationIdRef.current = activeConversationId
@@ -414,179 +244,47 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
   const isActiveConversationStreaming = Boolean(activeStreamingState)
   const activeLeadAnchorMessageId = activeStreamingState?.leadAnchorMessageId || null
 
-  const clearChatInputRevealTimer = useCallback(() => {
-    if (chatInputRevealTimerRef.current) {
-      window.clearTimeout(chatInputRevealTimerRef.current)
-      chatInputRevealTimerRef.current = null
-    }
-  }, [])
-
-  const scheduleChatInputReveal = useCallback(() => {
-    clearChatInputRevealTimer()
-    chatInputRevealTimerRef.current = window.setTimeout(() => {
-      setChatInputCollapsedByScroll(false)
-      chatInputRevealTimerRef.current = null
-    }, CHAT_INPUT_REVEAL_DELAY_MS)
-  }, [clearChatInputRevealTimer])
-
-  const setProgrammaticScrollTop = useCallback((node: HTMLDivElement, nextTop: number) => {
-    programmaticScrollRef.current = true
-    node.scrollTop = nextTop
-    lastScrollTopRef.current = node.scrollTop
-    window.requestAnimationFrame(() => {
-      programmaticScrollRef.current = false
-      lastScrollTopRef.current = node.scrollTop
-    })
-  }, [])
-
   const sidebarConversations = useMemo(
-    () => {
-      const mapped = conversations.map((item) => ({
-        id: item.id,
-        title: item.title,
-        updatedAt: new Date(item.updatedAt),
-      }))
-      if (hasDraftConversation) {
-        mapped.unshift({
-          id: DRAFT_CONVERSATION_ID,
-          title: "",
-          updatedAt: new Date(draftConversationUpdatedAt || Date.now()),
-        })
-      }
-      return mapped
-    },
+    () =>
+      buildSidebarConversationItems(
+        conversations,
+        hasDraftConversation,
+        DRAFT_CONVERSATION_ID,
+        draftConversationUpdatedAt
+      ),
     [conversations, draftConversationUpdatedAt, hasDraftConversation]
   )
 
-  const visibleMessages = useMemo(() => {
-    const rendered = activeMessages
-      .map((message) => {
-        const row = toRenderMessage(message)
-        if (!row || row.role !== "assistant") {
-          return row
-        }
-        const embeddedReasoningEvents =
-          Array.isArray(message.reasoningEvents) && message.reasoningEvents.length > 0
-            ? message.reasoningEvents
-            : undefined
-        const byMessageId = activePersistedReasoningByMessageId[message.id]
-        const byResponseId = message.responseId ? activePersistedReasoningByMessageId[message.responseId] : undefined
-        const reasoningEvents = embeddedReasoningEvents || byMessageId || byResponseId
-        const embeddedReasoningDuration =
-          typeof message.reasoningDurationSeconds === "number" && message.reasoningDurationSeconds > 0
-            ? Math.max(1, Math.round(message.reasoningDurationSeconds))
-            : 0
-        const durationByMessageId = activePersistedReasoningDurationByMessageId[message.id]
-        const durationByResponseId = message.responseId
-          ? activePersistedReasoningDurationByMessageId[message.responseId]
-          : undefined
-        const reasoningDurationSeconds =
-          embeddedReasoningDuration || durationByMessageId || durationByResponseId || 0
-        if ((!reasoningEvents || reasoningEvents.length === 0) && reasoningDurationSeconds <= 0) {
-          return row
-        }
-        return {
-          ...row,
-          reasoningEvents: reasoningEvents || [],
-          reasoningActive: false,
-          reasoningDurationSeconds,
-          research: message.research,
-        }
-      })
-      .filter((item): item is RenderChatMessage => item !== null)
+  const visibleMessages = useMemo(
+    () =>
+      buildVisibleMessages({
+        activeMessages,
+        persistedReasoningByMessageId: activePersistedReasoningByMessageId,
+        persistedReasoningDurationByMessageId: activePersistedReasoningDurationByMessageId,
+        activeStreamingState,
+        activeLeadAnchorMessageId,
+      }),
+    [
+      activeLeadAnchorMessageId,
+      activeMessages,
+      activePersistedReasoningByMessageId,
+      activePersistedReasoningDurationByMessageId,
+      activeStreamingState,
+    ]
+  )
 
-    const activeStreamingAssistantText = activeStreamingState?.assistantText || ""
-    const activeStreamingReasoningEvents = activeStreamingState?.reasoningEvents || []
-    const activeStreamingReasoningActive = activeStreamingState?.reasoningActive || false
-    const activeStreamingReasoningDurationSeconds = activeStreamingState?.reasoningDurationSeconds || 0
-
-    const shouldUseThinkMarkupFallback = activeStreamingReasoningEvents.length === 0
-    const hasThinkMarkup = shouldUseThinkMarkupFallback && hasAnyThinkTag(activeStreamingAssistantText)
-    const effectiveStreamingReasoningActive =
-      hasThinkMarkup ? hasOpenThinkTag(activeStreamingAssistantText) : activeStreamingReasoningActive
-    const hasRenderableStreamingAssistant =
-      activeStreamingAssistantText.trim().length > 0 || effectiveStreamingReasoningActive
-
-    let visible = rendered
-    if (activeStreamingState && activeLeadAnchorMessageId) {
-      const anchorIndex = rendered.findIndex((message) => message.id === activeLeadAnchorMessageId)
-      if (anchorIndex >= 0 && anchorIndex < rendered.length - 1) {
-        visible = rendered.slice(0, anchorIndex + 1)
-      }
-    }
-
-    if (activeStreamingState && hasRenderableStreamingAssistant) {
-      const streamingMessage: RenderChatMessage = {
-        id: "streaming_assistant",
-        role: "assistant",
-        content: activeStreamingAssistantText,
-        reasoningEvents: activeStreamingReasoningEvents,
-        reasoningActive: effectiveStreamingReasoningActive,
-        reasoningDurationSeconds: activeStreamingReasoningDurationSeconds,
-      }
-      if (activeLeadAnchorMessageId) {
-        const anchorIndex = visible.findIndex((message) => message.id === activeLeadAnchorMessageId)
-        if (anchorIndex >= 0) {
-          visible = [
-            ...visible.slice(0, anchorIndex + 1),
-            streamingMessage,
-            ...visible.slice(anchorIndex + 1),
-          ]
-        } else {
-          visible = [...visible, streamingMessage]
-        }
-      } else {
-        visible = [...visible, streamingMessage]
-      }
-    }
-
-    return visible
-  }, [
-    activeConversationId,
-    activeLeadAnchorMessageId,
-    activeMessages,
-    activePersistedReasoningByMessageId,
-    activePersistedReasoningDurationByMessageId,
-    activeStreamingState,
-  ])
-
-  const activeStreamingAssistantText = activeStreamingState?.assistantText || ""
-  const activeStreamingReasoningEvents = activeStreamingState?.reasoningEvents || []
-  const activeStreamingReasoningActive = activeStreamingState?.reasoningActive || false
-  const activeStreamingReasoningDurationSeconds = activeStreamingState?.reasoningDurationSeconds || 0
-  const assistantRoundByMessageId = useMemo(() => {
-    const map: Record<string, number> = {}
-    let round = 0
-    for (const message of visibleMessages) {
-      if (message.role !== "assistant" || message.id === "streaming_assistant") {
-        continue
-      }
-      round += 1
-      map[message.id] = round
-    }
-    return map
-  }, [visibleMessages])
-  const latestAssistantMessageId = useMemo(() => {
-    for (let index = visibleMessages.length - 1; index >= 0; index -= 1) {
-      const message = visibleMessages[index]
-      if (message.role !== "assistant" || message.id === "streaming_assistant") {
-        continue
-      }
-      return message.id
-    }
-    return ""
-  }, [visibleMessages])
-  const pdfExportMetaByMessageId = useMemo(() => {
-    const map: Record<string, { title: string; round: number; fileName: string }> = {}
-    for (const [messageId, round] of Object.entries(assistantRoundByMessageId)) {
-      map[messageId] = {
-        title: activeConversationTitle,
-        round,
-        fileName: buildConversationPdfFileName(activeConversationTitle, round),
-      }
-    }
-    return map
-  }, [activeConversationTitle, assistantRoundByMessageId])
+  const assistantRoundByMessageId = useMemo(
+    () => buildAssistantRoundByMessageId(visibleMessages),
+    [visibleMessages]
+  )
+  const latestAssistantMessageId = useMemo(
+    () => findLatestAssistantMessageId(visibleMessages),
+    [visibleMessages]
+  )
+  const pdfExportMetaByMessageId = useMemo(
+    () => buildPdfExportMetaByMessageId(activeConversationTitle, assistantRoundByMessageId),
+    [activeConversationTitle, assistantRoundByMessageId]
+  )
   const shouldShowHeaderNewConversationButton = conversations.length > 0
 
   const resetComposerForNewConversation = useCallback(() => {
@@ -594,55 +292,27 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     if (fastModelId && fastModelId !== selectedModel) {
       setSelectedModel(fastModelId)
     }
-  }, [modelOptions, selectedModel])
+  }, [modelOptions, selectedModel, setSelectedModel])
 
-  const shouldUseThinkMarkupFallback = activeStreamingReasoningEvents.length === 0
-  const hasThinkMarkup = shouldUseThinkMarkupFallback && hasAnyThinkTag(activeStreamingAssistantText)
-  const effectiveStreamingReasoningActive =
-    hasThinkMarkup ? hasOpenThinkTag(activeStreamingAssistantText) : activeStreamingReasoningActive
-  const isThinkingStreaming = isActiveConversationStreaming && effectiveStreamingReasoningActive
-  const shouldShowThinkingWarmup =
-    isActiveConversationStreaming &&
-    activeStreamingAssistantText.trim().length === 0 &&
-    !isThinkingStreaming
+  const {
+    activeStreamingAssistantText,
+    activeStreamingReasoningEvents,
+    activeStreamingReasoningActive,
+    activeStreamingReasoningDurationSeconds,
+    effectiveStreamingReasoningActive,
+    isThinkingStreaming,
+    shouldShowThinkingWarmup,
+  } = useMemo(
+    () => buildStreamingReasoningViewModel(activeStreamingState, isActiveConversationStreaming),
+    [activeStreamingState, isActiveConversationStreaming]
+  )
   const shouldShowPendingRecoveryWarmup =
     Boolean(activePendingUserMessage) && !isActiveConversationStreaming && isActivePendingRecoverySyncing
-  const messageBottomSpacerPx = useMemo(() => {
-    const base = isThinkingStreaming ? 40 : 16
-    // Keep enough trailing scroll range even when composer is auto-collapsed,
-    // so the last lines can always be dragged above the bottom composer area.
-    const effectiveInputHeight = chatInputHeight > 0 ? chatInputHeight : 140
-    const comfortBuffer = Math.round(effectiveInputHeight * 0.62 + 14)
-    return Math.max(base, Math.min(comfortBuffer, 164))
-  }, [chatInputHeight, isThinkingStreaming])
-
-  const refreshModelOptions = useCallback(
-    async (silent = false): Promise<void> => {
-      setIsRefreshingModels(true)
-      try {
-        const remoteModels = await fetchRemoteModelOptions(runtime.config)
-        setModelOptions(remoteModels)
-        persistModelOptions(remoteModels)
-        setSelectedModel((current) =>
-          resolveSelectedModel(remoteModels, [current, readStoredSelectedModel(), runtime.config.defaultModel])
-        )
-        if (!silent) {
-          showModelSyncNotice("已同步", "success")
-        }
-      } catch {
-        if (!silent) {
-          showModelSyncNotice("同步失败，请重试", "error")
-        }
-      } finally {
-        setIsRefreshingModels(false)
-      }
-    },
-    [runtime.config, showModelSyncNotice]
+  const messageBottomSpacerPx = useMemo(
+    () => computeMessageBottomSpacerPx(chatInputHeight, isThinkingStreaming),
+    [chatInputHeight, isThinkingStreaming]
   )
 
-  useEffect(() => {
-    void refreshModelOptions(true)
-  }, [refreshModelOptions])
 
   const handleGatewayConfigChange = useCallback(
     (next: { apiBaseUrl: string; apiKey: string }) => {
@@ -660,12 +330,6 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     []
   )
 
-  useEffect(() => {
-    if (!selectedModel.trim()) {
-      return
-    }
-    persistSelectedModel(selectedModel)
-  }, [selectedModel])
 
   const refreshConversations = useCallback(async (): Promise<ConversationRecord[]> => {
     const list = await repository.listConversations()
@@ -994,69 +658,6 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     return () => observer.disconnect()
   }, [activeLeadAnchorMessageId, isActiveConversationStreaming, isThinkingStreaming, setProgrammaticScrollTop])
 
-  const handleMessagesScroll = useCallback(() => {
-    const node = messagesScrollRef.current
-    if (!node) {
-      return
-    }
-    const currentTop = node.scrollTop
-    const previousTop = lastScrollTopRef.current
-
-    if (programmaticScrollRef.current) {
-      lastScrollTopRef.current = currentTop
-      return
-    }
-
-    const hasVerticalOverflow = node.scrollHeight > node.clientHeight + 8
-    const delta = currentTop - previousTop
-    const hasScrolled = Math.abs(delta) >= 1
-    const isScrollingUp = delta < -1
-    const distanceToBottom = node.scrollHeight - node.scrollTop - node.clientHeight
-    const effectiveInputHeight = chatInputHeight > 0 ? chatInputHeight : 140
-    const bottomLockEnterPx = Math.max(64, Math.min(128, Math.round(effectiveInputHeight * 0.45)))
-    const bottomLockExitPx = Math.max(
-      bottomLockEnterPx + 56,
-      Math.min(220, Math.round(effectiveInputHeight * 0.95))
-    )
-    const isInBottomLockZone = distanceToBottom <= bottomLockEnterPx
-    if (!hasVerticalOverflow) {
-      bottomLockRef.current = false
-    } else if (bottomLockRef.current) {
-      // Hysteresis: once locked near bottom, require a larger move-away distance
-      // before unlocking, preventing expand/collapse ping-pong at the edge.
-      if (distanceToBottom > bottomLockExitPx) {
-        bottomLockRef.current = false
-      }
-    } else if (isInBottomLockZone) {
-      bottomLockRef.current = true
-    }
-
-    if (!hasVerticalOverflow || bottomLockRef.current || !isScrollingUp) {
-      // Keep composer expanded when content is not scrollable, near bottom,
-      // or user is scrolling down.
-      clearChatInputRevealTimer()
-      setChatInputCollapsedByScroll(false)
-    } else if (hasScrolled && isScrollingUp) {
-      // Collapse only on upward scroll.
-      setChatInputCollapsedByScroll(true)
-      scheduleChatInputReveal()
-    }
-
-    if (isScrollingUp) {
-      // User intent wins: stop follow mode immediately to avoid jitter.
-      shouldAutoScrollRef.current = false
-      lastScrollTopRef.current = currentTop
-      return
-    }
-    shouldAutoScrollRef.current = distanceToBottom < bottomLockEnterPx
-    lastScrollTopRef.current = currentTop
-  }, [chatInputHeight, clearChatInputRevealTimer, scheduleChatInputReveal])
-
-  useEffect(() => {
-    clearChatInputRevealTimer()
-    bottomLockRef.current = false
-    setChatInputCollapsedByScroll(false)
-  }, [activeConversationId, clearChatInputRevealTimer])
 
   const handleSendMessage = useCallback(
     async (
