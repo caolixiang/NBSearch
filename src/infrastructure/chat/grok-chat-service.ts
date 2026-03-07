@@ -15,20 +15,9 @@ import type { AppRepository, ConversationRecord } from "../../domain/storage/rep
 import { createRuntimeFetch } from "../http/runtime-fetch"
 import {
   type AssistantToolMetaPayload,
-  type WebSearchToolMeta,
   buildConversationId,
   buildUserMessage,
-  extractCardAttachmentsFromRawChunk,
-  extractChunkIsThinking,
-  extractDeepSearchResearchFromRawChunk,
-  extractGatewayFinalMessageFromRawChunk,
-  extractGatewayResponseIdFromRawChunk,
-  extractGatewayTextDeltaFromRawChunk,
-  extractGeneratedImageModeratedFromRawChunk,
   isRecord,
-  extractReasoningEventsFromRawChunk,
-  extractResponseNewTitleFromRawChunk,
-  extractWebSearchToolMetaFromRawChunk,
   parseJsonObjectStrings,
 } from "./chunk-parsers"
 import {
@@ -43,13 +32,7 @@ import {
 } from "./gateway-session-recovery"
 import {
   type RenewedAssetUrlPayload,
-  canonicalizeGeneratedImagePath,
-  inferGeneratedImageAssetId,
-  isGeneratedImageNarration,
-  isLocalRenewableImageAssetId,
-  normalizeCardAttachmentUrls,
   parseRenewedAssetUrlResponse,
-  preferGeneratedCardByUrlQuality,
   readCardAssetMeta,
   resolveRenewAssetIdForCard,
   shouldRenewCardAssetUrl,
@@ -57,7 +40,8 @@ import {
   withCardAssetMetadata,
 } from "./gateway-media-assets"
 import { refreshMessagesWithGeneratedMediaAssets } from "./gateway-media-workflows"
-import { buildCompletedGatewayTurn, mergeResearchPayload } from "./gateway-turn-completion"
+import { buildCompletedGatewayTurn } from "./gateway-turn-completion"
+import { GatewayStreamAccumulator, readReasoningEventResponseId } from "./gateway-stream-accumulator"
 
 const ANCHOR_RECOVERY_ERROR_CODES = new Set(["session_anchor_conflict", "invalid_previous_response_id"])
 
@@ -140,19 +124,6 @@ function extractGatewayErrorCode(errorText: string): string {
   } catch {
     return ""
   }
-}
-
-function readReasoningEventResponseId(detail: ChatReasoningEventDetail): string {
-  if (detail.kind === "ui_layout") {
-    return detail.responseId?.trim() || ""
-  }
-  if (detail.kind === "tool_usage") {
-    return detail.usage.responseId?.trim() || ""
-  }
-  if (detail.kind === "tool_result") {
-    return detail.result.responseId?.trim() || ""
-  }
-  return ""
 }
 
 const MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024
@@ -1290,125 +1261,7 @@ export class GrokChatService implements ChatService {
           requestBodyPayload["previous_response_id"] = previousResponseId
         }
       }
-      let upstreamConversationTitle = ""
-      let assistantText = ""
-      let gatewayFinalMessage = ""
-      const collectedWebSearchMeta: WebSearchToolMeta[] = []
-      const collectedWebSearchSeen = new Set<string>()
-      const collectedCards: ChatCardAttachmentPayload[] = []
-      const collectedCardIds = new Set<string>()
-      const generatedImageIndexByCanonical = new Map<string, number>()
-      const generatedImageIndexByAssetId = new Map<string, number>()
-      const collectedReasoningEvents: ChatReasoningEventDetail[] = []
-      let collectedResearch: ChatDeepSearchResearch | undefined
-      let hasStructuredGeneratedImages = false
-      let hasModeratedGeneratedImages = false
-      let hasVisibleAssistantDelta = false
-      let reasoningStartedAtMs: number | null = null
-      let reasoningEndedAtMs: number | null = null
-
-      // Track thinking state: image_search tools never send raw_function_result,
-      // so we detect thinking->output transition and emit synthetic tool_results.
-      let wasThinking = false
-      const pendingToolUsageCardIds = new Set<string>()
-
-      const appendWebSearchMeta = (items: WebSearchToolMeta[]) => {
-        for (const item of items) {
-          const dedupeKey = `${item.query}\u0000${item.numResults}`
-          if (collectedWebSearchSeen.has(dedupeKey)) {
-            continue
-          }
-          collectedWebSearchSeen.add(dedupeKey)
-          collectedWebSearchMeta.push(item)
-        }
-      }
-
-      const appendCards = (items: ChatCardAttachmentPayload[]) => {
-        for (const item of items) {
-          const isGeneratedImage = (item.type || "").toLowerCase() === "generated_image"
-          const sourceBeforeNormalize = (item.image?.original || item.url || "").trim()
-          const inferredAssetId = inferGeneratedImageAssetId(sourceBeforeNormalize)
-          const inferredLocalAssetId = isLocalRenewableImageAssetId(inferredAssetId)
-            ? inferredAssetId
-            : undefined
-          const itemMeta = readCardAssetMeta(item)
-          const normalizedItem =
-            isGeneratedImage && !itemMeta.asset_id && inferredLocalAssetId
-              ? withCardAssetMeta(item, {
-                  asset_id: inferredLocalAssetId,
-                })
-              : item
-          let canonicalGeneratedKey = ""
-          let nextIsPart = false
-          const normalizedMeta = readCardAssetMeta(normalizedItem)
-          const generatedAssetId = isGeneratedImage
-            ? normalizedMeta.asset_id || inferredLocalAssetId || normalizedMeta.assetId || inferredAssetId
-            : ""
-          if (isGeneratedImage) {
-            hasStructuredGeneratedImages = true
-            const canonical = canonicalizeGeneratedImagePath(sourceBeforeNormalize)
-            canonicalGeneratedKey = canonical.key
-            nextIsPart = canonical.isPart
-          }
-
-          const normalized = normalizeCardAttachmentUrls(normalizedItem, this.apiUrl)
-          if (isGeneratedImage && generatedAssetId) {
-            const existingByAssetIndex = generatedImageIndexByAssetId.get(generatedAssetId)
-            if (
-              typeof existingByAssetIndex === "number" &&
-              existingByAssetIndex >= 0 &&
-              existingByAssetIndex < collectedCards.length
-            ) {
-              const existing = collectedCards[existingByAssetIndex]
-              const preferred = preferGeneratedCardByUrlQuality(existing, normalized, this.apiUrl)
-              if (preferred.id !== existing.id && collectedCardIds.has(preferred.id)) {
-                continue
-              }
-              collectedCardIds.delete(existing.id)
-              collectedCardIds.add(preferred.id)
-              collectedCards[existingByAssetIndex] = preferred
-              if (canonicalGeneratedKey) {
-                generatedImageIndexByCanonical.set(canonicalGeneratedKey, existingByAssetIndex)
-              }
-              generatedImageIndexByAssetId.set(generatedAssetId, existingByAssetIndex)
-              continue
-            }
-          }
-
-          if (isGeneratedImage && canonicalGeneratedKey) {
-            const existingIndex = generatedImageIndexByCanonical.get(canonicalGeneratedKey)
-            if (typeof existingIndex === "number" && existingIndex >= 0 && existingIndex < collectedCards.length) {
-              const existing = collectedCards[existingIndex]
-              const existingSource = (existing.image?.original || existing.url || "").trim()
-              const existingIsPart = canonicalizeGeneratedImagePath(existingSource).isPart
-              // Same generated image: always prefer final image over -part-* intermediates.
-              if (existingIsPart && !nextIsPart) {
-                if (existing.id !== normalized.id && collectedCardIds.has(normalized.id)) {
-                  continue
-                }
-                collectedCardIds.delete(existing.id)
-                collectedCardIds.add(normalized.id)
-                collectedCards[existingIndex] = normalized
-                if (generatedAssetId) {
-                  generatedImageIndexByAssetId.set(generatedAssetId, existingIndex)
-                }
-              }
-              continue
-            }
-          }
-          if (collectedCardIds.has(normalized.id)) {
-            continue
-          }
-          collectedCardIds.add(normalized.id)
-          collectedCards.push(normalized)
-          if (isGeneratedImage && canonicalGeneratedKey) {
-            generatedImageIndexByCanonical.set(canonicalGeneratedKey, collectedCards.length - 1)
-          }
-          if (isGeneratedImage && generatedAssetId) {
-            generatedImageIndexByAssetId.set(generatedAssetId, collectedCards.length - 1)
-          }
-        }
-      }
+      const accumulator = new GatewayStreamAccumulator(this.apiUrl)
 
       let idleRetryAttempts = 0
       let anchorRecoveryAttempts = 0
@@ -1611,111 +1464,16 @@ export class GrokChatService implements ChatService {
             }
             buffer = buffer.slice(lastEnd)
 
-            // Process each parsed JSON object — batch events per network chunk
-            // to minimize React re-renders (prevents image flickering)
-            let chunkDelta = ""
-            const chunkReasoningDetails: ChatReasoningEventDetail[] = []
-
-            for (const segment of segments) {
-              let parsed: unknown
-              try {
-                parsed = JSON.parse(segment)
-              } catch {
-                continue
-              }
-
-              // Detect thinking -> output transition
-              const chunkIsThinking = extractChunkIsThinking(parsed)
-              if (chunkIsThinking === true) {
-                wasThinking = true
-                if (!hasVisibleAssistantDelta && !reasoningStartedAtMs) {
-                  reasoningStartedAtMs = Date.now()
-                  reasoningEndedAtMs = null
-                }
-              } else if (chunkIsThinking === false && wasThinking && pendingToolUsageCardIds.size > 0) {
-                for (const id of pendingToolUsageCardIds) {
-                  chunkReasoningDetails.push({
-                    kind: "tool_result",
-                    result: { toolUsageCardId: id, isThinking: false },
-                  })
-                }
-                pendingToolUsageCardIds.clear()
-                wasThinking = false
-                if (reasoningStartedAtMs && !reasoningEndedAtMs) {
-                  reasoningEndedAtMs = Date.now()
-                }
-              }
-
-              // Extract reasoning events
-              const reasoningEvents = extractReasoningEventsFromRawChunk(parsed)
-              for (const detail of reasoningEvents) {
-                if (detail.kind === "tool_usage") {
-                  pendingToolUsageCardIds.add(detail.usage.toolUsageCardId)
-                }
-                if (detail.kind === "tool_result" && detail.result.toolUsageCardId) {
-                  pendingToolUsageCardIds.delete(detail.result.toolUsageCardId)
-                }
-                if (!hasVisibleAssistantDelta && !reasoningStartedAtMs) {
-                  reasoningStartedAtMs = Date.now()
-                  reasoningEndedAtMs = null
-                }
-                chunkReasoningDetails.push(detail)
-              }
-
-              // Extract response ID
-              const nextResponseId = extractGatewayResponseIdFromRawChunk(parsed)
-              if (nextResponseId) {
-                gatewayResponseId = nextResponseId
-              }
-
-              // Extract final message
-              const nextFinalMessage = extractGatewayFinalMessageFromRawChunk(parsed)
-              if (nextFinalMessage) {
-                gatewayFinalMessage = nextFinalMessage
-              }
-
-              // Extract title
-              const nextTitle = extractResponseNewTitleFromRawChunk(parsed)
-              if (nextTitle) {
-                upstreamConversationTitle = nextTitle
-              }
-
-              // Extract web search meta & cards (collect only)
-              appendWebSearchMeta(extractWebSearchToolMetaFromRawChunk(parsed))
-              appendCards(extractCardAttachmentsFromRawChunk(parsed))
-              collectedResearch = mergeResearchPayload(
-                collectedResearch,
-                extractDeepSearchResearchFromRawChunk(parsed)
-              )
-              if (extractGeneratedImageModeratedFromRawChunk(parsed)) {
-                hasModeratedGeneratedImages = true
-              }
-
-              // Accumulate text delta (emit once after all segments)
-              const delta = extractGatewayTextDeltaFromRawChunk(parsed)
-              if (
-                delta &&
-                !hasStructuredGeneratedImages &&
-                !isGeneratedImageNarration(delta)
-              ) {
-                assistantText += delta
-                chunkDelta += delta
-              }
+            const processedChunk = accumulator.processJsonSegments(segments, chunkArrivedAt)
+            if (processedChunk.responseId) {
+              gatewayResponseId = processedChunk.responseId
             }
 
-            // Emit batched events — React 18 batches these into a single render
-            for (const detail of chunkReasoningDetails) {
-              collectedReasoningEvents.push(detail)
+            for (const detail of processedChunk.reasoningDetails) {
               emitReasoning(detail, readReasoningEventResponseId(detail))
             }
-            if (chunkDelta) {
-              if (!hasVisibleAssistantDelta && chunkDelta.trim()) {
-                hasVisibleAssistantDelta = true
-                if (reasoningStartedAtMs && !reasoningEndedAtMs) {
-                  reasoningEndedAtMs = Date.now()
-                }
-              }
-              emitDelta(chunkDelta, gatewayResponseId)
+            if (processedChunk.delta) {
+              emitDelta(processedChunk.delta, gatewayResponseId)
             }
           }
           break
@@ -1723,11 +1481,7 @@ export class GrokChatService implements ChatService {
           const shouldRetryFromIdleTimeout =
             error instanceof StreamIdleTimeoutError &&
             idleRetryAttempts < this.streamIdleRetryMaxAttempts &&
-            !assistantText.trim() &&
-            !gatewayFinalMessage.trim() &&
-            collectedReasoningEvents.length === 0 &&
-            !hasStructuredGeneratedImages &&
-            !hasModeratedGeneratedImages
+            accumulator.shouldRetryIdleTimeout()
           if (shouldRetryFromIdleTimeout) {
             idleRetryAttempts += 1
             await waitForRetryDelay(this.streamIdleRetryDelayMs, signal)
@@ -1771,19 +1525,7 @@ export class GrokChatService implements ChatService {
 
       const commitTime = Date.now()
       const completion = await buildCompletedGatewayTurn({
-        state: {
-          upstreamConversationTitle,
-          assistantText,
-          gatewayFinalMessage,
-          collectedWebSearchMeta,
-          collectedCards,
-          collectedReasoningEvents,
-          collectedResearch,
-          hasStructuredGeneratedImages,
-          hasModeratedGeneratedImages,
-          reasoningStartedAtMs,
-          reasoningEndedAtMs,
-        },
+        state: accumulator.snapshotCompletionState(),
         apiUrl: this.apiUrl,
         hydrateGeneratedImageCards: (cards, sharedRenewCache) =>
           this.hydrateGeneratedImageCards(cards, sharedRenewCache),
