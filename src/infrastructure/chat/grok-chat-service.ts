@@ -47,31 +47,25 @@ import {
   waitForRetryDelay,
 } from "./gateway-session-recovery"
 import {
-  applyUrlReplacementsOutsideToolMeta,
-  appendMissingCardsFromReasoningEvents,
-  appendMissingGeneratedImageMarkdownOutsideToolMeta,
+  type RenewedAssetUrlPayload,
   canonicalizeGeneratedImagePath,
-  cloneCardAttachmentPayload,
-  coerceToolMetaCard,
-  collectCardUrlReplacements,
-  collectGeneratedImageUrls,
-  dedupeGeneratedImageCards,
   extractGeneratedImageMarkdown,
   inferGeneratedImageAssetId,
   isGeneratedImageNarration,
   isLocalRenewableImageAssetId,
-  mergeRenewedCardsIntoReasoningEvents,
   normalizeCardAttachmentUrls,
-  normalizeGeneratedImageCardsInReasoningEvents,
   parseRenewedAssetUrlResponse,
   preferGeneratedCardByUrlQuality,
-  pruneGeneratedImageMarkdownOutsideToolMeta,
   readCardAssetMeta,
   resolveRenewAssetIdForCard,
   shouldRenewCardAssetUrl,
   withCardAssetMeta,
   withCardAssetMetadata,
 } from "./gateway-media-assets"
+import {
+  finalizeGeneratedMediaArtifacts,
+  refreshMessagesWithGeneratedMediaAssets,
+} from "./gateway-media-workflows"
 
 const GENERATED_IMAGE_MODERATED_NOTICE = "内容已管理。请尝试一个不同的想法。"
 const ANCHOR_RECOVERY_ERROR_CODES = new Set(["session_anchor_conflict", "invalid_previous_response_id"])
@@ -399,13 +393,6 @@ type TurnRecoveryOutcome =
       kind: "none"
     }
 
-type RenewedAssetUrlPayload = {
-  assetId: string
-  rawUrl: string
-  url: string
-  urlExpiresAt: string
-}
-
 type ResponsesInputContentBlock =
   | {
       type: "text"
@@ -591,7 +578,12 @@ export class GrokChatService implements ChatService {
 
   async listMessages(conversationId: string): Promise<ChatMessage[]> {
     const list = await this.repository.listMessages(conversationId)
-    const refreshed = await this.refreshExpiredAssetUrlsInMessages(list)
+    const refreshed = await refreshMessagesWithGeneratedMediaAssets({
+      messages: list,
+      apiUrl: this.apiUrl,
+      hydrateGeneratedImageCards: (cards, sharedRenewCache) =>
+        this.hydrateGeneratedImageCards(cards, sharedRenewCache),
+    })
     if (refreshed.updated.length > 0) {
       await Promise.all(
         refreshed.updated.map(async (message) => {
@@ -1354,147 +1346,6 @@ export class GrokChatService implements ChatService {
     )
   }
 
-  private async refreshExpiredAssetUrlsInMessages(messages: ChatMessage[]): Promise<{
-    messages: ChatMessage[]
-    updated: ChatMessage[]
-  }> {
-    const refreshed: ChatMessage[] = []
-    const updated: ChatMessage[] = []
-    const renewCache = new Map<string, Promise<RenewedAssetUrlPayload | null>>()
-
-    for (const message of messages) {
-      if (message.role !== "assistant" || !message.content.includes("<tool-meta>")) {
-        refreshed.push(message)
-        continue
-      }
-
-      const regex = /<tool-meta>([\s\S]*?)<\/tool-meta>/gi
-      const matches = Array.from(message.content.matchAll(regex))
-      if (matches.length === 0) {
-        refreshed.push(message)
-        continue
-      }
-
-      let nextContent = message.content
-      let offset = 0
-      let changed = false
-      const replacementByUrl = new Map<string, string>()
-      const renewedCardsById = new Map<string, ChatCardAttachmentPayload>()
-      const ensuredMarkdownImageUrls = new Set<string>()
-
-      for (const match of matches) {
-        const fullBlock = match[0]
-        const payloadText = match[1]?.trim() || ""
-        if (!payloadText || typeof match.index !== "number") {
-          continue
-        }
-        let payload: unknown
-        try {
-          payload = JSON.parse(payloadText) as unknown
-        } catch {
-          continue
-        }
-        if (!isRecord(payload) || !Array.isArray(payload.cards)) {
-          continue
-        }
-
-        const cards = payload.cards.map((item) => coerceToolMetaCard(item)).filter((item): item is ChatCardAttachmentPayload => Boolean(item))
-        if (cards.length === 0) {
-          continue
-        }
-
-        const payloadCardsBefore = cards.map((card) => cloneCardAttachmentPayload(card))
-        const restoredCards = appendMissingCardsFromReasoningEvents(cards, message.reasoningEvents)
-        for (const restoredCard of restoredCards) {
-          if ((restoredCard.type || "").toLowerCase() !== "generated_image") {
-            continue
-          }
-          const restoredUrl = (restoredCard.image?.original || restoredCard.url || "").trim()
-          if (!/^https?:\/\//i.test(restoredUrl)) {
-            continue
-          }
-          ensuredMarkdownImageUrls.add(restoredUrl)
-        }
-
-        const cardsBeforeHydration = cards.map((card) => cloneCardAttachmentPayload(card))
-        await this.hydrateGeneratedImageCards(cards, renewCache)
-        const dedupedCards = dedupeGeneratedImageCards(cards, this.apiUrl)
-        cards.splice(0, cards.length, ...dedupedCards)
-        for (const imageUrl of collectGeneratedImageUrls(cards)) {
-          ensuredMarkdownImageUrls.add(imageUrl)
-        }
-
-        const payloadChanged = JSON.stringify(payloadCardsBefore) !== JSON.stringify(cards)
-        if (!payloadChanged) {
-          continue
-        }
-
-        const replacements = collectCardUrlReplacements(cardsBeforeHydration, cards)
-        for (const [from, to] of replacements.entries()) {
-          replacementByUrl.set(from, to)
-        }
-        for (const card of cards) {
-          const id = (card.id || "").trim()
-          if (!id) {
-            continue
-          }
-          renewedCardsById.set(id, card)
-        }
-
-        payload.cards = cards
-        const nextBlock = `<tool-meta>${JSON.stringify(payload)}</tool-meta>`
-        const start = match.index + offset
-        const end = start + fullBlock.length
-        nextContent = `${nextContent.slice(0, start)}${nextBlock}${nextContent.slice(end)}`
-        offset += nextBlock.length - fullBlock.length
-        changed = true
-      }
-
-      const mergedReasoningEvents = mergeRenewedCardsIntoReasoningEvents(
-        message.reasoningEvents,
-        renewedCardsById
-      )
-      const normalizedReasoningEvents = await normalizeGeneratedImageCardsInReasoningEvents(
-        mergedReasoningEvents,
-        (cards, sharedRenewCache) => this.hydrateGeneratedImageCards(cards, sharedRenewCache),
-        renewCache
-      )
-      const reasoningChanged =
-        JSON.stringify(message.reasoningEvents || []) !== JSON.stringify(normalizedReasoningEvents || [])
-
-      if (!changed && !reasoningChanged) {
-        refreshed.push(message)
-        continue
-      }
-
-      const replacedContent = changed
-        ? applyUrlReplacementsOutsideToolMeta(nextContent, replacementByUrl)
-        : message.content
-      const prunedContent = changed
-        ? pruneGeneratedImageMarkdownOutsideToolMeta(replacedContent, ensuredMarkdownImageUrls)
-        : replacedContent
-      const nextVisibleContent = changed
-        ? appendMissingGeneratedImageMarkdownOutsideToolMeta(
-            prunedContent,
-            ensuredMarkdownImageUrls
-          )
-        : prunedContent
-
-      const nextMessage = {
-        ...message,
-        content: nextVisibleContent,
-        reasoningEvents: normalizedReasoningEvents,
-      }
-      refreshed.push(nextMessage)
-      updated.push(nextMessage)
-    }
-
-    return {
-      messages: refreshed,
-      updated,
-    }
-  }
-
   async upsertAnchors(anchors: ChatAnchors): Promise<void> {
     const now = Date.now()
     const conversationId = anchors.conversationId || anchors.sessionId || `conv_${crypto.randomUUID()}`
@@ -2110,14 +1961,16 @@ export class GrokChatService implements ChatService {
       }
 
       const renewCache = new Map<string, Promise<RenewedAssetUrlPayload | null>>()
-      await this.hydrateGeneratedImageCards(collectedCards, renewCache)
-      const normalizedReasoningEvents = await normalizeGeneratedImageCardsInReasoningEvents(
-        collectedReasoningEvents,
-        (cards, sharedRenewCache) => this.hydrateGeneratedImageCards(cards, sharedRenewCache),
-        renewCache
-      )
-      const dedupedCollectedCards = dedupeGeneratedImageCards(collectedCards, this.apiUrl)
-      collectedCards.splice(0, collectedCards.length, ...dedupedCollectedCards)
+      const finalizedGeneratedMedia = await finalizeGeneratedMediaArtifacts({
+        cards: collectedCards,
+        reasoningEvents: collectedReasoningEvents,
+        apiUrl: this.apiUrl,
+        hydrateGeneratedImageCards: (cards, sharedRenewCache) =>
+          this.hydrateGeneratedImageCards(cards, sharedRenewCache),
+        renewCache,
+      })
+      collectedCards.splice(0, collectedCards.length, ...finalizedGeneratedMedia.cards)
+      const normalizedReasoningEvents = finalizedGeneratedMedia.reasoningEvents
 
       const citationCardsFromAttachments = collectedCards
         .map((card) => toCitationCardFromAttachment(card))
