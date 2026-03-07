@@ -42,7 +42,12 @@ import { refreshMessagesWithGeneratedMediaAssets } from "./gateway-media-workflo
 import { buildCompletedGatewayTurn } from "./gateway-turn-completion"
 import { GatewayStreamAccumulator, readReasoningEventResponseId } from "./gateway-stream-accumulator"
 import { resolveGatewayRegenerateTarget } from "./gateway-regenerate-target-resolver"
+import { persistRecoveredCompletedTurnFromGateway } from "./gateway-recovered-turn-persistence"
 import { recoverPendingAssistantFromGateway } from "./gateway-pending-assistant-recovery"
+import {
+  type GatewayTurnRecoveryOutcome,
+  attemptGatewayTurnRecovery,
+} from "./gateway-turn-recovery"
 import {
   buildGatewayTurnRequestPayload,
   buildUserMessageText,
@@ -160,22 +165,6 @@ const TURN_RECOVERY_HTTP_RETRYABLE_CODES = new Set([
   "turn_in_progress",
   "network_timeout",
 ])
-
-type TurnRecoveryOutcome =
-  | {
-      kind: "retry_send"
-    }
-  | {
-      kind: "in_progress"
-    }
-  | {
-      kind: "completed"
-      result: ChatTurnResult
-    }
-  | {
-      kind: "none"
-    }
-
 
 export class GrokChatService implements ChatService {
   private readonly apiUrl: string
@@ -437,81 +426,21 @@ export class GrokChatService implements ChatService {
     turnState: GatewayTurnState
     fallbackPreviousResponseId: string
   }): Promise<ChatTurnResult | null> {
-    const targetResponseId = input.turnState.responseId.trim()
-    if (!targetResponseId) {
-      return null
-    }
-
-    const recoveredRows = await this.getGatewayRecoveryClient().querySessionMessages(
-      input.sessionId,
-      input.fallbackPreviousResponseId
-    )
-    const candidate =
-      recoveredRows.find(
-        (row) => row.role === "assistant" && row.responseId.trim() === targetResponseId
-      ) ||
-      recoveredRows
-        .filter((row) => row.role === "assistant")
-        .sort((a, b) => a.createdAt - b.createdAt)
-        .at(-1)
-    if (!candidate) {
-      return null
-    }
-
-    const existingMessages = await this.repository.listMessages(input.conversationId)
-    const existingAssistant = existingMessages.find(
-      (row) => row.role === "assistant" && (row.responseId || "").trim() === targetResponseId
-    )
-    const fallbackPreviousResponseId = input.fallbackPreviousResponseId.trim()
-    const nextAssistant: ChatMessage = {
-      id: existingAssistant?.id || candidate.id || targetResponseId || `asst_${crypto.randomUUID()}`,
-      role: "assistant",
-      content: candidate.content || existingAssistant?.content || "",
-      createdAt: existingAssistant?.createdAt || candidate.createdAt || Date.now(),
-      responseId: targetResponseId,
-      previousResponseId:
-        candidate.previousResponseId || existingAssistant?.previousResponseId || fallbackPreviousResponseId || undefined,
-      status: "completed",
-      reasoningEvents: existingAssistant?.reasoningEvents,
-      reasoningDurationSeconds: existingAssistant?.reasoningDurationSeconds,
-      research: existingAssistant?.research,
-    }
-
-    if (existingAssistant) {
-      const shouldUpdate =
-        existingAssistant.content !== nextAssistant.content ||
-        (existingAssistant.previousResponseId || "") !== (nextAssistant.previousResponseId || "") ||
-        (existingAssistant.status || "completed") !== "completed"
-      if (shouldUpdate) {
-        await this.repository.updateMessage(input.conversationId, nextAssistant)
-      }
-    } else {
-      await this.repository.appendMessage(input.conversationId, nextAssistant)
-    }
-
-    const sessionState = await this.getGatewayRecoveryClient().querySessionState(input.sessionId)
-    const existingConversations = await this.repository.listConversations()
-    const currentConversation = existingConversations.find((item) => item.id === input.conversationId)
-    const currentTitle = currentConversation?.title || ""
-    const anchors: ChatAnchors = {
-      sessionId: input.sessionId,
-      conversationId: input.conversationId,
-      lastResponseId:
-        sessionState?.lastResponseId.trim() || targetResponseId || fallbackPreviousResponseId,
-    }
-    await this.repository.upsertConversation(
-      createConversationRecord(
-        input.conversationId,
-        currentTitle || fallbackConversationTitleFromPrompt(nextAssistant.content),
-        anchors,
-        Date.now()
-      )
-    )
-
-    return {
-      assistantMessage: nextAssistant,
-      anchors,
-    }
+    const recoveryClient = this.getGatewayRecoveryClient()
+    return persistRecoveredCompletedTurnFromGateway({
+      ...input,
+      listMessages: () => this.repository.listMessages(input.conversationId),
+      listConversations: () => this.repository.listConversations(),
+      updateMessage: (message) => this.repository.updateMessage(input.conversationId, message),
+      appendMessage: (message) => this.repository.appendMessage(input.conversationId, message),
+      upsertConversation: (record) => this.repository.upsertConversation(record),
+      querySessionMessages: (afterResponseId) =>
+        recoveryClient.querySessionMessages(input.sessionId, afterResponseId),
+      querySessionState: () => recoveryClient.querySessionState(input.sessionId),
+      createConversationRecord: (title, anchors, now) =>
+        createConversationRecord(input.conversationId, title, anchors, now),
+      fallbackConversationTitleFromPrompt,
+    })
   }
 
   private async attemptTurnRecovery(input: {
@@ -520,63 +449,17 @@ export class GrokChatService implements ChatService {
     clientTurnId: string
     fallbackPreviousResponseId: string
     allowRetryFromNotFound: boolean
-  }): Promise<TurnRecoveryOutcome> {
-    const normalizedSessionId = input.sessionId.trim()
-    const normalizedClientTurnId = input.clientTurnId.trim()
-    if (!normalizedSessionId || !normalizedClientTurnId) {
-      return { kind: "none" }
-    }
-
-    let turnState = await this.getGatewayRecoveryClient().queryTurnState(normalizedSessionId, normalizedClientTurnId)
-    if (!turnState) {
-      return { kind: "none" }
-    }
-
-    if (turnState.status === "in_progress") {
-      for (let attempt = 0; attempt < this.turnRecoveryPollInProgressMaxAttempts; attempt += 1) {
-        await waitForRetryDelay(this.turnRecoveryPollInProgressDelayMs)
-        const next = await this.getGatewayRecoveryClient().queryTurnState(normalizedSessionId, normalizedClientTurnId)
-        if (!next) {
-          break
-        }
-        turnState = next
-        if (turnState.status !== "in_progress") {
-          break
-        }
-      }
-    }
-
-    if (turnState.status === "completed") {
-      const recovered = await this.persistRecoveredCompletedTurn({
-        conversationId: input.conversationId,
-        sessionId: normalizedSessionId,
-        turnState,
-        fallbackPreviousResponseId: input.fallbackPreviousResponseId,
-      })
-      if (recovered) {
-        return {
-          kind: "completed",
-          result: recovered,
-        }
-      }
-      return { kind: "none" }
-    }
-
-    if (turnState.status === "not_found" && input.allowRetryFromNotFound) {
-      return { kind: "retry_send" }
-    }
-
-    if (turnState.status === "in_progress") {
-      const sessionState = await this.getGatewayRecoveryClient().querySessionState(normalizedSessionId)
-      const activeClientTurnId = sessionState?.activeClientTurnId.trim() || ""
-      const sameTurnActive = !activeClientTurnId || activeClientTurnId === normalizedClientTurnId
-      if (sessionState?.inProgress && sameTurnActive) {
-        return { kind: "in_progress" }
-      }
-      return { kind: "none" }
-    }
-
-    return { kind: "none" }
+  }): Promise<GatewayTurnRecoveryOutcome> {
+    const recoveryClient = this.getGatewayRecoveryClient()
+    return attemptGatewayTurnRecovery({
+      ...input,
+      turnRecoveryPollInProgressMaxAttempts: this.turnRecoveryPollInProgressMaxAttempts,
+      turnRecoveryPollInProgressDelayMs: this.turnRecoveryPollInProgressDelayMs,
+      queryTurnState: (sessionId, clientTurnId) =>
+        recoveryClient.queryTurnState(sessionId, clientTurnId),
+      querySessionState: (sessionId) => recoveryClient.querySessionState(sessionId),
+      persistCompletedTurn: (persistInput) => this.persistRecoveredCompletedTurn(persistInput),
+    })
   }
 
   private async renewAssetUrl(assetId: string): Promise<RenewedAssetUrlPayload | null> {
