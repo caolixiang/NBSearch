@@ -42,6 +42,7 @@ import {
 import { refreshMessagesWithGeneratedMediaAssets } from "./gateway-media-workflows"
 import { buildCompletedGatewayTurn } from "./gateway-turn-completion"
 import { GatewayStreamAccumulator, readReasoningEventResponseId } from "./gateway-stream-accumulator"
+import { resolveGatewayRegenerateTarget } from "./gateway-regenerate-target-resolver"
 import {
   buildGatewayTurnRequestPayload,
   buildUserMessageText,
@@ -329,58 +330,12 @@ export class GrokChatService implements ChatService {
     }
 
     const sessionMessages = await this.getGatewayRecoveryClient().querySessionMessages(sessionId, "")
-    if (sessionMessages.length === 0) {
-      return {
-        responseId: targetMessage.responseId?.trim() || "",
-        previousResponseId: targetMessage.previousResponseId?.trim() || "",
-      }
-    }
-
-    const localRenderableMessages = localMessages.filter(
-      (row) => row.role === "user" || row.role === "assistant"
-    )
-    const sessionRenderableMessages = sessionMessages.filter(
-      (row) => row.role === "user" || row.role === "assistant"
-    )
-
-    let matchedAssistant: GatewaySessionMessage | null = null
-    const targetRenderableIndex = localRenderableMessages.findIndex((row) => row.id === messageId)
-    const hasMatchingRoleShape =
-      targetRenderableIndex >= 0 &&
-      localRenderableMessages.length === sessionRenderableMessages.length &&
-      localRenderableMessages.every((row, index) => row.role === sessionRenderableMessages[index]?.role)
-
-    if (hasMatchingRoleShape) {
-      const candidate = sessionRenderableMessages[targetRenderableIndex]
-      if (candidate?.role === "assistant") {
-        matchedAssistant = candidate
-      }
-    }
-
-    if (!matchedAssistant) {
-      const localAssistants = localRenderableMessages.filter((row) => row.role === "assistant")
-      const sessionAssistants = sessionRenderableMessages.filter((row) => row.role === "assistant")
-      const targetAssistantIndex = localAssistants.findIndex((row) => row.id === messageId)
-      if (targetAssistantIndex >= 0 && targetAssistantIndex < sessionAssistants.length) {
-        matchedAssistant = sessionAssistants[targetAssistantIndex] || null
-      }
-    }
-
-    if (!matchedAssistant) {
-      const targetContent = targetMessage.content.trim()
-      if (targetContent) {
-        const exactContentMatches = sessionRenderableMessages.filter(
-          (row) => row.role === "assistant" && row.content.trim() === targetContent
-        )
-        if (exactContentMatches.length === 1) {
-          matchedAssistant = exactContentMatches[0] || null
-        }
-      }
-    }
-
-    const resolvedResponseId = matchedAssistant?.responseId.trim() || targetMessage.responseId?.trim() || ""
-    const resolvedPreviousResponseId =
-      matchedAssistant?.previousResponseId.trim() || targetMessage.previousResponseId?.trim() || ""
+    const { matchedAssistant, resolvedResponseId, resolvedPreviousResponseId } =
+      resolveGatewayRegenerateTarget({
+        localMessages,
+        sessionMessages,
+        messageId,
+      })
 
     const currentResponseId = targetMessage.responseId?.trim() || ""
     const currentPreviousResponseId = targetMessage.previousResponseId?.trim() || ""
