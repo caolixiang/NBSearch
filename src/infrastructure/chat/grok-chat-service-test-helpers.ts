@@ -1,3 +1,4 @@
+import type { AppConfig } from "../../app/contracts"
 import { MemoryAppRepository } from "../storage/memory/repository"
 import { GrokChatService } from "./grok-chat-service"
 
@@ -61,18 +62,24 @@ export function readHeaderValue(headers: HeadersInit | undefined, key: string): 
   return ""
 }
 
-export function createTestGrokChatService() {
+const DEFAULT_TEST_GROK_CHAT_CONFIG: AppConfig = {
+  apiBaseUrl: "http://127.0.0.1:8787",
+  apiKey: "test-key",
+  defaultModel: "grok-4.1-fast",
+  voiceEnabled: false,
+  themeMode: "light",
+  fontSizeMode: "default",
+}
+
+export function createTestGrokChatService(overrides: Partial<AppConfig> = {}) {
   const repository = new MemoryAppRepository()
   const service = new GrokChatService(repository, {
-    apiBaseUrl: "http://127.0.0.1:8787",
-    apiKey: "test-key",
-    defaultModel: "grok-4.1-fast",
-    voiceEnabled: false,
-    themeMode: "light",
-    fontSizeMode: "default",
+    ...DEFAULT_TEST_GROK_CHAT_CONFIG,
+    ...overrides,
   })
   return { repository, service }
 }
+
 
 export function attachRuntimeFetch(service: GrokChatService, mockedFetch: typeof fetch): void {
   ;(mockedFetch as unknown as { preconnect: (url: string) => void }).preconnect = () => {}
