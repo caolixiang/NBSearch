@@ -36,6 +36,16 @@ import {
   parseJsonObjectStrings,
   resolveConversationTitle,
 } from "./chunk-parsers"
+import {
+  type GatewaySessionMessage,
+  type GatewaySessionRecoveryClient,
+  type GatewaySessionState,
+  type GatewayTurnState,
+  StreamIdleTimeoutError,
+  createGatewaySessionRecoveryClient,
+  normalizeTurnRecoverySetting,
+  waitForRetryDelay,
+} from "./gateway-session-recovery"
 
 const GENERATED_IMAGE_MODERATED_NOTICE = "内容已管理。请尝试一个不同的想法。"
 const ANCHOR_RECOVERY_ERROR_CODES = new Set(["session_anchor_conflict", "invalid_previous_response_id"])
@@ -348,35 +358,6 @@ const TURN_RECOVERY_HTTP_RETRYABLE_CODES = new Set([
   "network_timeout",
 ])
 
-type GatewayTurnStatus = "not_found" | "in_progress" | "completed" | "failed"
-
-type GatewayTurnState = {
-  status: GatewayTurnStatus
-  responseId: string
-  errorCode: string
-  errorMessage: string
-  updatedAt: number
-}
-
-type GatewaySessionState = {
-  sessionId: string
-  lastResponseId: string
-  inProgress: boolean
-  activeClientTurnId: string
-  updatedAt: number
-}
-
-type GatewaySessionMessage = {
-  id: string
-  responseId: string
-  previousResponseId: string
-  role: ChatMessage["role"]
-  content: string
-  status: "streaming" | "completed" | "failed"
-  createdAt: number
-  clientTurnId: string
-}
-
 type TurnRecoveryOutcome =
   | {
       kind: "retry_send"
@@ -391,242 +372,6 @@ type TurnRecoveryOutcome =
   | {
       kind: "none"
     }
-
-function normalizeGatewayTurnStatus(value: unknown): GatewayTurnStatus {
-  const normalized = readTrimmedString(value).toLowerCase()
-  if (
-    normalized === "not_found" ||
-    normalized === "in_progress" ||
-    normalized === "completed" ||
-    normalized === "failed"
-  ) {
-    return normalized
-  }
-  return "not_found"
-}
-
-function readSafeInteger(value: unknown): number {
-  if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
-    return Math.floor(value)
-  }
-  if (typeof value === "string") {
-    const parsed = Number.parseInt(value, 10)
-    if (Number.isFinite(parsed) && parsed >= 0) {
-      return parsed
-    }
-  }
-  return 0
-}
-
-function normalizeTurnRecoverySetting(
-  value: unknown,
-  fallback: number,
-  max: number
-): number {
-  if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
-    return Math.min(max, Math.floor(value))
-  }
-  if (typeof value === "string") {
-    const parsed = Number.parseInt(value, 10)
-    if (Number.isFinite(parsed) && parsed >= 0) {
-      return Math.min(max, parsed)
-    }
-  }
-  return fallback
-}
-
-function coerceGatewayTurnState(payload: unknown): GatewayTurnState | null {
-  const root = isRecord(payload) ? payload : null
-  const candidates = [
-    root,
-    root && isRecord(root.data) ? root.data : null,
-    root && isRecord(root.result) ? root.result : null,
-    root && isRecord(root.turn) ? root.turn : null,
-  ].filter((item): item is Record<string, unknown> => Boolean(item))
-
-  for (const candidate of candidates) {
-    const status = normalizeGatewayTurnStatus(candidate.status)
-    const responseId = readTrimmedString(candidate.response_id) || readTrimmedString(candidate.responseId)
-    const updatedAt = readSafeInteger(candidate.updated_at ?? candidate.updatedAt)
-    const errorRecord = isRecord(candidate.error) ? candidate.error : null
-    const errorCode = errorRecord ? readTrimmedString(errorRecord.code) : ""
-    const errorMessage = errorRecord ? readTrimmedString(errorRecord.message) : ""
-    if (status || responseId || updatedAt > 0 || errorCode || errorMessage) {
-      return {
-        status,
-        responseId,
-        errorCode,
-        errorMessage,
-        updatedAt,
-      }
-    }
-  }
-
-  return null
-}
-
-function coerceGatewaySessionState(payload: unknown): GatewaySessionState | null {
-  const root = isRecord(payload) ? payload : null
-  const candidates = [
-    root,
-    root && isRecord(root.data) ? root.data : null,
-    root && isRecord(root.result) ? root.result : null,
-    root && isRecord(root.session) ? root.session : null,
-  ].filter((item): item is Record<string, unknown> => Boolean(item))
-
-  for (const candidate of candidates) {
-    const sessionId = readTrimmedString(candidate.session_id) || readTrimmedString(candidate.sessionId)
-    const lastResponseId =
-      readTrimmedString(candidate.last_response_id) || readTrimmedString(candidate.lastResponseId)
-    const inProgress =
-      candidate.in_progress === true ||
-      candidate.inProgress === true ||
-      candidate.status === "in_progress"
-    const activeClientTurnId =
-      readTrimmedString(candidate.active_client_turn_id) ||
-      readTrimmedString(candidate.activeClientTurnId)
-    const updatedAt = readSafeInteger(candidate.updated_at ?? candidate.updatedAt)
-    if (sessionId || lastResponseId || inProgress || activeClientTurnId || updatedAt > 0) {
-      return {
-        sessionId,
-        lastResponseId,
-        inProgress,
-        activeClientTurnId,
-        updatedAt,
-      }
-    }
-  }
-
-  return null
-}
-
-function readRecoveryMessageContent(value: unknown): string {
-  if (typeof value === "string") {
-    return value
-  }
-  if (Array.isArray(value)) {
-    const parts: string[] = []
-    for (const item of value) {
-      if (typeof item === "string") {
-        parts.push(item)
-        continue
-      }
-      if (!isRecord(item)) {
-        continue
-      }
-      const inlineText = readTrimmedString(item.text)
-      if (inlineText) {
-        parts.push(inlineText)
-      }
-      if (Array.isArray(item.content)) {
-        for (const row of item.content) {
-          if (!isRecord(row)) {
-            continue
-          }
-          const rowText = readTrimmedString(row.text)
-          if (rowText) {
-            parts.push(rowText)
-          }
-        }
-      }
-    }
-    return parts.join("\n").trim()
-  }
-  if (isRecord(value)) {
-    const direct = readTrimmedString(value.text) || readTrimmedString(value.content)
-    if (direct) {
-      return direct
-    }
-    if (Array.isArray(value.content)) {
-      const rows = value.content
-        .map((item) => (isRecord(item) ? readTrimmedString(item.text) : ""))
-        .filter(Boolean)
-      return rows.join("\n").trim()
-    }
-  }
-  return ""
-}
-
-function coerceGatewaySessionMessages(payload: unknown): GatewaySessionMessage[] {
-  const root = isRecord(payload) ? payload : null
-  const messagesCandidate =
-    (root && Array.isArray(root.messages) ? root.messages : null) ||
-    (root && isRecord(root.data) && Array.isArray(root.data.messages) ? root.data.messages : null) ||
-    (root && isRecord(root.result) && Array.isArray(root.result.messages) ? root.result.messages : null)
-  if (!messagesCandidate) {
-    return []
-  }
-
-  const rows: GatewaySessionMessage[] = []
-  for (const item of messagesCandidate) {
-    if (!isRecord(item)) {
-      continue
-    }
-    const roleRaw = readTrimmedString(item.role).toLowerCase()
-    if (roleRaw !== "user" && roleRaw !== "assistant" && roleRaw !== "system" && roleRaw !== "tool") {
-      continue
-    }
-    const statusRaw = readTrimmedString(item.status).toLowerCase()
-    const status: "streaming" | "completed" | "failed" =
-      statusRaw === "failed"
-        ? "failed"
-        : statusRaw === "streaming" || statusRaw === "in_progress"
-          ? "streaming"
-          : "completed"
-    const responseId = readTrimmedString(item.response_id) || readTrimmedString(item.responseId)
-    const id = readTrimmedString(item.id) || responseId || `msg_${crypto.randomUUID()}`
-    const content =
-      readRecoveryMessageContent(item.content) ||
-      readRecoveryMessageContent(item.message) ||
-      readRecoveryMessageContent(item.output)
-    rows.push({
-      id,
-      responseId,
-      previousResponseId:
-        readTrimmedString(item.previous_response_id) || readTrimmedString(item.previousResponseId),
-      role: roleRaw as ChatMessage["role"],
-      content,
-      status,
-      createdAt: readSafeInteger(item.created_at ?? item.createdAt) || Date.now(),
-      clientTurnId:
-        readTrimmedString(item.client_turn_id) || readTrimmedString(item.clientTurnId),
-    })
-  }
-
-  return rows
-}
-
-class StreamIdleTimeoutError extends Error {
-  constructor(timeoutMs: number) {
-    super(`stream_idle_timeout_${timeoutMs}ms`)
-    this.name = "StreamIdleTimeoutError"
-  }
-}
-
-async function waitForRetryDelay(ms: number, signal?: AbortSignal): Promise<void> {
-  if (ms <= 0) {
-    return
-  }
-  await new Promise<void>((resolve, reject) => {
-    const timeoutHandle = setTimeout(() => {
-      cleanup()
-      resolve()
-    }, ms)
-    const onAbort = () => {
-      clearTimeout(timeoutHandle)
-      cleanup()
-      reject(new Error("aborted"))
-    }
-    const cleanup = () => {
-      signal?.removeEventListener("abort", onAbort)
-    }
-    if (signal?.aborted) {
-      onAbort()
-      return
-    }
-    signal?.addEventListener("abort", onAbort, { once: true })
-  })
-}
 
 type RenewedAssetUrlPayload = {
   assetId: string
@@ -1855,6 +1600,7 @@ export class GrokChatService implements ChatService {
   private readonly apiUrl: string
   private readonly apiKey: string
   private readonly runtimeFetch: typeof fetch
+  private readonly gatewayBaseUrl: string
   private readonly streamIdleTimeoutMs: number
   private readonly streamIdleRetryMaxAttempts: number
   private readonly streamIdleRetryDelayMs: number
@@ -1872,6 +1618,7 @@ export class GrokChatService implements ChatService {
     this.apiUrl = normalizeApiBaseUrl(config.apiBaseUrl)
     this.apiKey = config.apiKey || ""
     this.runtimeFetch = createRuntimeFetch(fetch)
+    this.gatewayBaseUrl = normalizeGatewayBaseUrl(this.apiUrl)
     this.streamIdleTimeoutMs = normalizeTurnRecoverySetting(
       config.streamIdleTimeoutMs,
       STREAM_IDLE_TIMEOUT_MS_DEFAULT,
@@ -1996,7 +1743,7 @@ export class GrokChatService implements ChatService {
       }
     }
 
-    const sessionMessages = await this.queryGatewaySessionMessages(sessionId, "")
+    const sessionMessages = await this.getGatewayRecoveryClient().querySessionMessages(sessionId, "")
     if (sessionMessages.length === 0) {
       return {
         responseId: targetMessage.responseId?.trim() || "",
@@ -2063,7 +1810,7 @@ export class GrokChatService implements ChatService {
       })
     }
 
-    const sessionState = await this.queryGatewaySessionState(sessionId)
+    const sessionState = await this.getGatewayRecoveryClient().querySessionState(sessionId)
     if (sessionState?.lastResponseId.trim()) {
       const existingConversations = await this.repository.listConversations()
       const currentConversation = existingConversations.find((item) => item.id === conversationId)
@@ -2177,7 +1924,7 @@ export class GrokChatService implements ChatService {
       previewContent: string
       assistantStatus: GatewaySessionMessage["status"] | null
     }> => {
-      const recoveredRows = await this.queryGatewaySessionMessages(sessionId, fallbackPreviousResponseId)
+      const recoveredRows = await this.getGatewayRecoveryClient().querySessionMessages(sessionId, fallbackPreviousResponseId)
       const candidate = pickLatestAssistantRow(recoveredRows)
       if (!candidate) {
         return {
@@ -2305,7 +2052,7 @@ export class GrokChatService implements ChatService {
       }
     }
 
-    let sessionState = await this.queryGatewaySessionState(sessionId)
+    let sessionState = await this.getGatewayRecoveryClient().querySessionState(sessionId)
     if (!sessionState?.inProgress) {
       const completionFetch = await recoverAfterCompletion(latestPreviewContent)
       if (completionFetch.recovered && completionFetch.result) {
@@ -2337,7 +2084,7 @@ export class GrokChatService implements ChatService {
 
     let activeClientTurnId = sessionState.activeClientTurnId.trim()
     if (activeClientTurnId) {
-      const activeTurnState = await this.queryGatewayTurnState(sessionId, activeClientTurnId)
+      const activeTurnState = await this.getGatewayRecoveryClient().queryTurnState(sessionId, activeClientTurnId)
       if (activeTurnState) {
         const turnRecovery = await tryRecoverFromTurnState(activeTurnState)
         if (turnRecovery.recovered && turnRecovery.result) {
@@ -2375,7 +2122,7 @@ export class GrokChatService implements ChatService {
           result: recovered.result,
         }
       }
-      sessionState = await this.queryGatewaySessionState(sessionId)
+      sessionState = await this.getGatewayRecoveryClient().querySessionState(sessionId)
       if (!sessionState?.inProgress) {
         const completionFetch = await recoverAfterCompletion(latestPreviewContent)
         if (completionFetch.recovered && completionFetch.result) {
@@ -2406,7 +2153,7 @@ export class GrokChatService implements ChatService {
       }
       activeClientTurnId = sessionState.activeClientTurnId.trim()
       if (activeClientTurnId) {
-        const activeTurnState = await this.queryGatewayTurnState(sessionId, activeClientTurnId)
+        const activeTurnState = await this.getGatewayRecoveryClient().queryTurnState(sessionId, activeClientTurnId)
         if (activeTurnState) {
           const turnRecovery = await tryRecoverFromTurnState(activeTurnState)
           if (turnRecovery.recovered && turnRecovery.result) {
@@ -2441,118 +2188,19 @@ export class GrokChatService implements ChatService {
     }
   }
 
-  private buildGatewayV1Url(pathname: string): string {
-    const base = normalizeGatewayBaseUrl(this.apiUrl)
-    const normalizedPath = pathname.startsWith("/") ? pathname : `/${pathname}`
-    return `${base}${normalizedPath}`
+  private getGatewayRecoveryClient(): GatewaySessionRecoveryClient {
+    return createGatewaySessionRecoveryClient({
+      gatewayBaseUrl: this.gatewayBaseUrl,
+      runtimeFetch: this.runtimeFetch,
+      createAuthHeaders: (extra) => this.createGatewayAuthHeaders(extra),
+      turnRecoveryMessagesLimit: this.turnRecoveryMessagesLimit,
+    })
   }
 
   private createGatewayAuthHeaders(extra?: Record<string, string>): Record<string, string> {
     return {
       ...(this.apiKey ? { Authorization: `Bearer ${this.apiKey}` } : {}),
       ...(extra || {}),
-    }
-  }
-
-  private async queryGatewayTurnState(sessionId: string, clientTurnId: string): Promise<GatewayTurnState | null> {
-    const normalizedSessionId = sessionId.trim()
-    const normalizedClientTurnId = clientTurnId.trim()
-    if (!normalizedSessionId || !normalizedClientTurnId) {
-      return null
-    }
-    const url = this.buildGatewayV1Url(
-      `/sessions/${encodeURIComponent(normalizedSessionId)}/turns/${encodeURIComponent(normalizedClientTurnId)}`
-    )
-    try {
-      const response = await this.runtimeFetch(url, {
-        method: "GET",
-        headers: this.createGatewayAuthHeaders(),
-      })
-      if (!response.ok) {
-        return null
-      }
-      const contentType = (response.headers.get("content-type") || "").toLowerCase()
-      if (!contentType.includes("json")) {
-        return null
-      }
-      const payload = await response.json().catch(() => null)
-      return coerceGatewayTurnState(payload)
-    } catch {
-      return null
-    }
-  }
-
-  private async queryGatewaySessionState(sessionId: string): Promise<GatewaySessionState | null> {
-    const normalizedSessionId = sessionId.trim()
-    if (!normalizedSessionId) {
-      return null
-    }
-    const url = this.buildGatewayV1Url(`/sessions/${encodeURIComponent(normalizedSessionId)}/state`)
-    try {
-      const response = await this.runtimeFetch(url, {
-        method: "GET",
-        headers: this.createGatewayAuthHeaders(),
-      })
-      if (!response.ok) {
-        return null
-      }
-      const contentType = (response.headers.get("content-type") || "").toLowerCase()
-      if (!contentType.includes("json")) {
-        return null
-      }
-      const payload = await response.json().catch(() => null)
-      return coerceGatewaySessionState(payload)
-    } catch {
-      return null
-    }
-  }
-
-  private async queryGatewaySessionMessages(
-    sessionId: string,
-    afterResponseId: string
-  ): Promise<GatewaySessionMessage[]> {
-    const normalizedSessionId = sessionId.trim()
-    if (!normalizedSessionId) {
-      return []
-    }
-    const url = new URL(
-      this.buildGatewayV1Url(`/sessions/${encodeURIComponent(normalizedSessionId)}/messages`)
-    )
-    if (afterResponseId.trim()) {
-      url.searchParams.set("after_response_id", afterResponseId.trim())
-    }
-    url.searchParams.set("limit", String(this.turnRecoveryMessagesLimit))
-
-    try {
-      const response = await this.runtimeFetch(url.toString(), {
-        method: "GET",
-        headers: this.createGatewayAuthHeaders(),
-      })
-      if (!response.ok) {
-        if (afterResponseId.trim()) {
-          const contentType = (response.headers.get("content-type") || "").toLowerCase()
-          if (contentType.includes("json")) {
-            const payload = await response.json().catch(() => null)
-            const errorCode = readTrimmedString(
-              payload && typeof payload === "object"
-                ? (payload as { error?: { code?: unknown } }).error?.code
-                : ""
-            )
-            if (errorCode === "invalid_after_response_id") {
-              return this.queryGatewaySessionMessages(normalizedSessionId, "")
-            }
-          }
-        }
-        return []
-      }
-      const contentType = (response.headers.get("content-type") || "").toLowerCase()
-      if (!contentType.includes("json")) {
-        return []
-      }
-      const payload = await response.json().catch(() => null)
-      return coerceGatewaySessionMessages(payload)
-    } catch {
-      return []
     }
   }
 
@@ -2567,7 +2215,7 @@ export class GrokChatService implements ChatService {
       return null
     }
 
-    const recoveredRows = await this.queryGatewaySessionMessages(
+    const recoveredRows = await this.getGatewayRecoveryClient().querySessionMessages(
       input.sessionId,
       input.fallbackPreviousResponseId
     )
@@ -2614,7 +2262,7 @@ export class GrokChatService implements ChatService {
       await this.repository.appendMessage(input.conversationId, nextAssistant)
     }
 
-    const sessionState = await this.queryGatewaySessionState(input.sessionId)
+    const sessionState = await this.getGatewayRecoveryClient().querySessionState(input.sessionId)
     const existingConversations = await this.repository.listConversations()
     const currentConversation = existingConversations.find((item) => item.id === input.conversationId)
     const currentTitle = currentConversation?.title || ""
@@ -2652,7 +2300,7 @@ export class GrokChatService implements ChatService {
       return { kind: "none" }
     }
 
-    let turnState = await this.queryGatewayTurnState(normalizedSessionId, normalizedClientTurnId)
+    let turnState = await this.getGatewayRecoveryClient().queryTurnState(normalizedSessionId, normalizedClientTurnId)
     if (!turnState) {
       return { kind: "none" }
     }
@@ -2660,7 +2308,7 @@ export class GrokChatService implements ChatService {
     if (turnState.status === "in_progress") {
       for (let attempt = 0; attempt < this.turnRecoveryPollInProgressMaxAttempts; attempt += 1) {
         await waitForRetryDelay(this.turnRecoveryPollInProgressDelayMs)
-        const next = await this.queryGatewayTurnState(normalizedSessionId, normalizedClientTurnId)
+        const next = await this.getGatewayRecoveryClient().queryTurnState(normalizedSessionId, normalizedClientTurnId)
         if (!next) {
           break
         }
@@ -2692,7 +2340,7 @@ export class GrokChatService implements ChatService {
     }
 
     if (turnState.status === "in_progress") {
-      const sessionState = await this.queryGatewaySessionState(normalizedSessionId)
+      const sessionState = await this.getGatewayRecoveryClient().querySessionState(normalizedSessionId)
       const activeClientTurnId = sessionState?.activeClientTurnId.trim() || ""
       const sameTurnActive = !activeClientTurnId || activeClientTurnId === normalizedClientTurnId
       if (sessionState?.inProgress && sameTurnActive) {
@@ -2709,8 +2357,7 @@ export class GrokChatService implements ChatService {
     if (!normalizedAssetId) {
       return null
     }
-    const gatewayBaseUrl = normalizeGatewayBaseUrl(this.apiUrl)
-    const renewUrl = `${gatewayBaseUrl}/assets/${encodeURIComponent(normalizedAssetId)}/url?ttl=${ASSET_URL_RENEW_TTL_SECONDS}`
+    const renewUrl = `${this.gatewayBaseUrl}/assets/${encodeURIComponent(normalizedAssetId)}/url?ttl=${ASSET_URL_RENEW_TTL_SECONDS}`
 
     try {
       const response = await this.runtimeFetch(renewUrl, {
