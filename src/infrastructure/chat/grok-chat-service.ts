@@ -2,7 +2,6 @@ import type { AppConfig } from "../../app/contracts"
 import type { ChatService } from "../../domain/chat/service"
 import type {
   ChatAnchors,
-  ChatCardAttachmentPayload,
   ChatDeepSearchResearch,
   ChatMessage,
   ChatTurnResult,
@@ -11,26 +10,13 @@ import type {
 } from "../../domain/chat/types"
 import type { AppRepository } from "../../domain/storage/repository"
 import { createRuntimeFetch } from "../http/runtime-fetch"
-import {
-  type GatewaySessionRecoveryClient,
-  type GatewayTurnState,
-  StreamIdleTimeoutError,
-  createGatewaySessionRecoveryClient,
-  normalizeTurnRecoverySetting,
-} from "./gateway-session-recovery"
+import { StreamIdleTimeoutError, normalizeTurnRecoverySetting } from "./gateway-session-recovery"
 import { type RenewedAssetUrlPayload } from "./gateway-media-assets"
 import { refreshMessagesWithGeneratedMediaAssets } from "./gateway-media-workflows"
 import { buildCompletedGatewayTurn } from "./gateway-turn-completion"
 import { GatewayStreamAccumulator } from "./gateway-stream-accumulator"
-import { persistRecoveredCompletedTurnFromGateway } from "./gateway-recovered-turn-persistence"
-import { recoverPendingAssistantFromGateway } from "./gateway-pending-assistant-recovery"
 import { executeGatewayStreamTransport } from "./gateway-stream-transport"
-import {
-  type GatewayTurnRecoveryOutcome,
-  attemptGatewayTurnRecovery,
-} from "./gateway-turn-recovery"
 import { buildGatewayTurnRequestPayload } from "./gateway-turn-request-builder"
-import { hydrateGeneratedImageCardsFromGateway } from "./gateway-generated-image-renewal"
 import { createGatewayStreamEventEmitter } from "./gateway-stream-event-emitter"
 import { bootstrapGatewayTurn } from "./gateway-turn-bootstrap"
 import {
@@ -40,6 +26,10 @@ import {
   upsertGatewayConversationAnchors,
 } from "./gateway-conversation-persistence"
 import { syncGatewayRegenerateTarget } from "./gateway-regenerate-target-sync"
+import {
+  createGatewayRecoveryRuntime,
+  type GatewayRecoveryRuntime,
+} from "./gateway-recovery-runtime"
 
 function normalizeApiBaseUrl(input: string): string {
   const trimmed = input.trim().replace(/\/+$/, "")
@@ -113,6 +103,7 @@ export class GrokChatService implements ChatService {
   private readonly turnRecoveryPollInProgressDelayMs: number
   private readonly turnInProgressRetryMaxAttempts: number
   private readonly turnInProgressRetryDelayMs: number
+  private readonly recoveryRuntime: GatewayRecoveryRuntime
 
   constructor(
     private readonly repository: AppRepository,
@@ -167,11 +158,23 @@ export class GrokChatService implements ChatService {
       TURN_RECOVERY_IN_PROGRESS_RETRY_DELAY_MS_DEFAULT,
       TURN_RECOVERY_IN_PROGRESS_RETRY_DELAY_MS_MAX
     )
+    this.recoveryRuntime = createGatewayRecoveryRuntime({
+      repository: this.repository,
+      getGatewayBaseUrl: () => this.gatewayBaseUrl,
+      getRuntimeFetch: () => this.runtimeFetch,
+      getApiKey: () => this.apiKey,
+      turnRecoveryMessagesLimit: this.turnRecoveryMessagesLimit,
+      turnRecoveryPollInProgressMaxAttempts: this.turnRecoveryPollInProgressMaxAttempts,
+      turnRecoveryPollInProgressDelayMs: this.turnRecoveryPollInProgressDelayMs,
+      completionFetchMaxAttempts: PENDING_RECOVERY_COMPLETION_FETCH_MAX_ATTEMPTS,
+      completionFetchDelayMs: PENDING_RECOVERY_COMPLETION_FETCH_DELAY_MS,
+      missingMessageRetryAfterMs: PENDING_RECOVERY_MESSAGE_MISSING_RETRY_AFTER_MS,
+    })
   }
 
   async listMessages(conversationId: string): Promise<ChatMessage[]> {
     const list = await this.repository.listMessages(conversationId)
-    const hydrateGeneratedImageCards = this.createGeneratedImageCardHydrator()
+    const hydrateGeneratedImageCards = this.recoveryRuntime.createGeneratedImageCardHydrator()
     const refreshed = await refreshMessagesWithGeneratedMediaAssets({
       messages: list,
       apiUrl: this.apiUrl,
@@ -218,7 +221,7 @@ export class GrokChatService implements ChatService {
     previousResponseId: string
   }> {
     const sessionId = (input.sessionId || "").trim()
-    const recoveryClient = this.getGatewayRecoveryClient()
+    const recoveryClient = this.recoveryRuntime.createRecoveryClient()
     return syncGatewayRegenerateTarget({
       ...input,
       sessionId,
@@ -247,101 +250,10 @@ export class GrokChatService implements ChatService {
       return { recovered: false }
     }
 
-    const fallbackPreviousResponseId = (input.anchors.lastResponseId || "").trim()
-    const localMessages = await this.repository.listMessages(conversationId).catch(() => [])
-    const recoveryClient = this.getGatewayRecoveryClient()
-
-    return recoverPendingAssistantFromGateway({
-      localMessages,
-      fallbackPreviousResponseId,
-      turnRecoveryPollInProgressMaxAttempts: this.turnRecoveryPollInProgressMaxAttempts,
-      turnRecoveryPollInProgressDelayMs: this.turnRecoveryPollInProgressDelayMs,
-      completionFetchMaxAttempts: PENDING_RECOVERY_COMPLETION_FETCH_MAX_ATTEMPTS,
-      completionFetchDelayMs: PENDING_RECOVERY_COMPLETION_FETCH_DELAY_MS,
-      missingMessageRetryAfterMs: PENDING_RECOVERY_MESSAGE_MISSING_RETRY_AFTER_MS,
-      querySessionMessages: (afterResponseId) =>
-        recoveryClient.querySessionMessages(sessionId, afterResponseId),
-      querySessionState: () => recoveryClient.querySessionState(sessionId),
-      queryTurnState: (clientTurnId) => recoveryClient.queryTurnState(sessionId, clientTurnId),
-      persistCompletedTurn: (turnState) =>
-        this.persistRecoveredCompletedTurn({
-          conversationId,
-          sessionId,
-          turnState,
-          fallbackPreviousResponseId,
-        }),
-    })
-  }
-
-  private getGatewayRecoveryClient(): GatewaySessionRecoveryClient {
-    return createGatewaySessionRecoveryClient({
-      gatewayBaseUrl: this.gatewayBaseUrl,
-      runtimeFetch: this.runtimeFetch,
-      createAuthHeaders: (extra) => this.createGatewayAuthHeaders(extra),
-      turnRecoveryMessagesLimit: this.turnRecoveryMessagesLimit,
-    })
-  }
-
-  private createGatewayAuthHeaders(extra?: Record<string, string>): Record<string, string> {
-    return {
-      ...(this.apiKey ? { Authorization: `Bearer ${this.apiKey}` } : {}),
-      ...(extra || {}),
-    }
-  }
-
-  private createGeneratedImageCardHydrator() {
-    return (
-      cards: ChatCardAttachmentPayload[],
-      sharedRenewCache?: Map<string, Promise<RenewedAssetUrlPayload | null>>
-    ) =>
-      hydrateGeneratedImageCardsFromGateway({
-        cards,
-        sharedRenewCache,
-        gatewayBaseUrl: this.gatewayBaseUrl,
-        runtimeFetch: this.runtimeFetch,
-        createAuthHeaders: (extra) => this.createGatewayAuthHeaders(extra),
-      })
-  }
-
-  private async persistRecoveredCompletedTurn(input: {
-    conversationId: string
-    sessionId: string
-    turnState: GatewayTurnState
-    fallbackPreviousResponseId: string
-  }): Promise<ChatTurnResult | null> {
-    const recoveryClient = this.getGatewayRecoveryClient()
-    return persistRecoveredCompletedTurnFromGateway({
-      ...input,
-      listMessages: () => this.repository.listMessages(input.conversationId),
-      listConversations: () => this.repository.listConversations(),
-      updateMessage: (message) => this.repository.updateMessage(input.conversationId, message),
-      appendMessage: (message) => this.repository.appendMessage(input.conversationId, message),
-      upsertConversation: (record) => this.repository.upsertConversation(record),
-      querySessionMessages: (afterResponseId) =>
-        recoveryClient.querySessionMessages(input.sessionId, afterResponseId),
-      querySessionState: () => recoveryClient.querySessionState(input.sessionId),
-      createConversationRecord: (title, anchors, now) =>
-        createConversationRecord(input.conversationId, title, anchors, now),
-      fallbackConversationTitleFromPrompt,
-    })
-  }
-
-  private async attemptTurnRecovery(input: {
-    conversationId: string
-    sessionId: string
-    clientTurnId: string
-    fallbackPreviousResponseId: string
-    allowRetryFromNotFound: boolean
-  }): Promise<GatewayTurnRecoveryOutcome> {
-    const recoveryClient = this.getGatewayRecoveryClient()
-    return attemptGatewayTurnRecovery({
-      ...input,
-      turnRecoveryPollInProgressMaxAttempts: this.turnRecoveryPollInProgressMaxAttempts,
-      turnRecoveryPollInProgressDelayMs: this.turnRecoveryPollInProgressDelayMs,
-      queryTurnState: (sessionId, clientTurnId) =>
-        recoveryClient.queryTurnState(sessionId, clientTurnId),
-      querySessionState: (sessionId) => recoveryClient.querySessionState(sessionId),
-      persistCompletedTurn: (persistInput) => this.persistRecoveredCompletedTurn(persistInput),
+    return this.recoveryRuntime.recoverPendingAssistant({
+      conversationId,
+      sessionId,
+      fallbackPreviousResponseId: (input.anchors.lastResponseId || "").trim(),
     })
   }
 
@@ -411,7 +323,7 @@ export class GrokChatService implements ChatService {
       const transport = await executeGatewayStreamTransport({
         apiUrl: this.apiUrl,
         runtimeFetch: this.runtimeFetch,
-        createAuthHeaders: (extra) => this.createGatewayAuthHeaders(extra),
+        createAuthHeaders: (extra) => this.recoveryRuntime.createAuthHeaders(extra),
         clientTurnId,
         requestBodyPayload,
         accumulator,
@@ -427,7 +339,7 @@ export class GrokChatService implements ChatService {
         emitReasoning,
         emitHeartbeat,
         attemptTurnRecovery: (allowRetryFromNotFound) =>
-          this.attemptTurnRecovery({
+          this.recoveryRuntime.attemptTurnRecovery({
             conversationId,
             sessionId,
             clientTurnId,
@@ -447,7 +359,7 @@ export class GrokChatService implements ChatService {
       }
 
       const commitTime = Date.now()
-      const hydrateGeneratedImageCards = this.createGeneratedImageCardHydrator()
+      const hydrateGeneratedImageCards = this.recoveryRuntime.createGeneratedImageCardHydrator()
       const completion = await buildCompletedGatewayTurn({
         state: accumulator.snapshotCompletionState(),
         apiUrl: this.apiUrl,
@@ -474,7 +386,7 @@ export class GrokChatService implements ChatService {
       emitCompleted(completion.result, completion.result.assistantMessage.responseId)
     } catch (error) {
       if (!isRegenerate) {
-        const recovery = await this.attemptTurnRecovery({
+        const recovery = await this.recoveryRuntime.attemptTurnRecovery({
           conversationId,
           sessionId,
           clientTurnId,
