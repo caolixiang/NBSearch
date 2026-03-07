@@ -23,7 +23,6 @@ import {
 import {
   type GatewaySessionMessage,
   type GatewaySessionRecoveryClient,
-  type GatewaySessionState,
   type GatewayTurnState,
   StreamIdleTimeoutError,
   createGatewaySessionRecoveryClient,
@@ -43,6 +42,7 @@ import { refreshMessagesWithGeneratedMediaAssets } from "./gateway-media-workflo
 import { buildCompletedGatewayTurn } from "./gateway-turn-completion"
 import { GatewayStreamAccumulator, readReasoningEventResponseId } from "./gateway-stream-accumulator"
 import { resolveGatewayRegenerateTarget } from "./gateway-regenerate-target-resolver"
+import { recoverPendingAssistantFromGateway } from "./gateway-pending-assistant-recovery"
 import {
   buildGatewayTurnRequestPayload,
   buildUserMessageText,
@@ -391,341 +391,28 @@ export class GrokChatService implements ChatService {
 
     const fallbackPreviousResponseId = (input.anchors.lastResponseId || "").trim()
     const localMessages = await this.repository.listMessages(conversationId).catch(() => [])
-    let latestLocalAssistantCreatedAt = 0
-    for (const message of localMessages) {
-      if (message.role !== "assistant") {
-        continue
-      }
-      if (message.createdAt > latestLocalAssistantCreatedAt) {
-        latestLocalAssistantCreatedAt = message.createdAt
-      }
-    }
-    let pendingUserCreatedAt = 0
-    for (let index = localMessages.length - 1; index >= 0; index -= 1) {
-      const message = localMessages[index]
-      if (message.role === "assistant") {
-        break
-      }
-      if (message.role === "user") {
-        pendingUserCreatedAt = message.createdAt
-        break
-      }
-    }
-    const minRecoverAssistantCreatedAt =
-      pendingUserCreatedAt > 0
-        ? pendingUserCreatedAt
-        : latestLocalAssistantCreatedAt > 0
-          ? latestLocalAssistantCreatedAt + 1
-          : 0
-    const isSessionAnchorAheadOfLocal = (state: GatewaySessionState | null): boolean => {
-      const sessionLastResponseId = state?.lastResponseId.trim() || ""
-      if (!sessionLastResponseId) {
-        return false
-      }
-      if (!fallbackPreviousResponseId) {
-        return true
-      }
-      return sessionLastResponseId !== fallbackPreviousResponseId
-    }
-    const shouldAutoRetrySendForMissingMessage = (state: GatewaySessionState | null): boolean => {
-      if (!isSessionAnchorAheadOfLocal(state)) {
-        return false
-      }
-      if (!state || state.inProgress) {
-        return false
-      }
-      const now = Date.now()
-      const referenceUpdatedAt = state.updatedAt > 0 ? state.updatedAt : 0
-      const referenceTimestamp = Math.max(pendingUserCreatedAt, referenceUpdatedAt)
-      if (referenceTimestamp <= 0) {
-        return false
-      }
-      return now - referenceTimestamp >= PENDING_RECOVERY_MESSAGE_MISSING_RETRY_AFTER_MS
-    }
-    const pickLatestAssistantRow = (rows: GatewaySessionMessage[]): GatewaySessionMessage | null => {
-      const assistantRows = rows.filter((row) => row.role === "assistant")
-      if (assistantRows.length === 0) {
-        return null
-      }
-      if (minRecoverAssistantCreatedAt > 0) {
-        const recentRows = assistantRows
-          .filter((row) => row.createdAt >= minRecoverAssistantCreatedAt)
-          .sort((a, b) => a.createdAt - b.createdAt)
-        if (recentRows.length > 0) {
-          return recentRows.at(-1) || null
-        }
-        return null
-      }
-      return assistantRows.sort((a, b) => a.createdAt - b.createdAt).at(-1) || null
-    }
+    const recoveryClient = this.getGatewayRecoveryClient()
 
-    const tryRecoverFromMessages = async (): Promise<{
-      result: ChatTurnResult | null
-      previewContent: string
-      assistantStatus: GatewaySessionMessage["status"] | null
-    }> => {
-      const recoveredRows = await this.getGatewayRecoveryClient().querySessionMessages(sessionId, fallbackPreviousResponseId)
-      const candidate = pickLatestAssistantRow(recoveredRows)
-      if (!candidate) {
-        return {
-          result: null,
-          previewContent: "",
-          assistantStatus: null,
-        }
-      }
-      const previewContent = candidate.content.trim()
-      if (candidate.status !== "completed") {
-        return {
-          result: null,
-          previewContent,
-          assistantStatus: candidate.status,
-        }
-      }
-
-      const turnState: GatewayTurnState = {
-        status: "completed",
-        responseId: candidate.responseId || candidate.id,
-        errorCode: "",
-        errorMessage: "",
-        updatedAt: candidate.createdAt || Date.now(),
-      }
-      const result = await this.persistRecoveredCompletedTurn({
-        conversationId,
-        sessionId,
-        turnState,
-        fallbackPreviousResponseId,
-      })
-      return {
-        result,
-        previewContent,
-        assistantStatus: candidate.status,
-      }
-    }
-
-    const tryRecoverFromTurnState = async (
-      turnState: GatewayTurnState
-    ): Promise<{
-      recovered: boolean
-      inProgress: boolean
-      terminal: boolean
-      result?: ChatTurnResult
-    }> => {
-      if (turnState.status === "completed") {
-        const recovered = await this.persistRecoveredCompletedTurn({
+    return recoverPendingAssistantFromGateway({
+      localMessages,
+      fallbackPreviousResponseId,
+      turnRecoveryPollInProgressMaxAttempts: this.turnRecoveryPollInProgressMaxAttempts,
+      turnRecoveryPollInProgressDelayMs: this.turnRecoveryPollInProgressDelayMs,
+      completionFetchMaxAttempts: PENDING_RECOVERY_COMPLETION_FETCH_MAX_ATTEMPTS,
+      completionFetchDelayMs: PENDING_RECOVERY_COMPLETION_FETCH_DELAY_MS,
+      missingMessageRetryAfterMs: PENDING_RECOVERY_MESSAGE_MISSING_RETRY_AFTER_MS,
+      querySessionMessages: (afterResponseId) =>
+        recoveryClient.querySessionMessages(sessionId, afterResponseId),
+      querySessionState: () => recoveryClient.querySessionState(sessionId),
+      queryTurnState: (clientTurnId) => recoveryClient.queryTurnState(sessionId, clientTurnId),
+      persistCompletedTurn: (turnState) =>
+        this.persistRecoveredCompletedTurn({
           conversationId,
           sessionId,
           turnState,
           fallbackPreviousResponseId,
-        })
-        if (recovered) {
-          return {
-            recovered: true,
-            inProgress: false,
-            terminal: true,
-            result: recovered,
-          }
-        }
-        return {
-          recovered: false,
-          inProgress: false,
-          terminal: false,
-        }
-      }
-      if (turnState.status === "in_progress") {
-        return {
-          recovered: false,
-          inProgress: true,
-          terminal: false,
-        }
-      }
-      if (turnState.status === "failed" || turnState.status === "not_found") {
-        return {
-          recovered: false,
-          inProgress: false,
-          terminal: true,
-        }
-      }
-      return {
-        recovered: false,
-        inProgress: false,
-        terminal: false,
-      }
-    }
-
-    const recoverAfterCompletion = async (
-      initialPreviewContent: string
-    ): Promise<{
-      recovered: boolean
-      previewContent: string
-      result?: ChatTurnResult
-    }> => {
-      let latestPreview = initialPreviewContent
-      for (let attempt = 0; attempt < PENDING_RECOVERY_COMPLETION_FETCH_MAX_ATTEMPTS; attempt += 1) {
-        const recovered = await tryRecoverFromMessages()
-        latestPreview = recovered.previewContent || latestPreview
-        if (recovered.result) {
-          return {
-            recovered: true,
-            previewContent: latestPreview,
-            result: recovered.result,
-          }
-        }
-        if (attempt < PENDING_RECOVERY_COMPLETION_FETCH_MAX_ATTEMPTS - 1) {
-          await waitForRetryDelay(PENDING_RECOVERY_COMPLETION_FETCH_DELAY_MS)
-        }
-      }
-      return {
-        recovered: false,
-        previewContent: latestPreview,
-      }
-    }
-
-    let latestPreviewContent = ""
-
-    const recoveredImmediately = await tryRecoverFromMessages()
-    latestPreviewContent = recoveredImmediately.previewContent
-    if (recoveredImmediately.result) {
-      return {
-        recovered: true,
-        previewContent: recoveredImmediately.previewContent || undefined,
-        result: recoveredImmediately.result,
-      }
-    }
-
-    let sessionState = await this.getGatewayRecoveryClient().querySessionState(sessionId)
-    if (!sessionState?.inProgress) {
-      const completionFetch = await recoverAfterCompletion(latestPreviewContent)
-      if (completionFetch.recovered && completionFetch.result) {
-        return {
-          recovered: true,
-          previewContent: completionFetch.previewContent || undefined,
-          result: completionFetch.result,
-        }
-      }
-      if (isSessionAnchorAheadOfLocal(sessionState)) {
-        if (shouldAutoRetrySendForMissingMessage(sessionState)) {
-          return {
-            recovered: false,
-            retrySend: true,
-            previewContent: completionFetch.previewContent || undefined,
-          }
-        }
-        return {
-          recovered: false,
-          inProgress: true,
-          previewContent: completionFetch.previewContent || undefined,
-        }
-      }
-      return {
-        recovered: false,
-        previewContent: completionFetch.previewContent || undefined,
-      }
-    }
-
-    let activeClientTurnId = sessionState.activeClientTurnId.trim()
-    if (activeClientTurnId) {
-      const activeTurnState = await this.getGatewayRecoveryClient().queryTurnState(sessionId, activeClientTurnId)
-      if (activeTurnState) {
-        const turnRecovery = await tryRecoverFromTurnState(activeTurnState)
-        if (turnRecovery.recovered && turnRecovery.result) {
-          return {
-            recovered: true,
-            previewContent: latestPreviewContent || undefined,
-            result: turnRecovery.result,
-          }
-        }
-        if (turnRecovery.terminal && !turnRecovery.inProgress) {
-          const completionFetch = await recoverAfterCompletion(latestPreviewContent)
-          if (completionFetch.recovered && completionFetch.result) {
-            return {
-              recovered: true,
-              previewContent: completionFetch.previewContent || undefined,
-              result: completionFetch.result,
-            }
-          }
-          return {
-            recovered: false,
-            previewContent: completionFetch.previewContent || undefined,
-          }
-        }
-      }
-    }
-
-    for (let attempt = 0; attempt < this.turnRecoveryPollInProgressMaxAttempts; attempt += 1) {
-      await waitForRetryDelay(this.turnRecoveryPollInProgressDelayMs)
-      const recovered = await tryRecoverFromMessages()
-      latestPreviewContent = recovered.previewContent || latestPreviewContent
-      if (recovered.result) {
-        return {
-          recovered: true,
-          previewContent: latestPreviewContent || undefined,
-          result: recovered.result,
-        }
-      }
-      sessionState = await this.getGatewayRecoveryClient().querySessionState(sessionId)
-      if (!sessionState?.inProgress) {
-        const completionFetch = await recoverAfterCompletion(latestPreviewContent)
-        if (completionFetch.recovered && completionFetch.result) {
-          return {
-            recovered: true,
-            previewContent: completionFetch.previewContent || undefined,
-            result: completionFetch.result,
-          }
-        }
-        if (isSessionAnchorAheadOfLocal(sessionState)) {
-          if (shouldAutoRetrySendForMissingMessage(sessionState)) {
-            return {
-              recovered: false,
-              retrySend: true,
-              previewContent: completionFetch.previewContent || undefined,
-            }
-          }
-          return {
-            recovered: false,
-            inProgress: true,
-            previewContent: completionFetch.previewContent || undefined,
-          }
-        }
-        return {
-          recovered: false,
-          previewContent: completionFetch.previewContent || undefined,
-        }
-      }
-      activeClientTurnId = sessionState.activeClientTurnId.trim()
-      if (activeClientTurnId) {
-        const activeTurnState = await this.getGatewayRecoveryClient().queryTurnState(sessionId, activeClientTurnId)
-        if (activeTurnState) {
-          const turnRecovery = await tryRecoverFromTurnState(activeTurnState)
-          if (turnRecovery.recovered && turnRecovery.result) {
-            return {
-              recovered: true,
-              previewContent: latestPreviewContent || undefined,
-              result: turnRecovery.result,
-            }
-          }
-          if (turnRecovery.terminal && !turnRecovery.inProgress) {
-            const completionFetch = await recoverAfterCompletion(latestPreviewContent)
-            if (completionFetch.recovered && completionFetch.result) {
-              return {
-                recovered: true,
-                previewContent: completionFetch.previewContent || undefined,
-                result: completionFetch.result,
-              }
-            }
-            return {
-              recovered: false,
-              previewContent: completionFetch.previewContent || undefined,
-            }
-          }
-        }
-      }
-    }
-
-    return {
-      recovered: false,
-      inProgress: true,
-      previewContent: latestPreviewContent || undefined,
-    }
+        }),
+    })
   }
 
   private getGatewayRecoveryClient(): GatewaySessionRecoveryClient {
