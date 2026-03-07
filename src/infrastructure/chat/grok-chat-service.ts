@@ -9,10 +9,9 @@ import type {
   ChatStreamEvent,
   SendChatTurnInput,
 } from "../../domain/chat/types"
-import type { AppRepository, ConversationRecord } from "../../domain/storage/repository"
+import type { AppRepository } from "../../domain/storage/repository"
 import { createRuntimeFetch } from "../http/runtime-fetch"
 import {
-  type GatewaySessionMessage,
   type GatewaySessionRecoveryClient,
   type GatewayTurnState,
   StreamIdleTimeoutError,
@@ -23,7 +22,6 @@ import { type RenewedAssetUrlPayload } from "./gateway-media-assets"
 import { refreshMessagesWithGeneratedMediaAssets } from "./gateway-media-workflows"
 import { buildCompletedGatewayTurn } from "./gateway-turn-completion"
 import { GatewayStreamAccumulator } from "./gateway-stream-accumulator"
-import { resolveGatewayRegenerateTarget } from "./gateway-regenerate-target-resolver"
 import { persistRecoveredCompletedTurnFromGateway } from "./gateway-recovered-turn-persistence"
 import { recoverPendingAssistantFromGateway } from "./gateway-pending-assistant-recovery"
 import { executeGatewayStreamTransport } from "./gateway-stream-transport"
@@ -35,6 +33,13 @@ import { buildGatewayTurnRequestPayload } from "./gateway-turn-request-builder"
 import { hydrateGeneratedImageCardsFromGateway } from "./gateway-generated-image-renewal"
 import { createGatewayStreamEventEmitter } from "./gateway-stream-event-emitter"
 import { bootstrapGatewayTurn } from "./gateway-turn-bootstrap"
+import {
+  createConversationRecord,
+  fallbackConversationTitleFromPrompt,
+  persistGatewayAssistantTurn,
+  upsertGatewayConversationAnchors,
+} from "./gateway-conversation-persistence"
+import { syncGatewayRegenerateTarget } from "./gateway-regenerate-target-sync"
 
 function normalizeApiBaseUrl(input: string): string {
   const trimmed = input.trim().replace(/\/+$/, "")
@@ -70,35 +75,7 @@ export function normalizeGatewayBaseUrl(input: string): string {
   return `${trimmed}/v1`
 }
 
-function createConversationRecord(
-  conversationId: string,
-  title: string,
-  anchors: Partial<ChatAnchors>,
-  now: number
-): ConversationRecord {
-  return {
-    id: conversationId,
-    title,
-    anchors,
-    createdAt: now,
-    updatedAt: now,
-  }
-}
 
-function fallbackConversationTitleFromPrompt(prompt: string): string {
-  const firstLine = prompt
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .find((line) => line.length > 0)
-  if (!firstLine) {
-    return ""
-  }
-  const maxLength = 48
-  if (firstLine.length <= maxLength) {
-    return firstLine
-  }
-  return `${firstLine.slice(0, maxLength).trim()}...`
-}
 
 const STREAM_IDLE_TIMEOUT_MS_DEFAULT = 20_000
 const STREAM_IDLE_TIMEOUT_MS_MAX = 120_000
@@ -222,29 +199,14 @@ export class GrokChatService implements ChatService {
     commitTime: number
     regenerateTargetResponseId?: string
   }): Promise<void> {
-    const regenerateTargetResponseId = input.regenerateTargetResponseId?.trim() || ""
-    if (regenerateTargetResponseId) {
-      const existingMessages = await this.repository.listMessages(input.conversationId).catch(() => [])
-      const targetAssistant = existingMessages.find(
-        (row) =>
-          row.role === "assistant" &&
-          (((row.responseId || "").trim() && (row.responseId || "").trim() === regenerateTargetResponseId) ||
-            row.id === regenerateTargetResponseId)
-      )
-      if (targetAssistant) {
-        await this.repository.truncateMessagesAfter(input.conversationId, targetAssistant.id, true)
-      }
-    }
-
-    await this.repository.appendMessage(input.conversationId, input.assistantMessage)
-    await this.repository.upsertConversation(
-      createConversationRecord(
-        input.conversationId,
-        input.resolvedTitle,
-        input.anchors,
-        input.commitTime
-      )
-    )
+    return persistGatewayAssistantTurn({
+      ...input,
+      listMessages: (conversationId) => this.repository.listMessages(conversationId),
+      truncateMessagesAfter: (conversationId, messageId, includeMessage) =>
+        this.repository.truncateMessagesAfter(conversationId, messageId, includeMessage),
+      appendMessage: (conversationId, message) => this.repository.appendMessage(conversationId, message),
+      upsertConversation: (record) => this.repository.upsertConversation(record),
+    })
   }
 
   async resolveRegenerateTarget(input: {
@@ -255,67 +217,18 @@ export class GrokChatService implements ChatService {
     responseId: string
     previousResponseId: string
   }> {
-    const conversationId = (input.conversationId || "").trim()
     const sessionId = (input.sessionId || "").trim()
-    const messageId = (input.messageId || "").trim()
-    if (!conversationId || !sessionId || !messageId) {
-      return {
-        responseId: "",
-        previousResponseId: "",
-      }
-    }
-
-    const localMessages = await this.repository.listMessages(conversationId).catch(() => [])
-    const targetMessage = localMessages.find((row) => row.id === messageId && row.role === "assistant")
-    if (!targetMessage || targetMessage.role !== "assistant") {
-      return {
-        responseId: "",
-        previousResponseId: "",
-      }
-    }
-
-    const sessionMessages = await this.getGatewayRecoveryClient().querySessionMessages(sessionId, "")
-    const { matchedAssistant, resolvedResponseId, resolvedPreviousResponseId } =
-      resolveGatewayRegenerateTarget({
-        localMessages,
-        sessionMessages,
-        messageId,
-      })
-
-    const currentResponseId = targetMessage.responseId?.trim() || ""
-    const currentPreviousResponseId = targetMessage.previousResponseId?.trim() || ""
-    if (
-      matchedAssistant &&
-      (resolvedResponseId !== currentResponseId || resolvedPreviousResponseId !== currentPreviousResponseId)
-    ) {
-      await this.repository.updateMessage(conversationId, {
-        ...targetMessage,
-        responseId: resolvedResponseId || undefined,
-        previousResponseId: resolvedPreviousResponseId || undefined,
-      })
-    }
-
-    const sessionState = await this.getGatewayRecoveryClient().querySessionState(sessionId)
-    if (sessionState?.lastResponseId.trim()) {
-      const existingConversations = await this.repository.listConversations()
-      const currentConversation = existingConversations.find((item) => item.id === conversationId)
-      await this.repository.upsertConversation({
-        id: conversationId,
-        title: currentConversation?.title || fallbackConversationTitleFromPrompt(targetMessage.content),
-        anchors: {
-          sessionId,
-          conversationId,
-          lastResponseId: sessionState.lastResponseId.trim(),
-        },
-        createdAt: currentConversation?.createdAt || Date.now(),
-        updatedAt: Date.now(),
-      })
-    }
-
-    return {
-      responseId: resolvedResponseId,
-      previousResponseId: resolvedPreviousResponseId,
-    }
+    const recoveryClient = this.getGatewayRecoveryClient()
+    return syncGatewayRegenerateTarget({
+      ...input,
+      sessionId,
+      listMessages: (conversationId) => this.repository.listMessages(conversationId),
+      updateMessage: (conversationId, message) => this.repository.updateMessage(conversationId, message),
+      listConversations: () => this.repository.listConversations(),
+      upsertConversation: (record) => this.repository.upsertConversation(record),
+      querySessionMessages: (afterResponseId) => recoveryClient.querySessionMessages(sessionId, afterResponseId),
+      querySessionState: () => recoveryClient.querySessionState(sessionId),
+    })
   }
 
   async recoverPendingAssistant(input: {
@@ -433,17 +346,10 @@ export class GrokChatService implements ChatService {
   }
 
   async upsertAnchors(anchors: ChatAnchors): Promise<void> {
-    const now = Date.now()
-    const conversationId = anchors.conversationId || anchors.sessionId || `conv_${crypto.randomUUID()}`
-    const existingConversations = await this.repository.listConversations()
-    const currentConversation = existingConversations.find((item) => item.id === conversationId)
-    const currentTitle = currentConversation?.title || ""
-    await this.repository.upsertConversation({
-      id: conversationId,
-      title: currentTitle,
+    await upsertGatewayConversationAnchors({
       anchors,
-      createdAt: now,
-      updatedAt: now,
+      listConversations: () => this.repository.listConversations(),
+      upsertConversation: (record) => this.repository.upsertConversation(record),
     })
   }
 
