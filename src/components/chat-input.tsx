@@ -278,7 +278,7 @@ export function ChatInput({
       ref={containerRef}
       className={cn(
         "mx-auto w-full px-4 pb-5 transition-[max-width] duration-300",
-        isVoiceMode ? "max-w-6xl" : "max-w-3xl"
+        "max-w-3xl"
       )}
     >
       <div
@@ -378,7 +378,7 @@ export function ChatInput({
               : "px-4 pt-4 pb-2 text-base",
             isRecording && !isVoiceMode && "placeholder:text-red-400"
           )}
-          style={{ minHeight: isVoiceMode ? "92px" : "44px", maxHeight: isVoiceMode ? "160px" : "200px" }}
+          style={{ minHeight: isVoiceMode ? "108px" : "44px", maxHeight: isVoiceMode ? "190px" : "200px" }}
           disabled={isLoading && !isVoiceMode}
         />
 
