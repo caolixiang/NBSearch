@@ -39,6 +39,7 @@ import {
   resolveSendAnchors,
 } from "./chat-shell-helpers"
 import { useChatShellModels } from "./use-chat-shell-models"
+import { useChatShellAppUpdate } from "./use-chat-shell-app-update"
 import { useChatShellScroll } from "./use-chat-shell-scroll"
 
 const DRAFT_CONVERSATION_ID = "draft_new_conversation"
@@ -90,6 +91,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
   const [pendingRecoveryPreviewByConversationId, setPendingRecoveryPreviewByConversationId] = useState<
     Record<string, string>
   >({})
+  const { readyUpdateVersion, isInstallingPreparedUpdate, installReadyUpdate } = useChatShellAppUpdate()
 
   const {
     chatInputHeight,
@@ -1216,6 +1218,18 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
             refreshStatusTone={modelSyncNotice?.tone}
           />
           <div className="flex min-w-0 items-center gap-2">
+            {readyUpdateVersion ? (
+              <button
+                type="button"
+                onClick={() => {
+                  void installReadyUpdate()
+                }}
+                disabled={isInstallingPreparedUpdate}
+                className="inline-flex h-9 shrink-0 items-center justify-center rounded-full border border-emerald-200 bg-emerald-50 px-4 text-sm font-medium text-emerald-700 transition-colors hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-300 dark:hover:bg-emerald-950/60"
+              >
+                {isInstallingPreparedUpdate ? "更新中..." : "立即更新"}
+              </button>
+            ) : null}
             {shouldShowHeaderNewConversationButton ? (
               <div className="group/new-chat relative ms-1">
                 <span className="pointer-events-none absolute top-[calc(100%+8px)] right-0 z-20 -translate-y-1 whitespace-nowrap rounded-[16px] border border-black/10 bg-background/96 px-4 py-1 text-sm leading-6 text-foreground opacity-0 shadow-sm backdrop-blur transition-all duration-200 ease-in-out group-hover/new-chat:translate-y-0 group-hover/new-chat:opacity-100 group-focus-within/new-chat:translate-y-0 group-focus-within/new-chat:opacity-100">

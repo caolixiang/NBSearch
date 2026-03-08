@@ -4,6 +4,7 @@ use std::{
     collections::HashMap,
     fs,
     path::{Path, PathBuf},
+    sync::Mutex,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
@@ -55,6 +56,30 @@ struct AppUpdateInstallResponse {
     current_version: String,
     version: Option<String>,
     error: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AppUpdatePrepareResponse {
+    enabled: bool,
+    available: bool,
+    downloaded: bool,
+    current_version: String,
+    version: Option<String>,
+    notes: Option<String>,
+    pub_date: Option<String>,
+    error: Option<String>,
+}
+
+struct PreparedAppUpdate {
+    current_version: String,
+    version: String,
+    bytes: Vec<u8>,
+}
+
+#[derive(Default)]
+struct PreparedAppUpdateState {
+    update: Mutex<Option<PreparedAppUpdate>>,
 }
 
 #[tauri::command]
@@ -379,7 +404,11 @@ fn normalize_u64(value: Option<u64>, default_value: u64, max_value: u64) -> u64 
 }
 
 fn normalize_stream_idle_timeout_ms(value: Option<u64>) -> u64 {
-    normalize_u64(value, STREAM_IDLE_TIMEOUT_MS_DEFAULT, STREAM_IDLE_TIMEOUT_MS_MAX)
+    normalize_u64(
+        value,
+        STREAM_IDLE_TIMEOUT_MS_DEFAULT,
+        STREAM_IDLE_TIMEOUT_MS_MAX,
+    )
 }
 
 fn normalize_stream_idle_retry_max_attempts(value: Option<u32>) -> u32 {
@@ -982,14 +1011,14 @@ fn read_gateway_config(app: tauri::AppHandle) -> Result<GatewayConfigPayload, St
         normalize_stream_idle_retry_delay_ms(parsed.recovery.stream_idle_retry_delay_ms);
     let turn_recovery_messages_limit =
         normalize_turn_recovery_messages_limit(parsed.recovery.turn_recovery_messages_limit);
-    let turn_recovery_not_found_retry_max_attempts = normalize_turn_recovery_not_found_retry_max_attempts(
-        parsed.recovery
-            .turn_recovery_not_found_retry_max_attempts,
-    );
-    let turn_recovery_poll_in_progress_max_attempts = normalize_turn_recovery_poll_in_progress_max_attempts(
-        parsed.recovery
-            .turn_recovery_poll_in_progress_max_attempts,
-    );
+    let turn_recovery_not_found_retry_max_attempts =
+        normalize_turn_recovery_not_found_retry_max_attempts(
+            parsed.recovery.turn_recovery_not_found_retry_max_attempts,
+        );
+    let turn_recovery_poll_in_progress_max_attempts =
+        normalize_turn_recovery_poll_in_progress_max_attempts(
+            parsed.recovery.turn_recovery_poll_in_progress_max_attempts,
+        );
     let turn_recovery_poll_in_progress_delay_ms = normalize_turn_recovery_poll_in_progress_delay_ms(
         parsed.recovery.turn_recovery_poll_in_progress_delay_ms,
     );
@@ -1035,14 +1064,14 @@ fn save_gateway_config(
         normalize_stream_idle_retry_delay_ms(parsed.recovery.stream_idle_retry_delay_ms);
     let turn_recovery_messages_limit =
         normalize_turn_recovery_messages_limit(parsed.recovery.turn_recovery_messages_limit);
-    let turn_recovery_not_found_retry_max_attempts = normalize_turn_recovery_not_found_retry_max_attempts(
-        parsed.recovery
-            .turn_recovery_not_found_retry_max_attempts,
-    );
-    let turn_recovery_poll_in_progress_max_attempts = normalize_turn_recovery_poll_in_progress_max_attempts(
-        parsed.recovery
-            .turn_recovery_poll_in_progress_max_attempts,
-    );
+    let turn_recovery_not_found_retry_max_attempts =
+        normalize_turn_recovery_not_found_retry_max_attempts(
+            parsed.recovery.turn_recovery_not_found_retry_max_attempts,
+        );
+    let turn_recovery_poll_in_progress_max_attempts =
+        normalize_turn_recovery_poll_in_progress_max_attempts(
+            parsed.recovery.turn_recovery_poll_in_progress_max_attempts,
+        );
     let turn_recovery_poll_in_progress_delay_ms = normalize_turn_recovery_poll_in_progress_delay_ms(
         parsed.recovery.turn_recovery_poll_in_progress_delay_ms,
     );
@@ -1159,6 +1188,251 @@ async fn check_app_update(app: tauri::AppHandle) -> AppUpdateCheckResponse {
             pub_date: None,
             error: Some(error.to_string()),
         },
+    }
+}
+
+#[tauri::command]
+async fn prepare_app_update(app: tauri::AppHandle) -> AppUpdatePrepareResponse {
+    let prepared_state = app.state::<PreparedAppUpdateState>();
+    let current_version = app.package_info().version.to_string();
+    let updater = match build_runtime_updater(&app) {
+        Ok(Some(updater)) => updater,
+        Ok(None) => {
+            if let Ok(mut guard) = prepared_state.update.lock() {
+                *guard = None;
+            }
+            return AppUpdatePrepareResponse {
+                enabled: false,
+                available: false,
+                downloaded: false,
+                current_version,
+                version: None,
+                notes: None,
+                pub_date: None,
+                error: None,
+            };
+        }
+        Err(error) => {
+            return AppUpdatePrepareResponse {
+                enabled: false,
+                available: false,
+                downloaded: false,
+                current_version,
+                version: None,
+                notes: None,
+                pub_date: None,
+                error: Some(error),
+            };
+        }
+    };
+
+    let update = match updater.check().await {
+        Ok(Some(update)) => update,
+        Ok(None) => {
+            if let Ok(mut guard) = prepared_state.update.lock() {
+                *guard = None;
+            }
+            return AppUpdatePrepareResponse {
+                enabled: true,
+                available: false,
+                downloaded: false,
+                current_version,
+                version: None,
+                notes: None,
+                pub_date: None,
+                error: None,
+            };
+        }
+        Err(error) => {
+            return AppUpdatePrepareResponse {
+                enabled: true,
+                available: false,
+                downloaded: false,
+                current_version,
+                version: None,
+                notes: None,
+                pub_date: None,
+                error: Some(error.to_string()),
+            };
+        }
+    };
+
+    let next_version = update.version.clone();
+    let next_current_version = update.current_version.clone();
+    let next_notes = update.body.clone();
+    let next_pub_date = update.date.map(|value| value.to_string());
+
+    if let Ok(guard) = prepared_state.update.lock() {
+        if let Some(prepared) = guard.as_ref() {
+            if prepared.version == next_version && prepared.current_version == next_current_version
+            {
+                return AppUpdatePrepareResponse {
+                    enabled: true,
+                    available: true,
+                    downloaded: true,
+                    current_version: next_current_version,
+                    version: Some(next_version),
+                    notes: next_notes,
+                    pub_date: next_pub_date,
+                    error: None,
+                };
+            }
+        }
+    }
+
+    if let Ok(mut guard) = prepared_state.update.lock() {
+        *guard = None;
+    }
+
+    match update.download(|_, _| {}, || {}).await {
+        Ok(bytes) => {
+            if let Ok(mut guard) = prepared_state.update.lock() {
+                *guard = Some(PreparedAppUpdate {
+                    current_version: next_current_version.clone(),
+                    version: next_version.clone(),
+                    bytes,
+                });
+            }
+            AppUpdatePrepareResponse {
+                enabled: true,
+                available: true,
+                downloaded: true,
+                current_version: next_current_version,
+                version: Some(next_version),
+                notes: next_notes,
+                pub_date: next_pub_date,
+                error: None,
+            }
+        }
+        Err(error) => AppUpdatePrepareResponse {
+            enabled: true,
+            available: true,
+            downloaded: false,
+            current_version: next_current_version,
+            version: Some(next_version),
+            notes: next_notes,
+            pub_date: next_pub_date,
+            error: Some(error.to_string()),
+        },
+    }
+}
+
+#[tauri::command]
+async fn install_prepared_app_update(app: tauri::AppHandle) -> AppUpdateInstallResponse {
+    let prepared_state = app.state::<PreparedAppUpdateState>();
+    let current_version = app.package_info().version.to_string();
+    let updater = match build_runtime_updater(&app) {
+        Ok(Some(updater)) => updater,
+        Ok(None) => {
+            return AppUpdateInstallResponse {
+                enabled: false,
+                installed: false,
+                current_version,
+                version: None,
+                error: None,
+            };
+        }
+        Err(error) => {
+            return AppUpdateInstallResponse {
+                enabled: false,
+                installed: false,
+                current_version,
+                version: None,
+                error: Some(error),
+            };
+        }
+    };
+
+    let prepared = match prepared_state.update.lock() {
+        Ok(mut guard) => guard.take(),
+        Err(_) => None,
+    };
+
+    let Some(prepared) = prepared else {
+        return AppUpdateInstallResponse {
+            enabled: true,
+            installed: false,
+            current_version,
+            version: None,
+            error: Some("no_prepared_update".to_string()),
+        };
+    };
+
+    let PreparedAppUpdate {
+        current_version: prepared_current_version,
+        version: prepared_version,
+        bytes,
+    } = prepared;
+
+    let update = match updater.check().await {
+        Ok(Some(update)) => update,
+        Ok(None) => {
+            return AppUpdateInstallResponse {
+                enabled: true,
+                installed: false,
+                current_version,
+                version: Some(prepared_version),
+                error: Some("no_update_available".to_string()),
+            };
+        }
+        Err(error) => {
+            if let Ok(mut guard) = prepared_state.update.lock() {
+                *guard = Some(PreparedAppUpdate {
+                    current_version: prepared_current_version,
+                    version: prepared_version,
+                    bytes,
+                });
+            }
+            return AppUpdateInstallResponse {
+                enabled: true,
+                installed: false,
+                current_version,
+                version: None,
+                error: Some(error.to_string()),
+            };
+        }
+    };
+
+    if update.version != prepared_version || update.current_version != prepared_current_version {
+        return AppUpdateInstallResponse {
+            enabled: true,
+            installed: false,
+            current_version: update.current_version.clone(),
+            version: Some(update.version.clone()),
+            error: Some("prepared_update_stale".to_string()),
+        };
+    }
+
+    let next_version = update.version.clone();
+    let current_version = update.current_version.clone();
+
+    match update.install(bytes.as_slice()) {
+        Ok(()) => {
+            app.request_restart();
+            AppUpdateInstallResponse {
+                enabled: true,
+                installed: true,
+                current_version,
+                version: Some(next_version),
+                error: None,
+            }
+        }
+        Err(error) => {
+            if let Ok(mut guard) = prepared_state.update.lock() {
+                *guard = Some(PreparedAppUpdate {
+                    current_version: prepared_current_version,
+                    version: prepared_version,
+                    bytes,
+                });
+            }
+            AppUpdateInstallResponse {
+                enabled: true,
+                installed: false,
+                current_version,
+                version: Some(next_version),
+                error: Some(error.to_string()),
+            }
+        }
     }
 }
 
@@ -1335,6 +1609,7 @@ async fn download_image_to_downloads(
 
 fn main() {
     tauri::Builder::default()
+        .manage(PreparedAppUpdateState::default())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_dialog::init())
@@ -1347,6 +1622,8 @@ fn main() {
             save_gateway_config,
             save_appearance_config,
             check_app_update,
+            prepare_app_update,
+            install_prepared_app_update,
             install_app_update,
             fetch_image_with_tls_profile,
             fetch_image_with_cache,
