@@ -366,34 +366,28 @@ export function ChatInput({
           </div>
         )}
 
-        <textarea
-          ref={textareaRef}
-          value={input}
-          onChange={handleTextareaInput}
-          onPaste={handleTextareaPaste}
-          onKeyDown={handleKeyDown}
-          onCompositionStart={() => {
-            isComposingRef.current = true
-          }}
-          onCompositionEnd={() => {
-            isComposingRef.current = false
-          }}
-          placeholder={isVoiceMode ? "Grok 怎么能帮忙?" : isRecording ? "正在录音..." : "你想知道什么？"}
-          rows={1}
-          readOnly={isVoiceMode}
-          className={cn(
-            "w-full resize-none bg-transparent text-foreground outline-none placeholder:text-muted-foreground",
-            isVoiceMode
-              ? "px-5 pt-5 pb-3 text-[16px] leading-7 placeholder:text-muted-foreground sm:px-6 sm:pt-6 sm:text-[17px]"
-              : "px-5 pt-5 pb-3 text-[16px] leading-7 placeholder:text-muted-foreground sm:px-6 sm:pt-5 sm:text-[17px]",
-            isRecording && !isVoiceMode && "placeholder:text-red-400"
-          )}
-          style={{ minHeight: isVoiceMode ? "88px" : "88px", maxHeight: isVoiceMode ? "164px" : "200px" }}
-          disabled={isLoading && !isVoiceMode}
-        />
-
         {isVoiceMode ? (
-          <div className="flex flex-col gap-2 px-4 pb-4 sm:flex-row sm:items-center sm:justify-between sm:px-4 sm:pb-3">
+          <>
+            <textarea
+              ref={textareaRef}
+              value={input}
+              onChange={handleTextareaInput}
+              onPaste={handleTextareaPaste}
+              onKeyDown={handleKeyDown}
+              onCompositionStart={() => {
+                isComposingRef.current = true
+              }}
+              onCompositionEnd={() => {
+                isComposingRef.current = false
+              }}
+              placeholder="Grok 怎么能帮忙?"
+              rows={1}
+              readOnly
+              className="w-full resize-none bg-transparent px-5 pt-5 pb-3 text-[16px] leading-7 text-foreground outline-none placeholder:text-muted-foreground sm:px-6 sm:pt-6 sm:text-[17px]"
+              style={{ minHeight: "88px", maxHeight: "164px" }}
+            />
+
+            <div className="flex flex-col gap-2 px-4 pb-4 sm:flex-row sm:items-center sm:justify-between sm:px-4 sm:pb-3">
             <div className="flex min-w-0 flex-wrap items-center gap-2 sm:flex-nowrap">
               <input
                 ref={fileInputRef}
@@ -451,9 +445,10 @@ export function ChatInput({
               停止
             </button>
           </div>
+          </>
         ) : (
-          <div className="flex items-center justify-between px-3.5 pb-3">
-            <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3 px-4 py-2.5 sm:px-5">
+            <div className="flex shrink-0 items-center gap-2">
               <input
                 ref={fileInputRef}
                 type="file"
@@ -473,7 +468,29 @@ export function ChatInput({
               <div className="h-8 w-px shrink-0 bg-border/70" />
             </div>
 
-            <div className="flex items-center gap-1.5">
+            <textarea
+              ref={textareaRef}
+              value={input}
+              onChange={handleTextareaInput}
+              onPaste={handleTextareaPaste}
+              onKeyDown={handleKeyDown}
+              onCompositionStart={() => {
+                isComposingRef.current = true
+              }}
+              onCompositionEnd={() => {
+                isComposingRef.current = false
+              }}
+              placeholder={isRecording ? "正在录音..." : "你想知道什么？"}
+              rows={1}
+              className={cn(
+                "min-h-10 flex-1 resize-none bg-transparent py-2 text-[16px] leading-7 text-foreground outline-none placeholder:text-muted-foreground sm:text-[17px]",
+                isRecording && "placeholder:text-red-400"
+              )}
+              style={{ maxHeight: "200px" }}
+              disabled={isLoading}
+            />
+
+            <div className="flex shrink-0 items-center gap-1.5">
               <button
                 type="button"
                 onClick={toggleRecording}
