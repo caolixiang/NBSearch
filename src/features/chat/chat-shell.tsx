@@ -82,7 +82,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     isRefreshingModels,
     refreshModelOptions,
   } = useChatShellModels(runtime)
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(true)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [pendingRecoverySyncingByConversationId, setPendingRecoverySyncingByConversationId] = useState<
     Record<string, boolean>
