@@ -155,11 +155,11 @@ function SpeedControl({ speed, onSpeedChange }: { speed: number; onSpeedChange: 
                 onClick={() => onSpeedChange(option)}
                 aria-label={`语速 ${formatVoiceSpeed(option)}x`}
                 aria-pressed={active}
-                className="absolute top-1/2 flex size-8 -translate-y-1/2 -translate-x-1/2 items-center justify-center focus-visible:outline-none"
+                className="absolute top-1/2 flex h-[34px] w-8 -translate-y-1/2 -translate-x-1/2 items-center justify-center focus-visible:outline-none"
                 style={{ left: `${percent}%` }}
               >
                 {active ? (
-                  <span className="relative flex h-[2.15rem] w-8 items-center justify-center">
+                  <span className="relative flex h-full w-full items-center justify-center">
                     <span className="absolute inset-0 rounded-e-full bg-foreground" />
                     <span className="relative z-10 size-5 rounded-full bg-background shadow-[0_1px_4px_rgba(15,23,42,0.18)]" />
                   </span>
