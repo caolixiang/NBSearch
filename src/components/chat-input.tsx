@@ -15,6 +15,7 @@ import {
   VolumeX,
   X,
 } from "lucide-react"
+import { VoiceSettingsSheet, getVoiceOptionLabel, type VoiceOptionId, type VoicePersonalityId } from "@/components/voice-settings-sheet"
 import { cn } from "@/lib/utils"
 
 function AudioWaveIcon({ className = "size-5" }: { className?: string }) {
@@ -71,6 +72,11 @@ export function ChatInput({
   const [isVoiceMode, setIsVoiceMode] = useState(false)
   const [isVoiceMicMuted, setIsVoiceMicMuted] = useState(false)
   const [isVoiceSpeakerMuted, setIsVoiceSpeakerMuted] = useState(false)
+  const [isVoiceSettingsOpen, setIsVoiceSettingsOpen] = useState(false)
+  const [selectedVoiceId, setSelectedVoiceId] = useState<VoiceOptionId>("leo")
+  const [selectedVoicePersonalityId, setSelectedVoicePersonalityId] = useState<VoicePersonalityId>("custom")
+  const [savedVoicePrompt, setSavedVoicePrompt] = useState("")
+  const [voiceSpeed, setVoiceSpeed] = useState(1)
   const [attachments, setAttachments] = useState<File[]>([])
   const [imagePreviewUrlByIndex, setImagePreviewUrlByIndex] = useState<Record<number, string>>({})
   const [loadedPreviewByIndex, setLoadedPreviewByIndex] = useState<Record<number, true>>({})
@@ -95,6 +101,8 @@ export function ChatInput({
     [attachments]
   )
 
+  const selectedVoiceLabel = getVoiceOptionLabel(selectedVoiceId)
+
   const fileAttachments = useMemo(
     () =>
       attachments
@@ -108,6 +116,7 @@ export function ChatInput({
       setIsVoiceMode(false)
       setIsVoiceMicMuted(false)
       setIsVoiceSpeakerMuted(false)
+      setIsVoiceSettingsOpen(false)
     }
   }, [isVoiceMode, voiceEnabled])
 
@@ -268,6 +277,7 @@ export function ChatInput({
     setIsVoiceMode(false)
     setIsVoiceMicMuted(false)
     setIsVoiceSpeakerMuted(false)
+    setIsVoiceSettingsOpen(false)
   }
 
   const voiceButtonClassName =
@@ -421,12 +431,13 @@ export function ChatInput({
               </button>
               <button
                 type="button"
+                onClick={() => setIsVoiceSettingsOpen(true)}
                 className={cn(voiceButtonClassName, "min-w-[10rem] justify-between px-4")}
                 aria-label="语音设置"
               >
                 <span className="inline-flex items-center gap-2">
                   <Settings2 className="size-4" />
-                  <span className="hidden min-[360px]:inline font-semibold">Leo</span>
+                  <span className="hidden min-[360px]:inline font-semibold">{selectedVoiceLabel}</span>
                 </span>
                 <ChevronDown className="size-4 text-muted-foreground" />
               </button>
@@ -520,6 +531,19 @@ export function ChatInput({
           </div>
         )}
       </div>
+
+      <VoiceSettingsSheet
+        open={isVoiceSettingsOpen}
+        onOpenChange={setIsVoiceSettingsOpen}
+        selectedVoiceId={selectedVoiceId}
+        onSelectVoice={setSelectedVoiceId}
+        selectedPersonalityId={selectedVoicePersonalityId}
+        onSelectPersonality={setSelectedVoicePersonalityId}
+        customPrompt={savedVoicePrompt}
+        onSaveCustomPrompt={setSavedVoicePrompt}
+        speed={voiceSpeed}
+        onSpeedChange={setVoiceSpeed}
+      />
     </div>
   )
 }
