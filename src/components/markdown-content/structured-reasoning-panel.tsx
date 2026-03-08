@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { ChevronDown, Globe, ImageIcon, Lightbulb, Search, UserRound, X } from "lucide-react"
+import { ChevronDown, Globe, Lightbulb, Search, UserRound, X } from "lucide-react"
 import { createPortal } from "react-dom"
 import type { ChatDeepSearchResearch, ChatDeepSearchDetail, ChatReasoningEventDetail } from "@/domain/chat/types"
 import { openExternalUrl } from "@/lib/open-external-url"
@@ -35,6 +35,20 @@ function XBrandIcon({ className }: { className?: string }) {
         d="M18.244 2.25H21.552L14.325 10.51L22.827 21.75H16.17L10.956 14.933L4.99 21.75H1.68L9.41 12.915L1.254 2.25H8.08L12.793 8.481L18.244 2.25ZM17.083 19.77H18.916L7.084 4.126H5.117L17.083 19.77Z"
         fill="currentColor"
       />
+    </svg>
+  )
+}
+
+function ImageSearchToolIcon({ className }: { className?: string }) {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+      <path d="M12 10C13.1046 10 14 10.8954 14 12C14 13.1046 13.1046 14 12 14C10.8954 14 10 13.1046 10 12C10 10.8954 10.8954 10 12 10Z" fill="currentColor" />
+      <path fillRule="evenodd" clipRule="evenodd" d="M12.2002 6C13.0237 6 13.7016 5.99898 14.252 6.04395C14.814 6.08987 15.3311 6.18827 15.8164 6.43555C16.5689 6.81902 17.181 7.43109 17.5645 8.18359C17.8117 8.6689 17.9101 9.18599 17.9561 9.74805C18.001 10.2984 18 10.9763 18 11.7998V16.2002C18 17.0237 18.001 17.7016 17.9561 18.252C17.9101 18.814 17.8117 19.3311 17.5645 19.8164C17.181 20.5689 16.5689 21.181 15.8164 21.5645C15.3311 21.8117 14.814 21.9101 14.252 21.9561C13.7016 22.001 13.0237 22 12.2002 22H7.79981C6.97632 22 6.29843 22.001 5.74805 21.9561C5.18599 21.9101 4.6689 21.8117 4.1836 21.5645C3.43109 21.181 2.81902 20.5689 2.43555 19.8164C2.18827 19.3311 2.08988 18.814 2.04395 18.252C1.99898 17.7016 2 17.0237 2 16.2002V11.7998C2 10.9763 1.99898 10.2984 2.04395 9.74805C2.08988 9.18599 2.18827 8.6689 2.43555 8.18359C2.81902 7.43109 3.43109 6.81902 4.1836 6.43555C4.6689 6.18827 5.18599 6.08987 5.74805 6.04395C6.29843 5.99898 6.97632 6 7.79981 6H12.2002ZM4.02735 17.9287C4.03066 17.9839 4.0329 18.0373 4.03711 18.0889C4.07293 18.5273 4.13809 18.7518 4.21778 18.9082C4.40951 19.2845 4.71555 19.5905 5.0918 19.7822C5.2482 19.8619 5.47272 19.9271 5.91113 19.9629C6.36117 19.9997 6.94342 20 7.79981 20H10.8262L6.89844 15.417L4.02735 17.9287ZM7.79981 8C6.94342 8 6.36117 8.00035 5.91113 8.03711C5.47272 8.07293 5.2482 8.13808 5.0918 8.21777C4.71555 8.40951 4.40951 8.71554 4.21778 9.0918C4.13809 9.2482 4.07293 9.47272 4.03711 9.91113C4.00035 10.3612 4 10.9434 4 11.7998V15.2959L7.10156 12.582L13.4512 19.9912C13.6932 19.9859 13.9024 19.9781 14.0889 19.9629C14.5273 19.9271 14.7518 19.8619 14.9082 19.7822C15.2845 19.5905 15.5905 19.2845 15.7822 18.9082C15.8619 18.7518 15.9271 18.5273 15.9629 18.0889C15.9997 17.6388 16 17.0566 16 16.2002V11.7998C16 10.9434 15.9997 10.3612 15.9629 9.91113C15.9271 9.47272 15.8619 9.2482 15.7822 9.0918C15.5905 8.71554 15.2845 8.40951 14.9082 8.21777C14.7518 8.13808 14.5273 8.07293 14.0889 8.03711C13.6388 8.00035 13.0566 8 12.2002 8H7.79981Z" fill="currentColor" />
+      <path d="M22 16C22 17.1046 21.1046 18 20 18V14H22V16Z" fill="currentColor" />
+      <path d="M22 12H20V8H22V12Z" fill="currentColor" />
+      <path d="M18.252 2.04395C18.814 2.08987 19.3311 2.18827 19.8164 2.43555C20.5689 2.81902 21.181 3.43109 21.5645 4.18359C21.8117 4.6689 21.9101 5.18599 21.9561 5.74805C21.9627 5.8292 21.9659 5.91325 21.9707 6H19.9678C19.9657 5.96984 19.9653 5.94015 19.9629 5.91113C19.9271 5.47272 19.8619 5.2482 19.7822 5.0918C19.5905 4.71554 19.2845 4.40951 18.9082 4.21777C18.7518 4.13808 18.5273 4.07293 18.0889 4.03711C18.0598 4.03474 18.0302 4.03333 18 4.03125V2.02832C18.0868 2.0331 18.1708 2.03731 18.252 2.04395Z" fill="currentColor" />
+      <path d="M10 4H6C6 2.89543 6.89543 2 8 2H10V4Z" fill="currentColor" />
+      <path d="M16 4H12V2H16V4Z" fill="currentColor" />
     </svg>
   )
 }
@@ -97,7 +111,7 @@ function ToolEntryRow({ entry }: { entry: StructuredReasoningEntry }) {
           ) : entry.visited ? (
             <Globe className="size-4" />
           ) : isImageSearchToolName(entry.toolName) ? (
-            <ImageIcon className="size-4" />
+            <ImageSearchToolIcon className="size-4" />
           ) : (
             <Search className="size-4" />
           )}
@@ -680,7 +694,7 @@ export function StructuredReasoningPanel({
                             ) : entry.visited ? (
                               <Globe className="size-4" />
                             ) : isImageSearchToolName(entry.toolName) ? (
-                              <ImageIcon className="size-4" />
+                              <ImageSearchToolIcon className="size-4" />
                             ) : (
                               <Search className="size-4" />
                             )}
