@@ -1,9 +1,17 @@
 export type ChatMessageRole = "system" | "user" | "assistant" | "tool"
 
+export interface ChatAttachment {
+  name: string
+  kind: "image" | "file"
+  extension?: string
+  previewImageUrl?: string
+}
+
 export interface ChatMessage {
   id: string
   role: ChatMessageRole
   content: string
+  attachments?: ChatAttachment[]
   reasoningEvents?: ChatReasoningEventDetail[]
   reasoningDurationSeconds?: number
   research?: ChatDeepSearchResearch
@@ -23,6 +31,7 @@ export interface SendChatTurnInput {
   model: string
   text: string
   attachments?: File[]
+  messageAttachments?: ChatAttachment[]
   anchors: Partial<ChatAnchors>
   clientTurnId?: string
   retryExistingUserMessage?: boolean

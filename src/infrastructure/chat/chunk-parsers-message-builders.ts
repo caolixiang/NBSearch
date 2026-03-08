@@ -1,4 +1,4 @@
-import type { ChatAnchors, ChatMessage } from "../../domain/chat/types"
+import type { ChatAnchors, ChatAttachment, ChatMessage } from "../../domain/chat/types"
 import { isRecord } from "./chunk-parsers-common"
 
 export function buildConversationId(input: Partial<ChatAnchors>): string {
@@ -11,11 +11,12 @@ export function buildConversationId(input: Partial<ChatAnchors>): string {
   return `conv_${crypto.randomUUID()}`
 }
 
-export function buildUserMessage(text: string): ChatMessage {
+export function buildUserMessage(text: string, attachments?: ChatAttachment[]): ChatMessage {
   return {
     id: `usr_${crypto.randomUUID()}`,
     role: "user",
     content: text,
+    ...(Array.isArray(attachments) && attachments.length > 0 ? { attachments } : {}),
     createdAt: Date.now(),
     status: "completed",
   }

@@ -1,4 +1,6 @@
+import type { ChatAttachment } from "@/domain/chat/types"
 import fileLightIcon from "@/assets/file-light.svg"
+import { getAttachmentExtension, isImageAttachmentLike } from "@/lib/chat-attachments"
 import { cn } from "@/lib/utils"
 
 const CJK_CHAR_PATTERN = /[\u3400-\u9FFF\uF900-\uFAFF\u3000-\u303F\uFF00-\uFFEF]/
@@ -25,12 +27,8 @@ function parseUserMessageContent(content: string): { text: string; attachments: 
   }
 }
 
-function resolveAttachmentExtension(fileName: string): string {
-  return fileName.split(".").pop()?.trim().toLowerCase() || ""
-}
-
-function resolveAttachmentBadge(fileName: string): { label: string; ariaLabel: string } {
-  const ext = resolveAttachmentExtension(fileName)
+function resolveAttachmentBadge(attachment: ChatAttachment): { label: string; ariaLabel: string } {
+  const ext = (attachment.extension || getAttachmentExtension(attachment.name)).trim().toLowerCase()
   if (SPREADSHEET_EXTENSIONS.has(ext)) {
     if (ext === "csv") return { label: "CSV", ariaLabel: "CSV 文件" }
     if (ext === "tsv") return { label: "TSV", ariaLabel: "TSV 文件" }
@@ -41,7 +39,6 @@ function resolveAttachmentBadge(fileName: string): { label: string; ariaLabel: s
     if (ext === "pdf") return { label: "PDF", ariaLabel: "PDF 文件" }
     if (ext === "txt") return { label: "TXT", ariaLabel: "TXT 文件" }
     if (ext === "md") return { label: "MD", ariaLabel: "Markdown 文件" }
-    if (ext === "pages") return { label: "DOC", ariaLabel: "文档文件" }
     return { label: "DOC", ariaLabel: "文档文件" }
   }
   if (CODE_TEXT_EXTENSIONS.has(ext)) {
@@ -93,23 +90,62 @@ function truncateAttachmentName(fileName: string, maxUnits = 20): string {
   return normalized ? `${normalized}...` : `${input.slice(0, 1)}...`
 }
 
-export function UserMessageBubble({ content }: { content: string }) {
-  const { text, attachments } = parseUserMessageContent(content)
+function buildRenderableAttachments(rawNames: string[], attachments?: ChatAttachment[]): ChatAttachment[] {
+  if (Array.isArray(attachments) && attachments.length > 0) {
+    return attachments
+  }
+  return rawNames.map((name) => ({
+    name,
+    kind: isImageAttachmentLike({ name }) ? "image" : "file",
+    ...(getAttachmentExtension(name) ? { extension: getAttachmentExtension(name) } : {}),
+  }))
+}
+
+export function UserMessageBubble({
+  content,
+  attachments,
+}: {
+  content: string
+  attachments?: ChatAttachment[]
+}) {
+  const parsed = parseUserMessageContent(content)
+  const renderableAttachments = buildRenderableAttachments(parsed.attachments, attachments)
+  const imageAttachments = renderableAttachments.filter((attachment) => attachment.kind === "image")
+  const fileAttachments = renderableAttachments.filter((attachment) => attachment.kind === "file")
+
   return (
     <div className="flex justify-end px-6 py-4">
       <div className="flex max-w-[78%] flex-col items-end gap-2.5">
-        {text ? (
+        {parsed.text ? (
           <div className="w-fit max-w-full rounded-[28px] rounded-br-[14px] bg-secondary px-5 py-3 text-[16px] leading-7 text-foreground">
-            <p className="whitespace-pre-wrap">{text}</p>
+            <p className="whitespace-pre-wrap">{parsed.text}</p>
           </div>
         ) : null}
-        {attachments.length > 0 ? (
-          <div className={cn("flex w-full flex-col items-end gap-2", text ? "pt-0.5" : "")}>
-            {attachments.map((fileName, index) => {
-              const badge = resolveAttachmentBadge(fileName)
+        {imageAttachments.length > 0 ? (
+          <div className={cn("flex max-w-full flex-wrap justify-end gap-2", parsed.text ? "pt-0.5" : "")}>
+            {imageAttachments.map((attachment, index) => (
+              <figure
+                key={`${attachment.name}-${index}`}
+                className="relative ms-0 me-0 flex-shrink-0 aspect-square overflow-hidden w-12 rounded-[9px] bg-secondary/20 [&>img]:h-full [&>img]:w-full"
+              >
+                {attachment.previewImageUrl ? (
+                  <img alt="" className="h-full mx-auto object-cover" src={attachment.previewImageUrl} />
+                ) : (
+                  <div className="grid h-full w-full place-items-center bg-secondary/50 text-[8px] font-semibold tracking-[0.08em] text-muted-foreground">
+                    IMG
+                  </div>
+                )}
+              </figure>
+            ))}
+          </div>
+        ) : null}
+        {fileAttachments.length > 0 ? (
+          <div className={cn("flex w-full flex-col items-end gap-2", parsed.text || imageAttachments.length > 0 ? "pt-0.5" : "")}>
+            {fileAttachments.map((attachment, index) => {
+              const badge = resolveAttachmentBadge(attachment)
               return (
                 <div
-                  key={`${fileName}-${index}`}
+                  key={`${attachment.name}-${index}`}
                   className="flex w-fit max-w-full items-center gap-3 rounded-[24px] border border-border/80 bg-background px-4 py-3 text-[15px] leading-6 text-foreground shadow-[0_1px_0_rgba(0,0,0,0.02)] sm:min-w-[20rem] sm:px-5 sm:py-3.5"
                 >
                   <figure
@@ -124,7 +160,7 @@ export function UserMessageBubble({ content }: { content: string }) {
                     </span>
                   </figure>
                   <span className="min-w-0 max-w-[min(52vw,24rem)] overflow-hidden text-ellipsis whitespace-nowrap text-[15px] font-medium tracking-[-0.01em] text-foreground sm:max-w-[26rem]">
-                    {truncateAttachmentName(fileName, 28)}
+                    {truncateAttachmentName(attachment.name, 28)}
                   </span>
                 </div>
               )

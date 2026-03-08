@@ -11,6 +11,7 @@ import { ModelSelector } from "@/components/model-selector"
 import { SettingsDialog } from "@/components/settings-dialog"
 import { WelcomeScreen } from "@/components/welcome-screen"
 import { cn } from "@/lib/utils"
+import { buildChatAttachments } from "@/lib/chat-attachments"
 import {
   getConversationStreamingState,
   isConversationStreaming,
@@ -676,6 +677,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
         return
       }
       const optimisticContent = buildUserMessageContent(content, selectedAttachments)
+      const messageAttachments = await buildChatAttachments(selectedAttachments)
       clearLastErrorForConversation(conversationId)
       const current = conversations.find((item) => item.id === conversationId)
       const currentMessages = messagesByConversationId[conversationId] || []
@@ -689,6 +691,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
             id: `tmp_usr_${crypto.randomUUID()}`,
             role: "user",
             content: optimisticContent,
+            ...(messageAttachments.length > 0 ? { attachments: messageAttachments } : {}),
             createdAt: Date.now(),
             status: "completed",
           }
@@ -722,6 +725,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
             model: selectedModel,
             text: content,
             attachments: selectedAttachments,
+            ...(messageAttachments.length > 0 ? { messageAttachments } : {}),
             anchors,
             clientTurnId,
             retryExistingUserMessage: Boolean(retryExistingUserMessageId),

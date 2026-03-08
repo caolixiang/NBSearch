@@ -1,4 +1,4 @@
-import type { ChatDeepSearchResearch, ChatMessage, ChatReasoningEventDetail } from "../../../domain/chat/types"
+import type { ChatAttachment, ChatDeepSearchResearch, ChatMessage, ChatReasoningEventDetail } from "../../../domain/chat/types"
 import type {
   AppRepository,
   ConversationRecord,
@@ -8,6 +8,7 @@ import { getDatabase } from "./database"
 
 type PersistedMessageContent = {
   text: string
+  attachments?: ChatAttachment[]
   reasoningEvents?: ChatReasoningEventDetail[]
   reasoningDurationSeconds?: number
   research?: ChatDeepSearchResearch
@@ -39,6 +40,10 @@ function normalizeMessageContent(message: ChatMessage): string {
     text: message.content || "",
   }
 
+  if (Array.isArray(message.attachments) && message.attachments.length > 0) {
+    payload.attachments = message.attachments
+  }
+
   if (Array.isArray(message.reasoningEvents) && message.reasoningEvents.length > 0) {
     payload.reasoningEvents = message.reasoningEvents
   }
@@ -60,6 +65,7 @@ function normalizeMessageContent(message: ChatMessage): string {
 
 function parseMessageContent(contentJson: string): {
   text: string
+  attachments?: ChatAttachment[]
   reasoningEvents?: ChatReasoningEventDetail[]
   reasoningDurationSeconds?: number
   research?: ChatDeepSearchResearch
@@ -72,6 +78,7 @@ function parseMessageContent(contentJson: string): {
   try {
     const value = JSON.parse(trimmed) as {
       text?: unknown
+      attachments?: unknown
       reasoningEvents?: unknown
       reasoningDurationSeconds?: unknown
       research?: unknown
@@ -79,11 +86,38 @@ function parseMessageContent(contentJson: string): {
     const text = typeof value?.text === "string" ? value.text : trimmed
     const result: {
       text: string
+      attachments?: ChatAttachment[]
       reasoningEvents?: ChatReasoningEventDetail[]
       reasoningDurationSeconds?: number
       research?: ChatDeepSearchResearch
     } = { text }
 
+    if (Array.isArray(value?.attachments)) {
+      const attachments = value.attachments
+        .map((item) => {
+          if (!item || typeof item !== "object" || Array.isArray(item)) {
+            return null
+          }
+          const record = item as Record<string, unknown>
+          const name = typeof record.name === "string" ? record.name.trim() : ""
+          const kind = record.kind === "image" ? "image" : record.kind === "file" ? "file" : ""
+          if (!name || !kind) {
+            return null
+          }
+          const extension = typeof record.extension === "string" ? record.extension.trim().toLowerCase() : ""
+          const previewImageUrl = typeof record.previewImageUrl === "string" ? record.previewImageUrl.trim() : ""
+          return {
+            name,
+            kind,
+            ...(extension ? { extension } : {}),
+            ...(previewImageUrl ? { previewImageUrl } : {}),
+          } satisfies ChatAttachment
+        })
+        .filter((item): item is ChatAttachment => Boolean(item))
+      if (attachments.length > 0) {
+        result.attachments = attachments
+      }
+    }
     if (Array.isArray(value?.reasoningEvents)) {
       result.reasoningEvents = value.reasoningEvents as ChatReasoningEventDetail[]
     }
@@ -243,6 +277,7 @@ export class SqliteAppRepository implements AppRepository {
         id: row.id,
         role: row.role,
         content: parsedContent.text,
+        attachments: parsedContent.attachments,
         reasoningEvents: parsedContent.reasoningEvents,
         reasoningDurationSeconds: parsedContent.reasoningDurationSeconds,
         research: parsedContent.research,

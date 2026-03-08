@@ -2,6 +2,7 @@
 
 import { useRef, useState, type MouseEvent } from "react"
 import type {
+  ChatAttachment,
   ChatDeepSearchResearch,
   ChatReasoningEventDetail,
 } from "@/domain/chat/types"
@@ -25,6 +26,7 @@ export interface RenderChatMessage {
   id: string
   role: "user" | "assistant"
   content: string
+  attachments?: ChatAttachment[]
   createdAt?: number
   responseId?: string
   previousResponseId?: string
@@ -148,7 +150,7 @@ export function ChatMessage({
   }
 
   if (isUser) {
-    return <UserMessageBubble content={message.content} />
+    return <UserMessageBubble content={message.content} attachments={message.attachments} />
   }
 
   return (

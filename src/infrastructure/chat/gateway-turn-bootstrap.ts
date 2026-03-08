@@ -62,7 +62,7 @@ export async function bootstrapGatewayTurn(input: {
   if (!isRegenerate && !input.turnInput.retryExistingUserMessage) {
     await input.appendMessage(
       conversationId,
-      buildUserMessage(buildUserMessageText(input.turnInput.text, input.turnInput.attachments))
+      buildUserMessage(buildUserMessageText(input.turnInput.text, input.turnInput.attachments), input.turnInput.messageAttachments)
     )
   }
 

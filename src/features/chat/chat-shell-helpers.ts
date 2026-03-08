@@ -1,5 +1,6 @@
 import type {
   ChatAnchors,
+  ChatAttachment,
   ChatMessage as DomainChatMessage,
   ChatReasoningEventDetail,
 } from "@/domain/chat/types"
@@ -24,6 +25,7 @@ export function toRenderMessage(message: DomainChatMessage): RenderChatMessage |
     id: message.id,
     role: message.role,
     content: message.content,
+    attachments: message.attachments,
     createdAt: message.createdAt,
     research: message.research,
     responseId: message.responseId,
