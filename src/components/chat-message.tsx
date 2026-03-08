@@ -80,8 +80,6 @@ export function ChatMessage({
       ? buildCitationItems(message.research, message.reasoningEvents, message.content)
       : []
   const showSourceSummary = sourceCount > 0
-  const reasoningPanelId = `reasoning-panel-${message.id}`
-
   const setPdfStateWithReset = (state: "done" | "error") => {
     setPdfExportState(state)
     window.setTimeout(() => {
@@ -141,14 +139,6 @@ export function ChatMessage({
   const onOpenReasoningDrawer = (event: MouseEvent<HTMLButtonElement>) => {
     event.preventDefault()
     event.stopPropagation()
-
-    const panel = document.getElementById(reasoningPanelId)
-    if (panel) {
-      panel.scrollIntoView({
-        behavior: "smooth",
-        block: "center",
-      })
-    }
 
     window.dispatchEvent(
       new CustomEvent(OPEN_REASONING_DRAWER_EVENT, {
