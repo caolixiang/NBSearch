@@ -465,10 +465,10 @@ export function ChatInput({
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className="flex size-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                className="flex size-10 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
                 aria-label="上传附件"
               >
-                <Paperclip className="size-4" />
+                <Paperclip className="size-5" />
               </button>
             </div>
 
@@ -477,7 +477,7 @@ export function ChatInput({
                 type="button"
                 onClick={toggleRecording}
                 className={cn(
-                  "flex size-9 items-center justify-center rounded-full transition-colors",
+                  "flex size-10 items-center justify-center rounded-full transition-colors",
                   isRecording
                     ? "bg-red-500/10 text-red-500"
                     : "text-muted-foreground hover:text-foreground hover:bg-secondary"
@@ -492,7 +492,7 @@ export function ChatInput({
                   type="button"
                   onClick={handleStartVoiceMode}
                   className={cn(
-                    "flex size-9 items-center justify-center rounded-full bg-foreground text-background transition-opacity",
+                    "flex size-10 items-center justify-center rounded-full bg-foreground text-background transition-opacity",
                     isLoading ? "cursor-not-allowed opacity-45" : "hover:opacity-80"
                   )}
                   aria-label="语音对话"
@@ -505,7 +505,7 @@ export function ChatInput({
               {isLoading ? (
                 <Button
                   size="sm"
-                  className="size-9 rounded-full bg-claude-sienna p-0 text-white hover:bg-claude-sienna/90"
+                  className="size-10 rounded-full bg-claude-sienna p-0 text-white hover:bg-claude-sienna/90"
                   onClick={onStop}
                 >
                   <Square className="size-3 fill-current" />
@@ -515,7 +515,7 @@ export function ChatInput({
                 <Button
                   size="sm"
                   className={cn(
-                    "size-9 rounded-full p-0 transition-colors",
+                    "size-10 rounded-full p-0 transition-colors",
                     input.trim() || attachments.length > 0
                       ? "bg-foreground text-background hover:opacity-80"
                       : "bg-muted text-muted-foreground cursor-not-allowed"
