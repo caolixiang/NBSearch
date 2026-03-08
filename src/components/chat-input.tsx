@@ -2,10 +2,21 @@
 
 import { useState, useRef, useCallback, useEffect, useMemo } from "react"
 import { Button } from "@/components/ui/button"
-import { ArrowUp, Square, Paperclip, Mic, MicOff, X, File as FileIcon } from "lucide-react"
+import {
+  ArrowUp,
+  ChevronDown,
+  File as FileIcon,
+  Mic,
+  MicOff,
+  Paperclip,
+  Settings2,
+  Square,
+  Volume2,
+  VolumeX,
+  X,
+} from "lucide-react"
 import { cn } from "@/lib/utils"
 
-// Audio wave icon for LiveKit voice button
 function AudioWaveIcon({ className = "size-5" }: { className?: string }) {
   return (
     <svg viewBox="0 0 24 24" fill="none" className={className}>
@@ -18,23 +29,48 @@ function AudioWaveIcon({ className = "size-5" }: { className?: string }) {
   )
 }
 
+function VoiceLevelIndicator({ active }: { active: boolean }) {
+  const heights = active ? [0.34, 0.41, 0.45, 0.31, 0.22] : [0.18, 0.2, 0.18, 0.16, 0.14]
+
+  return (
+    <div aria-hidden="true" className="hidden min-[360px]:flex items-end gap-0.5">
+      {heights.map((height, index) => (
+        <div
+          key={`${height}-${index}`}
+          className={cn(
+            "w-0.5 rounded-full transition-[height,opacity] duration-300",
+            active ? "bg-blue-300 opacity-100 animate-pulse" : "bg-muted-foreground/45 opacity-70"
+          )}
+          style={{
+            height: `${height}rem`,
+            animationDelay: `${index * 120}ms`,
+          }}
+        />
+      ))}
+    </div>
+  )
+}
+
 interface ChatInputProps {
   onSendMessage: (text: string, attachments?: File[]) => void
-  onVoiceStart?: () => void
   isLoading: boolean
   onStop?: () => void
   onHeightChange?: (height: number) => void
+  voiceEnabled?: boolean
 }
 
 export function ChatInput({
   onSendMessage,
-  onVoiceStart,
   isLoading,
   onStop,
   onHeightChange,
+  voiceEnabled = true,
 }: ChatInputProps) {
   const [input, setInput] = useState("")
   const [isRecording, setIsRecording] = useState(false)
+  const [isVoiceMode, setIsVoiceMode] = useState(false)
+  const [isVoiceMicMuted, setIsVoiceMicMuted] = useState(false)
+  const [isVoiceSpeakerMuted, setIsVoiceSpeakerMuted] = useState(false)
   const [attachments, setAttachments] = useState<File[]>([])
   const [imagePreviewUrlByIndex, setImagePreviewUrlByIndex] = useState<Record<number, string>>({})
   const [loadedPreviewByIndex, setLoadedPreviewByIndex] = useState<Record<number, true>>({})
@@ -66,6 +102,14 @@ export function ChatInput({
         .filter(({ file }) => !isImageAttachment(file)),
     [attachments]
   )
+
+  useEffect(() => {
+    if (!voiceEnabled && isVoiceMode) {
+      setIsVoiceMode(false)
+      setIsVoiceMicMuted(false)
+      setIsVoiceSpeakerMuted(false)
+    }
+  }, [isVoiceMode, voiceEnabled])
 
   useEffect(() => {
     if (!onHeightChange || !containerRef.current) {
@@ -100,18 +144,18 @@ export function ChatInput({
   }, [imageAttachments])
 
   const handleSubmit = useCallback(() => {
-    if ((!input.trim() && attachments.length === 0) || isLoading) return
+    if ((!input.trim() && attachments.length === 0) || isLoading || isVoiceMode) return
     onSendMessage(input.trim(), attachments.length > 0 ? attachments : undefined)
     setInput("")
     setAttachments([])
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto"
     }
-  }, [attachments, input, isLoading, onSendMessage])
+  }, [attachments, input, isLoading, isVoiceMode, onSendMessage])
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     const nativeEvent = e.nativeEvent as KeyboardEvent & { isComposing?: boolean }
-    if (isComposingRef.current || nativeEvent.isComposing || nativeEvent.keyCode === 229) {
+    if (isComposingRef.current || nativeEvent.isComposing || nativeEvent.keyCode === 229 || isVoiceMode) {
       return
     }
     if (e.key === "Enter" && !e.shiftKey) {
@@ -121,6 +165,9 @@ export function ChatInput({
   }
 
   const handleTextareaInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    if (isVoiceMode) {
+      return
+    }
     setInput(e.target.value)
     const el = e.target
     el.style.height = "auto"
@@ -159,6 +206,10 @@ export function ChatInput({
   }
 
   const handleTextareaPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    if (isVoiceMode) {
+      return
+    }
+
     const items = Array.from(e.clipboardData?.items || [])
     if (items.length === 0) {
       return
@@ -174,7 +225,6 @@ export function ChatInput({
       return
     }
 
-    // Prevent browsers from pasting image URL/plaintext into textarea when an image blob is present.
     e.preventDefault()
     setAttachments((prev) => [...prev, ...pastedImages])
   }
@@ -196,21 +246,51 @@ export function ChatInput({
   }
 
   const toggleRecording = () => {
+    if (isVoiceMode) {
+      return
+    }
     if (isRecording) {
       setIsRecording(false)
-      // In production, stop recording and transcribe
     } else {
       setIsRecording(true)
-      // In production, start Web Speech API / whisper
     }
   }
 
+  const handleStartVoiceMode = () => {
+    if (!voiceEnabled || isLoading) {
+      return
+    }
+    setIsRecording(false)
+    setIsVoiceMode(true)
+  }
+
+  const handleStopVoiceMode = () => {
+    setIsVoiceMode(false)
+    setIsVoiceMicMuted(false)
+    setIsVoiceSpeakerMuted(false)
+  }
+
+  const voiceButtonClassName =
+    "inline-flex h-12 items-center justify-center gap-2 rounded-full border border-border/80 bg-background/70 px-4 text-sm font-medium text-foreground transition-colors hover:bg-secondary/65"
+
   return (
-    <div ref={containerRef} className="mx-auto w-full max-w-3xl px-4 pb-5">
-      <div className="relative rounded-2xl border border-border bg-card shadow-sm transition-shadow focus-within:shadow-md focus-within:border-ring/40">
-        {/* Attachments preview */}
+    <div
+      ref={containerRef}
+      className={cn(
+        "mx-auto w-full px-4 pb-5 transition-[max-width] duration-300",
+        isVoiceMode ? "max-w-6xl" : "max-w-3xl"
+      )}
+    >
+      <div
+        className={cn(
+          "relative overflow-hidden border border-border bg-card shadow-sm transition-[border-radius,box-shadow,background] focus-within:shadow-md focus-within:border-ring/40",
+          isVoiceMode
+            ? "rounded-[2rem] bg-gradient-to-br from-background via-background to-emerald-50/70 dark:to-background"
+            : "rounded-2xl"
+        )}
+      >
         {attachments.length > 0 && (
-          <div className="px-4 pt-3">
+          <div className={cn("px-4 pt-3", isVoiceMode && "px-5 pt-5")}>
             {imageAttachments.length > 0 ? (
               <div className="mb-2 flex flex-wrap gap-2">
                 {imageAttachments.map(({ file, index }) => {
@@ -276,7 +356,6 @@ export function ChatInput({
           </div>
         )}
 
-        {/* Textarea */}
         <textarea
           ref={textareaRef}
           value={input}
@@ -289,90 +368,157 @@ export function ChatInput({
           onCompositionEnd={() => {
             isComposingRef.current = false
           }}
-          placeholder={isRecording ? "正在录音..." : "你想知道什么？"}
+          placeholder={isVoiceMode ? "Grok 怎么能帮忙?" : isRecording ? "正在录音..." : "你想知道什么？"}
           rows={1}
+          readOnly={isVoiceMode}
           className={cn(
-            "w-full resize-none bg-transparent px-4 pt-4 pb-2 text-base text-foreground outline-none placeholder:text-muted-foreground",
-            isRecording && "placeholder:text-red-400"
+            "w-full resize-none bg-transparent text-foreground outline-none placeholder:text-muted-foreground",
+            isVoiceMode
+              ? "px-6 pt-8 pb-5 text-[18px] leading-8 placeholder:text-foreground/55 sm:px-9 sm:pt-10 sm:text-[20px]"
+              : "px-4 pt-4 pb-2 text-base",
+            isRecording && !isVoiceMode && "placeholder:text-red-400"
           )}
-          style={{ minHeight: "44px", maxHeight: "200px" }}
-          disabled={isLoading}
+          style={{ minHeight: isVoiceMode ? "92px" : "44px", maxHeight: isVoiceMode ? "160px" : "200px" }}
+          disabled={isLoading && !isVoiceMode}
         />
 
-        {/* Bottom action bar */}
-        <div className="flex items-center justify-between px-3 pb-3">
-          {/* Left: attachment button */}
-          <div className="flex items-center gap-1">
-            <input
-              ref={fileInputRef}
-              type="file"
-              multiple
-              accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv,.json,.md"
-              className="hidden"
-              onChange={handleFileSelect}
-            />
+        {isVoiceMode ? (
+          <div className="flex flex-col gap-3 px-4 pb-4 sm:flex-row sm:items-center sm:justify-between sm:px-5 sm:pb-5">
+            <div className="flex min-w-0 flex-wrap items-center gap-3 sm:flex-nowrap">
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv,.json,.md"
+                className="hidden"
+                onChange={handleFileSelect}
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="inline-flex size-12 shrink-0 items-center justify-center rounded-full border border-border/80 bg-background/70 text-foreground transition-colors hover:bg-secondary/65"
+                aria-label="上传附件"
+              >
+                <Paperclip className="size-5" />
+              </button>
+              <div className="hidden h-10 w-px shrink-0 bg-border/80 sm:block" />
+              <button
+                type="button"
+                onClick={() => setIsVoiceMicMuted((value) => !value)}
+                className={voiceButtonClassName}
+                aria-label={isVoiceMicMuted ? "取消麦克风静音" : "麦克风静音"}
+              >
+                <VoiceLevelIndicator active={!isVoiceMicMuted} />
+                {isVoiceMicMuted ? <MicOff className="size-4.5" /> : <Mic className="size-4.5" />}
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsVoiceSpeakerMuted((value) => !value)}
+                className="inline-flex size-12 shrink-0 items-center justify-center rounded-full border border-border/80 bg-background/70 text-foreground transition-colors hover:bg-secondary/65"
+                aria-label={isVoiceSpeakerMuted ? "取消扬声器静音" : "扬声器静音"}
+              >
+                {isVoiceSpeakerMuted ? <VolumeX className="size-5" /> : <Volume2 className="size-5" />}
+              </button>
+              <button
+                type="button"
+                className={cn(voiceButtonClassName, "min-w-[10rem] justify-between px-4")}
+                aria-label="语音设置"
+              >
+                <span className="inline-flex items-center gap-2">
+                  <Settings2 className="size-4" />
+                  <span className="hidden min-[360px]:inline font-semibold">Leo</span>
+                </span>
+                <ChevronDown className="size-4 text-muted-foreground" />
+              </button>
+            </div>
+
             <button
-              onClick={() => fileInputRef.current?.click()}
-              className="flex size-8 items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
-              aria-label="上传附件"
+              type="button"
+              onClick={handleStopVoiceMode}
+              className="inline-flex h-12 shrink-0 items-center justify-center rounded-full bg-foreground px-7 text-base font-semibold text-background transition-opacity hover:opacity-90 sm:min-w-[8.5rem]"
             >
-              <Paperclip className="size-4" />
+              停止
             </button>
           </div>
-
-          {/* Right: mic, voice, send */}
-          <div className="flex items-center gap-1.5">
-            {/* Mic (voice-to-text) */}
-            <button
-              onClick={toggleRecording}
-              className={cn(
-                "flex size-8 items-center justify-center rounded-lg transition-colors",
-                isRecording
-                  ? "bg-red-500/10 text-red-500"
-                  : "text-muted-foreground hover:text-foreground hover:bg-secondary"
-              )}
-              aria-label={isRecording ? "停止录音" : "语音输入"}
-            >
-              {isRecording ? <MicOff className="size-4" /> : <Mic className="size-4" />}
-            </button>
-
-            {/* LiveKit voice button - Grok style dark circle */}
-            <button
-              onClick={onVoiceStart}
-              className="flex size-9 items-center justify-center rounded-full bg-foreground text-background transition-opacity hover:opacity-80"
-              aria-label="语音对话"
-            >
-              <AudioWaveIcon className="size-4" />
-            </button>
-
-            {/* Send / Stop */}
-            {isLoading ? (
-              <Button
-                size="sm"
-                className="size-9 rounded-full bg-claude-sienna p-0 text-white hover:bg-claude-sienna/90"
-                onClick={onStop}
+        ) : (
+          <div className="flex items-center justify-between px-3 pb-3">
+            <div className="flex items-center gap-1">
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv,.json,.md"
+                className="hidden"
+                onChange={handleFileSelect}
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="flex size-8 items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+                aria-label="上传附件"
               >
-                <Square className="size-3 fill-current" />
-                <span className="sr-only">停止</span>
-              </Button>
-            ) : (
-              <Button
-                size="sm"
+                <Paperclip className="size-4" />
+              </button>
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={toggleRecording}
                 className={cn(
-                  "size-9 rounded-full p-0 transition-colors",
-                  input.trim() || attachments.length > 0
-                    ? "bg-foreground text-background hover:opacity-80"
-                    : "bg-muted text-muted-foreground cursor-not-allowed"
+                  "flex size-8 items-center justify-center rounded-lg transition-colors",
+                  isRecording
+                    ? "bg-red-500/10 text-red-500"
+                    : "text-muted-foreground hover:text-foreground hover:bg-secondary"
                 )}
-                onClick={handleSubmit}
-                disabled={!input.trim() && attachments.length === 0}
+                aria-label={isRecording ? "停止录音" : "语音输入"}
               >
-                <ArrowUp className="size-4" />
-                <span className="sr-only">发送</span>
-              </Button>
-            )}
+                {isRecording ? <MicOff className="size-4" /> : <Mic className="size-4" />}
+              </button>
+
+              {voiceEnabled ? (
+                <button
+                  type="button"
+                  onClick={handleStartVoiceMode}
+                  className={cn(
+                    "flex size-9 items-center justify-center rounded-full bg-foreground text-background transition-opacity",
+                    isLoading ? "cursor-not-allowed opacity-45" : "hover:opacity-80"
+                  )}
+                  aria-label="语音对话"
+                  disabled={isLoading}
+                >
+                  <AudioWaveIcon className="size-4" />
+                </button>
+              ) : null}
+
+              {isLoading ? (
+                <Button
+                  size="sm"
+                  className="size-9 rounded-full bg-claude-sienna p-0 text-white hover:bg-claude-sienna/90"
+                  onClick={onStop}
+                >
+                  <Square className="size-3 fill-current" />
+                  <span className="sr-only">停止</span>
+                </Button>
+              ) : (
+                <Button
+                  size="sm"
+                  className={cn(
+                    "size-9 rounded-full p-0 transition-colors",
+                    input.trim() || attachments.length > 0
+                      ? "bg-foreground text-background hover:opacity-80"
+                      : "bg-muted text-muted-foreground cursor-not-allowed"
+                  )}
+                  onClick={handleSubmit}
+                  disabled={!input.trim() && attachments.length === 0}
+                >
+                  <ArrowUp className="size-4" />
+                  <span className="sr-only">发送</span>
+                </Button>
+              )}
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   )

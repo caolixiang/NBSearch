@@ -9,7 +9,6 @@ import { ChatMessage, type RenderChatMessage, TypingIndicator } from "@/componen
 import { ChatSidebar } from "@/components/chat-sidebar"
 import { ModelSelector } from "@/components/model-selector"
 import { SettingsDialog } from "@/components/settings-dialog"
-import { VoiceMode } from "@/components/voice-mode"
 import { WelcomeScreen } from "@/components/welcome-screen"
 import { cn } from "@/lib/utils"
 import {
@@ -86,7 +85,6 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
   } = useChatShellModels(runtime)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true)
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [voiceOpen, setVoiceOpen] = useState(false)
   const [pendingRecoverySyncingByConversationId, setPendingRecoverySyncingByConversationId] = useState<
     Record<string, boolean>
   >({})
@@ -1326,8 +1324,8 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
               onSendMessage={(text, attachments) => {
                 void handleSendMessage(text, attachments)
               }}
-              onVoiceStart={() => setVoiceOpen(true)}
               isLoading={isActiveConversationStreaming}
+              voiceEnabled={runtime.config.voiceEnabled}
               onHeightChange={(height) => {
                 setChatInputHeight((prev) => (Math.abs(prev - height) < 1 ? prev : height))
               }}
@@ -1350,7 +1348,6 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
         onGatewayConfigChange={handleGatewayConfigChange}
         onAppearanceConfigChange={handleAppearanceConfigChange}
       />
-      <VoiceMode isOpen={voiceOpen} onClose={() => setVoiceOpen(false)} />
     </main>
   )
 }
