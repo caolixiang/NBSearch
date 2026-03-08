@@ -324,10 +324,10 @@ export function ChatSidebar({
       <div className="border-t border-sidebar-border p-3">
         <button
           onClick={onOpenSettings}
-          className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-sidebar-foreground transition-colors hover:bg-sidebar-accent"
+          className="flex w-full items-center gap-1.5 rounded-xl px-2.5 py-2 text-sidebar-foreground transition-colors hover:bg-sidebar-accent"
         >
-          <Settings className="size-[1.15rem] opacity-60" />
-          <span className="text-[1.17rem] leading-none font-medium tracking-[-0.01em]">设置</span>
+          <Settings className="size-4 opacity-60" />
+          <span className="text-[1.05rem] leading-none font-medium tracking-[-0.01em]">设置</span>
         </button>
       </div>
     </div>
