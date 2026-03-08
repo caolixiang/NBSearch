@@ -10,6 +10,7 @@ use std::{
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tauri::Manager;
+use tauri_plugin_updater::UpdaterExt;
 use url::Url;
 use wreq::header::{HeaderMap, HeaderName, HeaderValue};
 use wreq::Client;
@@ -22,6 +23,38 @@ struct RuntimeInfo {
     platform: String,
     app_data_dir: String,
     app_log_dir: String,
+}
+
+const NBSEARCH_UPDATER_ENDPOINT: Option<&str> = option_env!("NBSEARCH_UPDATER_ENDPOINT");
+const NBSEARCH_UPDATER_ENDPOINTS: Option<&str> = option_env!("NBSEARCH_UPDATER_ENDPOINTS");
+const NBSEARCH_UPDATER_PUBKEY: Option<&str> = option_env!("NBSEARCH_UPDATER_PUBKEY");
+
+#[derive(Clone)]
+struct UpdaterRuntimeConfig {
+    pubkey: String,
+    endpoints: Vec<Url>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AppUpdateCheckResponse {
+    enabled: bool,
+    available: bool,
+    current_version: String,
+    version: Option<String>,
+    notes: Option<String>,
+    pub_date: Option<String>,
+    error: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AppUpdateInstallResponse {
+    enabled: bool,
+    installed: bool,
+    current_version: String,
+    version: Option<String>,
+    error: Option<String>,
 }
 
 #[tauri::command]
@@ -259,6 +292,63 @@ fn normalize_font_size_mode(value: &str) -> String {
         "large" => "large".to_string(),
         _ => "default".to_string(),
     }
+}
+
+fn resolve_updater_runtime_config() -> Result<Option<UpdaterRuntimeConfig>, String> {
+    let pubkey = NBSEARCH_UPDATER_PUBKEY
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
+    let Some(pubkey) = pubkey else {
+        return Ok(None);
+    };
+
+    let mut endpoints: Vec<Url> = Vec::new();
+    if let Some(raw) = NBSEARCH_UPDATER_ENDPOINTS {
+        for candidate in raw.split(|ch| matches!(ch, ',' | '\n' | ';')) {
+            let trimmed = candidate.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            let parsed = Url::parse(trimmed)
+                .map_err(|e| format!("invalid updater endpoint {trimmed}: {e}"))?;
+            endpoints.push(parsed);
+        }
+    }
+    if endpoints.is_empty() {
+        if let Some(raw) = NBSEARCH_UPDATER_ENDPOINT {
+            let trimmed = raw.trim();
+            if !trimmed.is_empty() {
+                let parsed = Url::parse(trimmed)
+                    .map_err(|e| format!("invalid updater endpoint {trimmed}: {e}"))?;
+                endpoints.push(parsed);
+            }
+        }
+    }
+
+    if endpoints.is_empty() {
+        return Ok(None);
+    }
+
+    Ok(Some(UpdaterRuntimeConfig { pubkey, endpoints }))
+}
+
+fn build_runtime_updater(
+    app: &tauri::AppHandle,
+) -> Result<Option<tauri_plugin_updater::Updater>, String> {
+    let Some(config) = resolve_updater_runtime_config()? else {
+        return Ok(None);
+    };
+
+    let builder = app.updater_builder().pubkey(config.pubkey);
+    let builder = builder
+        .endpoints(config.endpoints)
+        .map_err(|e| format!("configure updater endpoints failed: {e}"))?;
+    let updater = builder
+        .build()
+        .map_err(|e| format!("build updater failed: {e}"))?;
+
+    Ok(Some(updater))
 }
 
 const STREAM_IDLE_TIMEOUT_MS_DEFAULT: u64 = 20_000;
@@ -1012,6 +1102,137 @@ fn save_appearance_config(
     })
 }
 
+#[tauri::command]
+async fn check_app_update(app: tauri::AppHandle) -> AppUpdateCheckResponse {
+    let current_version = app.package_info().version.to_string();
+    let updater = match build_runtime_updater(&app) {
+        Ok(Some(updater)) => updater,
+        Ok(None) => {
+            return AppUpdateCheckResponse {
+                enabled: false,
+                available: false,
+                current_version,
+                version: None,
+                notes: None,
+                pub_date: None,
+                error: None,
+            };
+        }
+        Err(error) => {
+            return AppUpdateCheckResponse {
+                enabled: false,
+                available: false,
+                current_version,
+                version: None,
+                notes: None,
+                pub_date: None,
+                error: Some(error),
+            };
+        }
+    };
+
+    match updater.check().await {
+        Ok(Some(update)) => AppUpdateCheckResponse {
+            enabled: true,
+            available: true,
+            current_version: update.current_version.clone(),
+            version: Some(update.version.clone()),
+            notes: update.body.clone(),
+            pub_date: update.date.map(|value| value.to_string()),
+            error: None,
+        },
+        Ok(None) => AppUpdateCheckResponse {
+            enabled: true,
+            available: false,
+            current_version,
+            version: None,
+            notes: None,
+            pub_date: None,
+            error: None,
+        },
+        Err(error) => AppUpdateCheckResponse {
+            enabled: true,
+            available: false,
+            current_version,
+            version: None,
+            notes: None,
+            pub_date: None,
+            error: Some(error.to_string()),
+        },
+    }
+}
+
+#[tauri::command]
+async fn install_app_update(app: tauri::AppHandle) -> AppUpdateInstallResponse {
+    let current_version = app.package_info().version.to_string();
+    let updater = match build_runtime_updater(&app) {
+        Ok(Some(updater)) => updater,
+        Ok(None) => {
+            return AppUpdateInstallResponse {
+                enabled: false,
+                installed: false,
+                current_version,
+                version: None,
+                error: None,
+            };
+        }
+        Err(error) => {
+            return AppUpdateInstallResponse {
+                enabled: false,
+                installed: false,
+                current_version,
+                version: None,
+                error: Some(error),
+            };
+        }
+    };
+
+    let update = match updater.check().await {
+        Ok(Some(update)) => update,
+        Ok(None) => {
+            return AppUpdateInstallResponse {
+                enabled: true,
+                installed: false,
+                current_version,
+                version: None,
+                error: Some("no_update_available".to_string()),
+            };
+        }
+        Err(error) => {
+            return AppUpdateInstallResponse {
+                enabled: true,
+                installed: false,
+                current_version,
+                version: None,
+                error: Some(error.to_string()),
+            };
+        }
+    };
+
+    let next_version = update.version.clone();
+    let current_version = update.current_version.clone();
+
+    match update.download_and_install(|_, _| {}, || {}).await {
+        Ok(()) => {
+            app.request_restart();
+            AppUpdateInstallResponse {
+                enabled: true,
+                installed: true,
+                current_version,
+                version: Some(next_version),
+                error: None,
+            }
+        }
+        Err(error) => AppUpdateInstallResponse {
+            enabled: true,
+            installed: false,
+            current_version,
+            version: Some(next_version),
+            error: Some(error.to_string()),
+        },
+    }
+}
+
 #[tauri::command(rename_all = "camelCase")]
 async fn download_image_to_downloads(
     app: tauri::AppHandle,
@@ -1114,6 +1335,7 @@ async fn download_image_to_downloads(
 
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
@@ -1124,6 +1346,8 @@ fn main() {
             read_gateway_config,
             save_gateway_config,
             save_appearance_config,
+            check_app_update,
+            install_app_update,
             fetch_image_with_tls_profile,
             fetch_image_with_cache,
             get_image_cache_stats,

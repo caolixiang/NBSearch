@@ -14,7 +14,8 @@ import {
   saveAppearanceConfigToToml,
   saveGatewayConfigToToml,
 } from "@/app/config"
-import { hasTauriRuntime } from "@/app/runtime-info"
+import { getRuntimeInfo, hasTauriRuntime } from "@/app/runtime-info"
+import { checkForAppUpdate, installAppUpdate } from "@/app/updater"
 import { cn } from "@/lib/utils"
 import { Bell, Database, Eye, EyeOff, Globe, Key, Palette, Shield } from "lucide-react"
 
@@ -78,6 +79,12 @@ export function SettingsDialog({
   const [imageCacheStats, setImageCacheStats] = useState<ImageCacheStats | null>(null)
   const [cacheBusy, setCacheBusy] = useState(false)
   const [cacheMessage, setCacheMessage] = useState("")
+  const [appVersion, setAppVersion] = useState("")
+  const [updateEnabled, setUpdateEnabled] = useState<boolean | null>(null)
+  const [updateAvailableVersion, setUpdateAvailableVersion] = useState("")
+  const [updateBusy, setUpdateBusy] = useState(false)
+  const [installBusy, setInstallBusy] = useState(false)
+  const [updateMessage, setUpdateMessage] = useState("")
   const appearanceSaveSequenceRef = useRef(0)
 
   const loadImageCacheStats = useCallback(async () => {
@@ -94,12 +101,27 @@ export function SettingsDialog({
     }
   }, [])
 
+  const loadUpdaterRuntime = useCallback(async () => {
+    if (!hasTauriRuntime()) {
+      setAppVersion("")
+      setUpdateEnabled(false)
+      return
+    }
+    try {
+      const info = await getRuntimeInfo()
+      setAppVersion(info.appVersion || "unknown")
+    } catch {
+      setAppVersion("unknown")
+    }
+  }, [])
+
   useEffect(() => {
     if (!open || activeTab !== "data") {
       return
     }
     void loadImageCacheStats()
-  }, [activeTab, loadImageCacheStats, open])
+    void loadUpdaterRuntime()
+  }, [activeTab, loadImageCacheStats, loadUpdaterRuntime, open])
 
   useEffect(() => {
     if (!open) {
@@ -112,6 +134,9 @@ export function SettingsDialog({
     setShowApiKey(false)
     setGatewayMessage("")
     setAppearanceMessage("")
+    setUpdateAvailableVersion("")
+    setUpdateMessage("")
+    setUpdateEnabled(null)
   }, [
     open,
     runtime.config.apiBaseUrl,
@@ -238,6 +263,82 @@ export function SettingsDialog({
     },
     [applyAndPersistAppearance, fontSizeMode, themeMode]
   )
+
+  const checkUpdates = useCallback(async () => {
+    if (!hasTauriRuntime() || updateBusy || installBusy) {
+      return
+    }
+    setUpdateBusy(true)
+    setUpdateMessage("")
+
+    try {
+      const result = await checkForAppUpdate()
+      if (!result) {
+        setUpdateEnabled(false)
+        setUpdateAvailableVersion("")
+        setUpdateMessage("仅桌面端可用")
+        return
+      }
+
+      setUpdateEnabled(result.enabled)
+      setAppVersion(result.currentVersion || appVersion || "unknown")
+
+      if (!result.enabled) {
+        setUpdateAvailableVersion("")
+        setUpdateMessage(result.error ? "自动更新配置无效" : "当前构建未启用自动更新")
+        return
+      }
+
+      if (result.available && result.version) {
+        setUpdateAvailableVersion(result.version)
+        setUpdateMessage("发现新版本 " + result.version)
+        return
+      }
+
+      setUpdateAvailableVersion("")
+      setUpdateMessage("当前已是最新版本")
+    } catch {
+      setUpdateMessage("检查更新失败，请稍后重试")
+    } finally {
+      setUpdateBusy(false)
+    }
+  }, [appVersion, installBusy, updateBusy])
+
+  const installUpdateNow = useCallback(async () => {
+    if (!hasTauriRuntime() || installBusy || updateBusy) {
+      return
+    }
+    setInstallBusy(true)
+    setUpdateMessage("")
+
+    try {
+      const result = await installAppUpdate()
+      if (!result) {
+        setUpdateMessage("仅桌面端可用")
+        return
+      }
+
+      setUpdateEnabled(result.enabled)
+      setAppVersion(result.currentVersion || appVersion || "unknown")
+
+      if (!result.enabled) {
+        setUpdateMessage(result.error ? "自动更新配置无效" : "当前构建未启用自动更新")
+        return
+      }
+
+      if (result.installed) {
+        setUpdateAvailableVersion("")
+        setUpdateMessage("更新包已安装，应用即将重启")
+        return
+      }
+
+      setUpdateMessage(result.error === "no_update_available" ? "当前没有可安装的更新" : "安装更新失败，请稍后重试")
+    } catch {
+      setUpdateMessage("安装更新失败，请稍后重试")
+    } finally {
+      setInstallBusy(false)
+    }
+  }, [appVersion, installBusy, updateBusy])
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -488,6 +589,48 @@ export function SettingsDialog({
                   <p className="mt-0.5 text-xs text-muted-foreground">导出或删除你的数据</p>
                 </div>
                 <div className="space-y-3">
+                  <div className="rounded-lg border border-input p-3">
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="min-w-0">
+                        <p className="text-sm text-foreground">应用更新</p>
+                        <p className="mt-0.5 text-xs text-muted-foreground">
+                          {hasTauriRuntime()
+                            ? appVersion
+                              ? "当前版本 " + appVersion + (updateAvailableVersion ? " · 可更新到 " + updateAvailableVersion : "")
+                              : "读取版本信息中..."
+                            : "仅桌面端可用"}
+                        </p>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            void checkUpdates()
+                          }}
+                          disabled={!hasTauriRuntime() || updateBusy || installBusy}
+                        >
+                          {updateBusy ? "检查中..." : "检查更新"}
+                        </Button>
+                        {updateAvailableVersion ? (
+                          <Button
+                            size="sm"
+                            className="bg-foreground text-background hover:opacity-80"
+                            onClick={() => {
+                              void installUpdateNow()
+                            }}
+                            disabled={!hasTauriRuntime() || updateBusy || installBusy}
+                          >
+                            {installBusy ? "更新中..." : "更新并重启"}
+                          </Button>
+                        ) : null}
+                      </div>
+                    </div>
+                    {updateMessage ? (
+                      <p className="mt-2 text-xs text-muted-foreground">{updateMessage}</p>
+                    ) : null}
+                  </div>
+
                   <div className="rounded-lg border border-input p-3">
                     <div className="flex items-center justify-between gap-4">
                       <div className="min-w-0">
