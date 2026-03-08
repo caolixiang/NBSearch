@@ -18,15 +18,19 @@ import {
 import { VoiceSettingsSheet, getVoiceOptionLabel, type VoiceOptionId, type VoicePersonalityId } from "@/components/voice-settings-sheet"
 import { cn } from "@/lib/utils"
 
-function AudioWaveIcon({ className = "size-5" }: { className?: string }) {
+function AudioWaveIcon() {
+  const heights = ["0.4rem", "0.8rem", "1.2rem", "0.7rem", "1rem", "0.4rem"]
+
   return (
-    <svg viewBox="0 0 24 24" fill="none" className={className}>
-      <rect x="4" y="10" width="2" height="4" rx="1" fill="currentColor" />
-      <rect x="8" y="7" width="2" height="10" rx="1" fill="currentColor" />
-      <rect x="12" y="4" width="2" height="16" rx="1" fill="currentColor" />
-      <rect x="16" y="7" width="2" height="10" rx="1" fill="currentColor" />
-      <rect x="20" y="10" width="2" height="4" rx="1" fill="currentColor" />
-    </svg>
+    <div aria-hidden="true" className="relative flex items-center justify-center gap-0.5 text-current">
+      {heights.map((height, index) => (
+        <div
+          key={`${height}-${index}`}
+          className="relative z-10 w-0.5 rounded-full bg-current transition-[height,color] duration-200 ease-out"
+          style={{ height }}
+        />
+      ))}
+    </div>
   )
 }
 
@@ -510,13 +514,15 @@ export function ChatInput({
                   type="button"
                   onClick={handleStartVoiceMode}
                   className={cn(
-                    "flex size-10 items-center justify-center rounded-full bg-foreground text-background transition-opacity",
+                    "group flex flex-col justify-center rounded-full focus:outline-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
                     isLoading ? "cursor-not-allowed opacity-45" : "hover:opacity-80"
                   )}
                   aria-label="语音对话"
                   disabled={isLoading}
                 >
-                  <AudioWaveIcon className="size-4" />
+                  <div className="relative flex h-10 aspect-square items-center justify-center gap-0.5 rounded-full bg-foreground text-background ring-1 ring-inset ring-transparent transition-colors duration-200 ease-out">
+                    <AudioWaveIcon />
+                  </div>
                 </button>
               ) : null}
 
