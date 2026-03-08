@@ -23,10 +23,16 @@ import {
   type VoiceOptionId,
   type VoicePersonalityId,
 } from "@/components/voice-settings-sheet"
+import {
+  getVoiceEntryAriaLabel,
+  getVoiceEntryBarHeights,
+  VOICE_ENTRY_CONNECTING_DELAY_MS,
+  type VoiceEntryState,
+} from "@/components/chat-input-voice-entry"
 import { cn } from "@/lib/utils"
 
-function AudioWaveIcon() {
-  const heights = ["0.4rem", "0.8rem", "1.2rem", "0.7rem", "1rem", "0.4rem"]
+function AudioWaveIcon({ state = "idle" }: { state?: VoiceEntryState }) {
+  const heights = getVoiceEntryBarHeights(state)
 
   return (
     <div aria-hidden="true" className="relative flex items-center justify-center gap-0.5 text-current">
@@ -80,7 +86,7 @@ export function ChatInput({
 }: ChatInputProps) {
   const [input, setInput] = useState("")
   const [isRecording, setIsRecording] = useState(false)
-  const [isVoiceMode, setIsVoiceMode] = useState(false)
+  const [voiceEntryState, setVoiceEntryState] = useState<VoiceEntryState>("idle")
   const [isVoiceMicMuted, setIsVoiceMicMuted] = useState(false)
   const [isVoiceSpeakerMuted, setIsVoiceSpeakerMuted] = useState(false)
   const [isVoiceSettingsOpen, setIsVoiceSettingsOpen] = useState(false)
@@ -95,6 +101,17 @@ export function ChatInput({
   const fileInputRef = useRef<HTMLInputElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const isComposingRef = useRef(false)
+  const voiceConnectTimeoutRef = useRef<number | null>(null)
+  const isVoiceMode = voiceEntryState === "active"
+  const isVoiceConnecting = voiceEntryState === "connecting"
+
+  const clearVoiceConnectTimeout = useCallback(() => {
+    if (voiceConnectTimeoutRef.current === null) {
+      return
+    }
+    window.clearTimeout(voiceConnectTimeoutRef.current)
+    voiceConnectTimeoutRef.current = null
+  }, [])
 
   const isImageAttachment = (file: File): boolean => {
     const mimeType = (file.type || "").toLowerCase()
@@ -123,13 +140,21 @@ export function ChatInput({
   )
 
   useEffect(() => {
-    if (!voiceEnabled && isVoiceMode) {
-      setIsVoiceMode(false)
-      setIsVoiceMicMuted(false)
-      setIsVoiceSpeakerMuted(false)
-      setIsVoiceSettingsOpen(false)
+    return () => {
+      clearVoiceConnectTimeout()
     }
-  }, [isVoiceMode, voiceEnabled])
+  }, [clearVoiceConnectTimeout])
+
+  useEffect(() => {
+    if (voiceEnabled) {
+      return
+    }
+    clearVoiceConnectTimeout()
+    setVoiceEntryState("idle")
+    setIsVoiceMicMuted(false)
+    setIsVoiceSpeakerMuted(false)
+    setIsVoiceSettingsOpen(false)
+  }, [clearVoiceConnectTimeout, voiceEnabled])
 
   useEffect(() => {
     if (!isVoiceMode || !textareaRef.current) {
@@ -287,19 +312,28 @@ export function ChatInput({
   }
 
   const handleStartVoiceMode = () => {
-    if (!voiceEnabled || isLoading) {
+    if (!voiceEnabled || isLoading || isVoiceConnecting || isVoiceMode) {
       return
     }
+    clearVoiceConnectTimeout()
     setIsRecording(false)
-    setIsVoiceMode(true)
+    setVoiceEntryState("connecting")
+    voiceConnectTimeoutRef.current = window.setTimeout(() => {
+      voiceConnectTimeoutRef.current = null
+      setVoiceEntryState("active")
+    }, VOICE_ENTRY_CONNECTING_DELAY_MS)
   }
 
   const handleStopVoiceMode = () => {
-    setIsVoiceMode(false)
+    clearVoiceConnectTimeout()
+    setVoiceEntryState("idle")
     setIsVoiceMicMuted(false)
     setIsVoiceSpeakerMuted(false)
     setIsVoiceSettingsOpen(false)
   }
+
+  const voiceEntryAriaLabel = getVoiceEntryAriaLabel(voiceEntryState)
+  const voiceEntryButtonDisabled = isLoading || isVoiceConnecting
 
   const voiceButtonClassName =
     "inline-flex h-10 items-center justify-center gap-2 rounded-full border border-border bg-background px-3.5 text-sm font-medium text-foreground transition-colors hover:bg-secondary/55"
@@ -538,13 +572,21 @@ export function ChatInput({
                   onClick={handleStartVoiceMode}
                   className={cn(
                     "group flex flex-col justify-center rounded-full focus:outline-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
-                    isLoading ? "cursor-not-allowed opacity-45" : "hover:opacity-80"
+                    voiceEntryButtonDisabled ? "cursor-not-allowed" : "hover:opacity-80",
+                    isLoading && !isVoiceConnecting ? "opacity-45" : "opacity-100"
                   )}
-                  aria-label="语音对话"
-                  disabled={isLoading}
+                  aria-label={voiceEntryAriaLabel}
+                  disabled={voiceEntryButtonDisabled}
                 >
-                  <div className="relative flex h-10 aspect-square items-center justify-center gap-0.5 rounded-full bg-foreground text-background ring-1 ring-inset ring-transparent transition-colors duration-200 ease-out">
-                    <AudioWaveIcon />
+                  <div
+                    className={cn(
+                      "relative flex h-10 aspect-square items-center justify-center gap-0.5 rounded-full ring-inset transition-colors duration-200 ease-out",
+                      isVoiceConnecting
+                        ? "bg-secondary text-muted-foreground ring-0"
+                        : "bg-foreground text-background ring-1 ring-transparent"
+                    )}
+                  >
+                    <AudioWaveIcon state={isVoiceConnecting ? "connecting" : "idle"} />
                   </div>
                 </button>
               ) : null}
