@@ -15,7 +15,14 @@ import {
   VolumeX,
   X,
 } from "lucide-react"
-import { VoiceSettingsSheet, getVoiceOptionLabel, type VoiceOptionId, type VoicePersonalityId } from "@/components/voice-settings-sheet"
+import {
+  DEFAULT_VOICE_OPTION_ID,
+  DEFAULT_VOICE_PERSONALITY_ID,
+  VoiceSettingsSheet,
+  getVoiceOptionLabel,
+  type VoiceOptionId,
+  type VoicePersonalityId,
+} from "@/components/voice-settings-sheet"
 import { cn } from "@/lib/utils"
 
 function AudioWaveIcon() {
@@ -77,8 +84,8 @@ export function ChatInput({
   const [isVoiceMicMuted, setIsVoiceMicMuted] = useState(false)
   const [isVoiceSpeakerMuted, setIsVoiceSpeakerMuted] = useState(false)
   const [isVoiceSettingsOpen, setIsVoiceSettingsOpen] = useState(false)
-  const [selectedVoiceId, setSelectedVoiceId] = useState<VoiceOptionId>("leo")
-  const [selectedVoicePersonalityId, setSelectedVoicePersonalityId] = useState<VoicePersonalityId>("custom")
+  const [selectedVoiceId, setSelectedVoiceId] = useState<VoiceOptionId>(DEFAULT_VOICE_OPTION_ID)
+  const [selectedVoicePersonalityId, setSelectedVoicePersonalityId] = useState<VoicePersonalityId>(DEFAULT_VOICE_PERSONALITY_ID)
   const [savedVoicePrompt, setSavedVoicePrompt] = useState("")
   const [voiceSpeed, setVoiceSpeed] = useState(1)
   const [attachments, setAttachments] = useState<File[]>([])

@@ -40,6 +40,9 @@ interface PersonalityOption {
   badge?: string
 }
 
+export const DEFAULT_VOICE_OPTION_ID: VoiceOptionId = "ara"
+export const DEFAULT_VOICE_PERSONALITY_ID: VoicePersonalityId = "assistant"
+
 const PERSONALITY_OPTIONS: readonly PersonalityOption[] = [
   { id: "custom", label: "自定义", icon: Settings2 },
   { id: "assistant", label: "Assistant", icon: Bot },
@@ -61,7 +64,7 @@ export type VoiceOptionId = (typeof VOICE_OPTIONS)[number]["id"]
 export type VoicePersonalityId = (typeof PERSONALITY_OPTIONS)[number]["id"]
 
 export function getVoiceOptionLabel(voiceId: string): string {
-  return VOICE_OPTIONS.find((option) => option.id === voiceId)?.label || "Leo"
+  return VOICE_OPTIONS.find((option) => option.id === voiceId)?.label || "Ara"
 }
 
 interface VoiceSettingsSheetProps {
