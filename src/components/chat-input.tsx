@@ -205,11 +205,25 @@ export function ChatInput({
     }
   }, [imageAttachments])
 
+  const clearFilePickerSelection = () => {
+    const inputElement = fileInputRef.current
+    if (!inputElement) {
+      return
+    }
+    inputElement.value = ""
+  }
+
+  const openFilePicker = () => {
+    clearFilePickerSelection()
+    fileInputRef.current?.click()
+  }
+
   const handleSubmit = useCallback(() => {
     if ((!input.trim() && attachments.length === 0) || isLoading) return
     onSendMessage(input.trim(), attachments.length > 0 ? attachments : undefined)
     setInput("")
     setAttachments([])
+    clearFilePickerSelection()
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto"
     }
@@ -234,8 +248,9 @@ export function ChatInput({
   }
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) {
-      setAttachments((prev) => [...prev, ...Array.from(e.target.files!)])
+    const selectedFiles = e.target.files ? Array.from(e.target.files) : []
+    if (selectedFiles.length > 0) {
+      setAttachments((prev) => [...prev, ...selectedFiles])
     }
     e.target.value = ""
   }
@@ -286,6 +301,7 @@ export function ChatInput({
 
   const removeAttachment = (index: number) => {
     setAttachments((prev) => prev.filter((_, i) => i !== index))
+    clearFilePickerSelection()
   }
 
   const markPreviewLoaded = (index: number) => {
@@ -460,7 +476,7 @@ export function ChatInput({
               />
               <button
                 type="button"
-                onClick={() => fileInputRef.current?.click()}
+                onClick={openFilePicker}
                 className="inline-flex size-10 shrink-0 items-center justify-center rounded-full border border-border bg-background text-foreground transition-colors hover:bg-secondary/55"
                 aria-label="上传附件"
               >
@@ -520,7 +536,7 @@ export function ChatInput({
               />
               <button
                 type="button"
-                onClick={() => fileInputRef.current?.click()}
+                onClick={openFilePicker}
                 className="inline-flex size-10 shrink-0 items-center justify-center rounded-full border border-border bg-background text-foreground transition-colors hover:bg-secondary/55"
                 aria-label="上传附件"
               >

@@ -100,6 +100,31 @@ describe("buildGatewayTurnRequestPayload", () => {
     expect(content[0]?.text).toBe("请分析这个附件。")
   })
 
+  it("keeps multiple attachments in order within a single user message", async () => {
+    const payload = await buildGatewayTurnRequestPayload({
+      model: "grok-4.1-fast",
+      sessionId: "sess_1",
+      clientTurnId: "turn_1",
+      text: "一起分析",
+      attachments: [
+        new File(["img-1"], "photo-1.png", { type: "image/png" }),
+        new File(["img-2"], "photo-2.jpg", { type: "image/jpeg" }),
+        new File(["doc"], "report.pdf", { type: "application/pdf" }),
+      ],
+    })
+
+    const inputRows = payload["input"] as Array<Record<string, unknown>>
+    const content = inputRows[0]?.content as Array<Record<string, unknown>>
+    expect(content).toHaveLength(4)
+    expect(content[0]?.type).toBe("text")
+    expect(content[1]?.type).toBe("image_url")
+    expect(content[2]?.type).toBe("image_url")
+    expect(content[3]?.type).toBe("file")
+    expect(String((content[1]?.image_url as Record<string, unknown>).url)).toContain("data:image/png;base64,")
+    expect(String((content[2]?.image_url as Record<string, unknown>).url)).toContain("data:image/jpeg;base64,")
+    expect(String((content[3]?.file as Record<string, unknown>).file_data)).toContain("data:application/pdf")
+  })
+
   it("rejects oversized attachments", async () => {
     const hugeFile = new File([new Uint8Array(50 * 1024 * 1024 + 1)], "huge.bin", {
       type: "application/octet-stream",
