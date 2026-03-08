@@ -21,6 +21,7 @@ import {
   formatVoiceSpeed,
   normalizeVoiceSpeed,
 } from "@/components/voice-settings-speed"
+import { shouldShowCustomPromptEditor } from "@/components/voice-settings-personality"
 import { cn } from "@/lib/utils"
 
 const VOICE_OPTIONS = [
@@ -256,29 +257,31 @@ export function VoiceSettingsSheet({
               </div>
             </div>
 
-            <form onSubmit={handleSave} className="mt-2.5 rounded-xl border border-border bg-background px-3 py-3">
-              <p className="text-sm font-medium text-foreground">说明</p>
-              <textarea
-                value={draftPrompt}
-                onChange={(event) => setDraftPrompt(event.target.value)}
-                placeholder="请描述你希望 Grok 采用的行为、语气和回应方式。"
-                className="mt-2.5 min-h-[108px] w-full resize-none border-0 bg-transparent p-0 text-sm leading-6 text-foreground outline-none placeholder:text-muted-foreground"
-              />
-              <div className="mt-2 flex justify-end">
-                <button
-                  type="submit"
-                  disabled={saveDisabled}
-                  className={cn(
-                    "inline-flex h-8 items-center justify-center rounded-full px-3 text-xs font-semibold transition-colors",
-                    saveDisabled
-                      ? "cursor-not-allowed bg-secondary text-muted-foreground"
-                      : "bg-foreground text-background hover:opacity-90"
-                  )}
-                >
-                  保存
-                </button>
-              </div>
-            </form>
+            {shouldShowCustomPromptEditor(selectedPersonalityId) ? (
+              <form onSubmit={handleSave} className="mt-2.5 rounded-xl border border-border bg-background px-3 py-3">
+                <p className="text-sm font-medium text-foreground">说明</p>
+                <textarea
+                  value={draftPrompt}
+                  onChange={(event) => setDraftPrompt(event.target.value)}
+                  placeholder="请描述你希望 Grok 采用的行为、语气和回应方式。"
+                  className="mt-2.5 min-h-[108px] w-full resize-none border-0 bg-transparent p-0 text-sm leading-6 text-foreground outline-none placeholder:text-muted-foreground"
+                />
+                <div className="mt-2 flex justify-end">
+                  <button
+                    type="submit"
+                    disabled={saveDisabled}
+                    className={cn(
+                      "inline-flex h-8 items-center justify-center rounded-full px-3 text-xs font-semibold transition-colors",
+                      saveDisabled
+                        ? "cursor-not-allowed bg-secondary text-muted-foreground"
+                        : "bg-foreground text-background hover:opacity-90"
+                    )}
+                  >
+                    保存
+                  </button>
+                </div>
+              </form>
+            ) : null}
           </section>
 
           <section className="mt-3">
