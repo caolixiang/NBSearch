@@ -123,26 +123,17 @@ function SpeedControl({ speed, onSpeedChange }: { speed: number; onSpeedChange: 
 
   return (
     <div className="mt-2 flex items-center gap-3 px-2">
-      <div className="relative flex h-10 flex-1 items-center overflow-hidden rounded-[32px] border border-border bg-background px-3.5">
-        <div className="absolute inset-[3px] rounded-full bg-background" />
+      <div className="relative flex-1 py-3">
+        <div className="pointer-events-none absolute inset-x-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-border/90" />
         <div
-          className="pointer-events-none absolute inset-y-[3px] left-[3px] rounded-full bg-foreground transition-[width] duration-200"
-          style={{ width: `calc(${selectedPercent}% - 3px)` }}
+          className="pointer-events-none absolute left-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-foreground transition-[width] duration-200"
+          style={{ width: `${selectedPercent}%` }}
         />
-        <div className="pointer-events-none absolute inset-x-3.5 top-1/2 z-10 flex -translate-y-1/2 items-center justify-between">
-          {VOICE_SPEED_STEPS.map((option, index) => (
-            <span
-              key={option}
-              className={cn(
-                "size-1 rounded-full transition-colors",
-                index <= selectedSpeedIndex ? "bg-background/55" : "bg-foreground/18"
-              )}
-            />
-          ))}
-        </div>
+        <span className="pointer-events-none absolute left-0 top-1/2 size-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full border border-border/90 bg-background" />
+        <span className="pointer-events-none absolute right-0 top-1/2 size-2.5 translate-x-1/2 -translate-y-1/2 rounded-full border border-border/90 bg-background" />
         <div
-          className="pointer-events-none absolute top-1/2 z-20 h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-background shadow-[0_1px_4px_rgba(15,23,42,0.18)] transition-[left] duration-200"
-          style={{ left: `calc(${selectedPercent}% + 3px)` }}
+          className="pointer-events-none absolute top-1/2 z-20 size-5 -translate-x-1/2 -translate-y-1/2 rounded-full border border-border/90 bg-background shadow-[0_1px_6px_rgba(15,23,42,0.18)] transition-[left] duration-200"
+          style={{ left: `${selectedPercent}%` }}
         />
         <input
           type="range"
@@ -152,7 +143,7 @@ function SpeedControl({ speed, onSpeedChange }: { speed: number; onSpeedChange: 
           value={normalizedSpeed}
           onChange={(event) => onSpeedChange(normalizeVoiceSpeed(Number(event.currentTarget.value)))}
           aria-label="速度"
-          className="absolute inset-0 z-30 h-full w-full cursor-pointer appearance-none bg-transparent opacity-0"
+          className="absolute inset-x-[-10px] top-1/2 z-30 h-8 -translate-y-1/2 cursor-pointer appearance-none bg-transparent opacity-0"
         />
       </div>
       <span className="w-10 text-right text-sm font-semibold tabular-nums text-foreground">{formatVoiceSpeed(normalizedSpeed)}x</span>
