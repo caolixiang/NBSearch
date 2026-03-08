@@ -123,17 +123,19 @@ function SpeedControl({ speed, onSpeedChange }: { speed: number; onSpeedChange: 
   return (
     <div className="mt-2 flex items-center gap-3 px-2">
       <div className="relative flex h-10 flex-1 items-center overflow-hidden rounded-[32px] border border-border bg-background p-1">
-        <div
-          className="absolute inset-y-1 left-1 rounded-full bg-foreground transition-[width] duration-200"
-          style={{ width: `calc(${selectedPercent}% + 1.35rem)` }}
-        />
+        <div className="absolute inset-1 overflow-hidden rounded-full">
+          <div
+            className="h-full rounded-full bg-foreground transition-[width] duration-200"
+            style={{ width: `${selectedPercent}%` }}
+          />
+        </div>
         <div className="pointer-events-none absolute inset-x-3 top-1/2 z-10 flex -translate-y-1/2 items-center justify-between">
           {VOICE_SPEED_STEPS.map((option, index) => (
             <span
               key={option}
               className={cn(
                 "size-1 rounded-full transition-colors",
-                index / (VOICE_SPEED_STEPS.length - 1) <= selectedPercent / 100
+                index <= selectedSpeedIndex
                   ? "bg-background/55"
                   : "bg-foreground/18"
               )}
