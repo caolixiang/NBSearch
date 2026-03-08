@@ -125,6 +125,23 @@ export function ChatInput({
   }, [isVoiceMode, voiceEnabled])
 
   useEffect(() => {
+    if (!isVoiceMode || !textareaRef.current) {
+      return
+    }
+
+    const element = textareaRef.current
+    const focusInput = () => {
+      element.focus()
+      const end = element.value.length
+      element.setSelectionRange(end, end)
+    }
+
+    focusInput()
+    const frame = window.requestAnimationFrame(focusInput)
+    return () => window.cancelAnimationFrame(frame)
+  }, [isVoiceMode])
+
+  useEffect(() => {
     if (!onHeightChange || !containerRef.current) {
       return
     }
@@ -157,18 +174,18 @@ export function ChatInput({
   }, [imageAttachments])
 
   const handleSubmit = useCallback(() => {
-    if ((!input.trim() && attachments.length === 0) || isLoading || isVoiceMode) return
+    if ((!input.trim() && attachments.length === 0) || isLoading) return
     onSendMessage(input.trim(), attachments.length > 0 ? attachments : undefined)
     setInput("")
     setAttachments([])
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto"
     }
-  }, [attachments, input, isLoading, isVoiceMode, onSendMessage])
+  }, [attachments, input, isLoading, onSendMessage])
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     const nativeEvent = e.nativeEvent as KeyboardEvent & { isComposing?: boolean }
-    if (isComposingRef.current || nativeEvent.isComposing || nativeEvent.keyCode === 229 || isVoiceMode) {
+    if (isComposingRef.current || nativeEvent.isComposing || nativeEvent.keyCode === 229) {
       return
     }
     if (e.key === "Enter" && !e.shiftKey) {
@@ -178,9 +195,6 @@ export function ChatInput({
   }
 
   const handleTextareaInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    if (isVoiceMode) {
-      return
-    }
     setInput(e.target.value)
     const el = e.target
     el.style.height = "auto"
@@ -219,10 +233,6 @@ export function ChatInput({
   }
 
   const handleTextareaPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
-    if (isVoiceMode) {
-      return
-    }
-
     const items = Array.from(e.clipboardData?.items || [])
     if (items.length === 0) {
       return
@@ -384,11 +394,12 @@ export function ChatInput({
               onCompositionEnd={() => {
                 isComposingRef.current = false
               }}
-              placeholder="Grok 怎么能帮忙?"
+              placeholder="不方便说话，你也可以打字"
               rows={1}
-              readOnly
+              autoFocus
               className="w-full resize-none bg-transparent px-5 pt-5 pb-3 text-[16px] leading-7 text-foreground outline-none placeholder:text-muted-foreground sm:px-6 sm:pt-6 sm:text-[17px]"
               style={{ minHeight: "88px", maxHeight: "164px" }}
+              disabled={isLoading}
             />
 
             <div className="flex flex-col gap-2 px-4 pb-4 sm:flex-row sm:items-center sm:justify-between sm:px-4 sm:pb-3">
