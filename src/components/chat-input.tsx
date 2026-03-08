@@ -281,7 +281,7 @@ export function ChatInput({
   }
 
   const voiceButtonClassName =
-    "inline-flex h-11 items-center justify-center gap-2 rounded-full border border-border bg-background px-4 text-sm font-medium text-foreground transition-colors hover:bg-secondary/55"
+    "inline-flex h-10 items-center justify-center gap-2 rounded-full border border-border bg-background px-3.5 text-sm font-medium text-foreground transition-colors hover:bg-secondary/55"
 
   return (
     <div
@@ -295,7 +295,7 @@ export function ChatInput({
         className={cn(
           "relative overflow-hidden border border-border bg-card shadow-sm transition-[border-radius,box-shadow,background,border-color] focus-within:border-ring/30 focus-within:shadow-sm",
           isVoiceMode
-            ? "rounded-[2rem] bg-card shadow-[0_12px_30px_-24px_rgba(15,23,42,0.45)]"
+            ? "rounded-[1.75rem] bg-card shadow-[0_10px_24px_-22px_rgba(15,23,42,0.38)]"
             : "rounded-2xl"
         )}
       >
@@ -384,17 +384,17 @@ export function ChatInput({
           className={cn(
             "w-full resize-none bg-transparent text-foreground outline-none placeholder:text-muted-foreground",
             isVoiceMode
-              ? "px-5 pt-6 pb-4 text-[17px] font-medium leading-8 placeholder:text-muted-foreground sm:px-6 sm:pt-7 sm:text-[18px]"
+              ? "px-5 pt-5 pb-3 text-[16px] leading-7 placeholder:text-muted-foreground sm:px-6 sm:pt-6 sm:text-[17px]"
               : "px-4 pt-4 pb-2 text-base",
             isRecording && !isVoiceMode && "placeholder:text-red-400"
           )}
-          style={{ minHeight: isVoiceMode ? "96px" : "44px", maxHeight: isVoiceMode ? "176px" : "200px" }}
+          style={{ minHeight: isVoiceMode ? "88px" : "44px", maxHeight: isVoiceMode ? "164px" : "200px" }}
           disabled={isLoading && !isVoiceMode}
         />
 
         {isVoiceMode ? (
-          <div className="flex flex-col gap-2.5 px-4 pb-4 sm:flex-row sm:items-center sm:justify-between sm:px-4 sm:pb-4">
-            <div className="flex min-w-0 flex-wrap items-center gap-2.5 sm:flex-nowrap">
+          <div className="flex flex-col gap-2 px-4 pb-4 sm:flex-row sm:items-center sm:justify-between sm:px-4 sm:pb-3">
+            <div className="flex min-w-0 flex-wrap items-center gap-2 sm:flex-nowrap">
               <input
                 ref={fileInputRef}
                 type="file"
@@ -406,12 +406,12 @@ export function ChatInput({
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className="inline-flex size-11 shrink-0 items-center justify-center rounded-full border border-border bg-background text-foreground transition-colors hover:bg-secondary/55"
+                className="inline-flex size-10 shrink-0 items-center justify-center rounded-full border border-border bg-background text-foreground transition-colors hover:bg-secondary/55"
                 aria-label="上传附件"
               >
                 <Paperclip className="size-5" />
               </button>
-              <div className="hidden h-9 w-px shrink-0 bg-border/70 sm:block" />
+              <div className="hidden h-8 w-px shrink-0 bg-border/70 sm:block" />
               <button
                 type="button"
                 onClick={() => setIsVoiceMicMuted((value) => !value)}
@@ -432,7 +432,7 @@ export function ChatInput({
               <button
                 type="button"
                 onClick={() => setIsVoiceSettingsOpen(true)}
-                className={cn(voiceButtonClassName, "min-w-[9.5rem] justify-between px-4")}
+                className={cn(voiceButtonClassName, "min-w-[9rem] justify-between px-4")}
                 aria-label="语音设置"
               >
                 <span className="inline-flex items-center gap-2">
@@ -446,7 +446,7 @@ export function ChatInput({
             <button
               type="button"
               onClick={handleStopVoiceMode}
-              className="inline-flex h-11 shrink-0 items-center justify-center rounded-full bg-foreground px-7 text-[15px] font-semibold text-background transition-opacity hover:opacity-90 sm:min-w-[8rem]"
+              className="inline-flex h-10 shrink-0 items-center justify-center rounded-full bg-foreground px-6 text-sm font-semibold text-background transition-opacity hover:opacity-90 sm:min-w-[7.5rem]"
             >
               停止
             </button>
