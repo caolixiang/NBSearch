@@ -281,7 +281,7 @@ export function ChatInput({
   }
 
   const voiceButtonClassName =
-    "inline-flex h-12 items-center justify-center gap-2 rounded-full border border-border/80 bg-background/70 px-4 text-sm font-medium text-foreground transition-colors hover:bg-secondary/65"
+    "inline-flex h-11 items-center justify-center gap-2 rounded-full border border-border bg-background px-4 text-sm font-medium text-foreground transition-colors hover:bg-secondary/55"
 
   return (
     <div
@@ -293,14 +293,14 @@ export function ChatInput({
     >
       <div
         className={cn(
-          "relative overflow-hidden border border-border bg-card shadow-sm transition-[border-radius,box-shadow,background] focus-within:shadow-md focus-within:border-ring/40",
+          "relative overflow-hidden border border-border bg-card shadow-sm transition-[border-radius,box-shadow,background,border-color] focus-within:border-ring/30 focus-within:shadow-sm",
           isVoiceMode
-            ? "rounded-[2rem] bg-gradient-to-br from-background via-background to-emerald-50/70 dark:to-background"
+            ? "rounded-[2rem] bg-card shadow-[0_12px_30px_-24px_rgba(15,23,42,0.45)]"
             : "rounded-2xl"
         )}
       >
         {attachments.length > 0 && (
-          <div className={cn("px-4 pt-3", isVoiceMode && "px-5 pt-5")}>
+          <div className={cn("px-4 pt-3", isVoiceMode && "px-5 pt-4")}>
             {imageAttachments.length > 0 ? (
               <div className="mb-2 flex flex-wrap gap-2">
                 {imageAttachments.map(({ file, index }) => {
@@ -384,17 +384,17 @@ export function ChatInput({
           className={cn(
             "w-full resize-none bg-transparent text-foreground outline-none placeholder:text-muted-foreground",
             isVoiceMode
-              ? "px-6 pt-8 pb-5 text-[18px] leading-8 placeholder:text-foreground/55 sm:px-9 sm:pt-10 sm:text-[20px]"
+              ? "px-5 pt-6 pb-4 text-[17px] font-medium leading-8 placeholder:text-muted-foreground sm:px-6 sm:pt-7 sm:text-[18px]"
               : "px-4 pt-4 pb-2 text-base",
             isRecording && !isVoiceMode && "placeholder:text-red-400"
           )}
-          style={{ minHeight: isVoiceMode ? "108px" : "44px", maxHeight: isVoiceMode ? "190px" : "200px" }}
+          style={{ minHeight: isVoiceMode ? "96px" : "44px", maxHeight: isVoiceMode ? "176px" : "200px" }}
           disabled={isLoading && !isVoiceMode}
         />
 
         {isVoiceMode ? (
-          <div className="flex flex-col gap-3 px-4 pb-4 sm:flex-row sm:items-center sm:justify-between sm:px-5 sm:pb-5">
-            <div className="flex min-w-0 flex-wrap items-center gap-3 sm:flex-nowrap">
+          <div className="flex flex-col gap-2.5 px-4 pb-4 sm:flex-row sm:items-center sm:justify-between sm:px-4 sm:pb-4">
+            <div className="flex min-w-0 flex-wrap items-center gap-2.5 sm:flex-nowrap">
               <input
                 ref={fileInputRef}
                 type="file"
@@ -406,12 +406,12 @@ export function ChatInput({
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className="inline-flex size-12 shrink-0 items-center justify-center rounded-full border border-border/80 bg-background/70 text-foreground transition-colors hover:bg-secondary/65"
+                className="inline-flex size-11 shrink-0 items-center justify-center rounded-full border border-border bg-background text-foreground transition-colors hover:bg-secondary/55"
                 aria-label="上传附件"
               >
                 <Paperclip className="size-5" />
               </button>
-              <div className="hidden h-10 w-px shrink-0 bg-border/80 sm:block" />
+              <div className="hidden h-9 w-px shrink-0 bg-border/70 sm:block" />
               <button
                 type="button"
                 onClick={() => setIsVoiceMicMuted((value) => !value)}
@@ -424,7 +424,7 @@ export function ChatInput({
               <button
                 type="button"
                 onClick={() => setIsVoiceSpeakerMuted((value) => !value)}
-                className="inline-flex size-12 shrink-0 items-center justify-center rounded-full border border-border/80 bg-background/70 text-foreground transition-colors hover:bg-secondary/65"
+                className="inline-flex size-11 shrink-0 items-center justify-center rounded-full border border-border bg-background text-foreground transition-colors hover:bg-secondary/55"
                 aria-label={isVoiceSpeakerMuted ? "取消扬声器静音" : "扬声器静音"}
               >
                 {isVoiceSpeakerMuted ? <VolumeX className="size-5" /> : <Volume2 className="size-5" />}
@@ -432,7 +432,7 @@ export function ChatInput({
               <button
                 type="button"
                 onClick={() => setIsVoiceSettingsOpen(true)}
-                className={cn(voiceButtonClassName, "min-w-[10rem] justify-between px-4")}
+                className={cn(voiceButtonClassName, "min-w-[9.5rem] justify-between px-4")}
                 aria-label="语音设置"
               >
                 <span className="inline-flex items-center gap-2">
@@ -446,7 +446,7 @@ export function ChatInput({
             <button
               type="button"
               onClick={handleStopVoiceMode}
-              className="inline-flex h-12 shrink-0 items-center justify-center rounded-full bg-foreground px-7 text-base font-semibold text-background transition-opacity hover:opacity-90 sm:min-w-[8.5rem]"
+              className="inline-flex h-11 shrink-0 items-center justify-center rounded-full bg-foreground px-7 text-[15px] font-semibold text-background transition-opacity hover:opacity-90 sm:min-w-[8rem]"
             >
               停止
             </button>
