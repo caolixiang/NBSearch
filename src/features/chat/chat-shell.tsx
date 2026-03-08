@@ -42,7 +42,6 @@ import { useChatShellModels } from "./use-chat-shell-models"
 import { useChatShellScroll } from "./use-chat-shell-scroll"
 
 const DRAFT_CONVERSATION_ID = "draft_new_conversation"
-const CHAT_INPUT_REVEAL_DELAY_MS = 500
 const PENDING_RECOVERY_POLL_INTERVAL_MS = 2500
 const PENDING_RECOVERY_NONE_RESULT_MAX_RETRIES = 24
 export function ChatShell({ runtime }: { runtime: AppRuntime }) {
@@ -93,15 +92,13 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
   >({})
 
   const {
-    chatInputCollapsedByScroll,
     chatInputHeight,
     setChatInputHeight,
     messagesScrollRef,
     shouldAutoScrollRef,
-    clearChatInputRevealTimer,
     setProgrammaticScrollTop,
     handleMessagesScroll,
-  } = useChatShellScroll(activeConversationId, CHAT_INPUT_REVEAL_DELAY_MS)
+  } = useChatShellScroll(activeConversationId)
 
   const abortControllerByConversationIdRef = useRef<Record<string, AbortController>>({})
   const activeConversationIdRef = useRef<string | null>(null)
@@ -499,13 +496,12 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
 
     return () => {
       mounted = false
-      clearChatInputRevealTimer()
       for (const controller of Object.values(abortControllerByConversationIdRef.current)) {
         controller.abort()
       }
       abortControllerByConversationIdRef.current = {}
     }
-  }, [clearChatInputRevealTimer, loadMessages, refreshConversations])
+  }, [loadMessages, refreshConversations])
 
   useEffect(() => {
     if (!activeConversationId || activeConversationId === DRAFT_CONVERSATION_ID) {
@@ -1311,33 +1307,24 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
           )}
         </div>
 
-        <div
-          className={cn(
-            "grid overflow-hidden transition-[grid-template-rows,opacity,transform] duration-300 ease-out",
-            chatInputCollapsedByScroll
-              ? "grid-rows-[0fr] opacity-0 translate-y-3 pointer-events-none"
-              : "grid-rows-[1fr] opacity-100 translate-y-0"
-          )}
-        >
-          <div className="min-h-0">
-            <ChatInput
-              onSendMessage={(text, attachments) => {
-                void handleSendMessage(text, attachments)
-              }}
-              isLoading={isActiveConversationStreaming}
-              voiceEnabled={runtime.config.voiceEnabled}
-              onHeightChange={(height) => {
-                setChatInputHeight((prev) => (Math.abs(prev - height) < 1 ? prev : height))
-              }}
-              onStop={() => {
-                const currentConversationId = activeConversationIdRef.current
-                if (!currentConversationId) {
-                  return
-                }
-                abortControllerByConversationIdRef.current[currentConversationId]?.abort()
-              }}
-            />
-          </div>
+        <div className="shrink-0">
+          <ChatInput
+            onSendMessage={(text, attachments) => {
+              void handleSendMessage(text, attachments)
+            }}
+            isLoading={isActiveConversationStreaming}
+            voiceEnabled={runtime.config.voiceEnabled}
+            onHeightChange={(height) => {
+              setChatInputHeight((prev) => (Math.abs(prev - height) < 1 ? prev : height))
+            }}
+            onStop={() => {
+              const currentConversationId = activeConversationIdRef.current
+              if (!currentConversationId) {
+                return
+              }
+              abortControllerByConversationIdRef.current[currentConversationId]?.abort()
+            }}
+          />
         </div>
       </div>
 
