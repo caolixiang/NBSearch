@@ -297,6 +297,8 @@ export function ChatInput({
   const voiceButtonClassName =
     "inline-flex h-10 items-center justify-center gap-2 rounded-full border border-border bg-background px-3.5 text-sm font-medium text-foreground transition-colors hover:bg-secondary/55"
 
+  const shouldRenderAttachmentTray = attachments.length > 0 || isVoiceMode
+
   return (
     <div
       ref={containerRef}
@@ -313,8 +315,8 @@ export function ChatInput({
             : "rounded-[1.75rem]"
         )}
       >
-        {attachments.length > 0 && (
-          <div className={cn("px-4 pt-3", isVoiceMode && "px-5 pt-4")}>
+        {shouldRenderAttachmentTray ? (
+          <div className={cn("px-4 pt-3", isVoiceMode && "min-h-[3.5rem] pb-1")}>
             {imageAttachments.length > 0 ? (
               <div className="mb-2 flex flex-wrap gap-2">
                 {imageAttachments.map(({ file, index }) => {
@@ -378,7 +380,7 @@ export function ChatInput({
               </div>
             ) : null}
           </div>
-        )}
+        ) : null}
 
         {isVoiceMode ? (
           <>
@@ -397,8 +399,8 @@ export function ChatInput({
               placeholder="不方便说话，你也可以打字"
               rows={1}
               autoFocus
-              className="w-full resize-none bg-transparent px-5 pt-5 pb-3 text-[16px] leading-7 text-foreground outline-none placeholder:text-muted-foreground sm:px-6 sm:pt-6 sm:text-[17px]"
-              style={{ minHeight: "88px", maxHeight: "164px" }}
+              className="w-full resize-none bg-transparent px-4 pt-1 pb-3 text-[16px] leading-7 text-foreground outline-none placeholder:text-muted-foreground sm:px-5 sm:text-[17px]"
+              style={{ minHeight: "96px", maxHeight: "164px" }}
               disabled={isLoading}
             />
 
