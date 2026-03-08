@@ -84,20 +84,26 @@ export function UserMessageBubble({ content }: { content: string }) {
   const { text, attachments } = parseUserMessageContent(content)
   return (
     <div className="flex justify-end px-6 py-4">
-      <div className="max-w-[75%] rounded-2xl rounded-br-md bg-secondary px-4 py-3 text-[16px] leading-7 text-foreground">
-        {text ? <p className="whitespace-pre-wrap">{text}</p> : null}
+      <div className="flex max-w-[78%] flex-col items-end gap-2.5">
+        {text ? (
+          <div className="w-fit max-w-full rounded-[28px] rounded-br-[14px] bg-secondary px-5 py-3 text-[16px] leading-7 text-foreground">
+            <p className="whitespace-pre-wrap">{text}</p>
+          </div>
+        ) : null}
         {attachments.length > 0 ? (
-          <div className={cn("space-y-2", text ? "mt-2.5" : "") }>
+          <div className={cn("flex w-full flex-col items-end gap-2", text ? "pt-0.5" : "") }>
             {attachments.map((fileName, index) => {
               const Icon = resolveAttachmentIcon(fileName)
               return (
                 <div
                   key={`${fileName}-${index}`}
-                  className="flex items-center gap-2 rounded-lg bg-background/40 px-2.5 py-1.5 text-[15px] leading-6 text-foreground"
+                  className="flex w-fit max-w-full items-center gap-3 rounded-[24px] border border-border/80 bg-background px-4 py-3 text-[15px] leading-6 text-foreground shadow-[0_1px_0_rgba(0,0,0,0.02)] sm:min-w-[20rem] sm:px-5 sm:py-3.5"
                 >
-                  <Icon className="size-4 shrink-0 text-muted-foreground" />
-                  <span className="min-w-0 max-w-full overflow-hidden text-ellipsis whitespace-nowrap">
-                    {truncateAttachmentName(fileName)}
+                  <div className="inline-flex size-11 shrink-0 items-center justify-center rounded-[18px] bg-secondary/55 text-muted-foreground">
+                    <Icon className="size-5 shrink-0" />
+                  </div>
+                  <span className="min-w-0 max-w-[min(52vw,24rem)] overflow-hidden text-ellipsis whitespace-nowrap text-[15px] font-medium tracking-[-0.01em] text-foreground sm:max-w-[26rem]">
+                    {truncateAttachmentName(fileName, 28)}
                   </span>
                 </div>
               )
