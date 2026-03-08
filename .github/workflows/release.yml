@@ -129,7 +129,31 @@ jobs:
           if [ -z "${NBSEARCH_UPDATER_ENDPOINT:-}" ]; then
             export NBSEARCH_UPDATER_ENDPOINT="https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/latest.json"
           fi
-          bunx tauri build --bundles "${{ matrix.bundles }}" --config src-tauri/tauri.updater.conf.json
+          node <<'INNER_NODE'
+          const fs = require("node:fs")
+          const path = require("node:path")
+
+          const baseConfigPath = path.resolve("src-tauri/tauri.conf.json")
+          const releaseConfigPath = path.resolve("src-tauri/tauri.release.conf.json")
+          const baseConfig = JSON.parse(fs.readFileSync(baseConfigPath, "utf8"))
+          const updaterConfig = {
+            pubkey: (process.env.NBSEARCH_UPDATER_PUBKEY || "").trim(),
+            endpoints: [(process.env.NBSEARCH_UPDATER_ENDPOINT || "").trim()].filter(Boolean),
+          }
+
+          baseConfig.bundle = {
+            ...(baseConfig.bundle || {}),
+            createUpdaterArtifacts: true,
+          }
+          baseConfig.plugins = {
+            ...(baseConfig.plugins || {}),
+            updater: updaterConfig,
+          }
+
+          fs.writeFileSync(releaseConfigPath, `${JSON.stringify(baseConfig, null, 2)}\n`)
+          console.log(`Wrote ${releaseConfigPath}`)
+          INNER_NODE
+          bunx tauri build --bundles "${{ matrix.bundles }}" --config src-tauri/tauri.release.conf.json
 
       - name: Collect updater metadata
         shell: bash
