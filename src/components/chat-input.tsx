@@ -296,7 +296,7 @@ export function ChatInput({
           "relative overflow-hidden border border-border bg-card shadow-sm transition-[border-radius,box-shadow,background,border-color] focus-within:border-ring/30 focus-within:shadow-sm",
           isVoiceMode
             ? "rounded-[1.75rem] bg-card shadow-[0_10px_24px_-22px_rgba(15,23,42,0.38)]"
-            : "rounded-2xl"
+            : "rounded-[1.75rem]"
         )}
       >
         {attachments.length > 0 && (
@@ -385,10 +385,10 @@ export function ChatInput({
             "w-full resize-none bg-transparent text-foreground outline-none placeholder:text-muted-foreground",
             isVoiceMode
               ? "px-5 pt-5 pb-3 text-[16px] leading-7 placeholder:text-muted-foreground sm:px-6 sm:pt-6 sm:text-[17px]"
-              : "px-4 pt-4 pb-2 text-base",
+              : "px-5 pt-5 pb-3 text-[16px] leading-7 placeholder:text-muted-foreground sm:px-6 sm:pt-5 sm:text-[17px]",
             isRecording && !isVoiceMode && "placeholder:text-red-400"
           )}
-          style={{ minHeight: isVoiceMode ? "88px" : "44px", maxHeight: isVoiceMode ? "164px" : "200px" }}
+          style={{ minHeight: isVoiceMode ? "88px" : "88px", maxHeight: isVoiceMode ? "164px" : "200px" }}
           disabled={isLoading && !isVoiceMode}
         />
 
@@ -452,8 +452,8 @@ export function ChatInput({
             </button>
           </div>
         ) : (
-          <div className="flex items-center justify-between px-3 pb-3">
-            <div className="flex items-center gap-1">
+          <div className="flex items-center justify-between px-3.5 pb-3">
+            <div className="flex items-center gap-1.5">
               <input
                 ref={fileInputRef}
                 type="file"
@@ -465,7 +465,7 @@ export function ChatInput({
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className="flex size-8 items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+                className="flex size-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
                 aria-label="上传附件"
               >
                 <Paperclip className="size-4" />
@@ -477,7 +477,7 @@ export function ChatInput({
                 type="button"
                 onClick={toggleRecording}
                 className={cn(
-                  "flex size-8 items-center justify-center rounded-lg transition-colors",
+                  "flex size-9 items-center justify-center rounded-full transition-colors",
                   isRecording
                     ? "bg-red-500/10 text-red-500"
                     : "text-muted-foreground hover:text-foreground hover:bg-secondary"
