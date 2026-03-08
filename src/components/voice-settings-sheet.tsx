@@ -124,7 +124,7 @@ function SpeedControl({ speed, onSpeedChange }: { speed: number; onSpeedChange: 
     <div className="mt-2 flex items-center gap-3 px-2">
       <div className="relative flex h-10 flex-1 items-center overflow-hidden rounded-[32px] border border-border bg-background p-1">
         <div className="absolute inset-1 rounded-full bg-background" />
-        <div className="absolute inset-y-1 left-1 right-1 overflow-hidden rounded-s-full">
+        <div className="absolute inset-y-[3px] left-1 right-1 overflow-hidden rounded-s-full">
           <div
             className="absolute inset-y-0 left-0 rounded-s-full bg-foreground transition-[right] duration-200"
             style={{ right: `${100 - selectedPercent}%` }}
@@ -158,7 +158,7 @@ function SpeedControl({ speed, onSpeedChange }: { speed: number; onSpeedChange: 
                 style={{ left: `${percent}%` }}
               >
                 {active ? (
-                  <span className="relative flex size-8 items-center justify-center">
+                  <span className="relative flex h-[2.15rem] w-8 items-center justify-center">
                     <span className="absolute inset-0 rounded-e-full bg-foreground" />
                     <span className="relative z-10 size-5 rounded-full bg-background shadow-[0_1px_4px_rgba(15,23,42,0.18)]" />
                   </span>
