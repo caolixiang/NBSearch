@@ -297,7 +297,7 @@ export function ChatInput({
   const voiceButtonClassName =
     "inline-flex h-10 items-center justify-center gap-2 rounded-full border border-border bg-background px-3.5 text-sm font-medium text-foreground transition-colors hover:bg-secondary/55"
 
-  const shouldRenderAttachmentTray = attachments.length > 0 || isVoiceMode
+  const shouldRenderAttachmentTray = attachments.length > 0
 
   return (
     <div
@@ -399,7 +399,10 @@ export function ChatInput({
               placeholder="不方便说话，你也可以打字"
               rows={1}
               autoFocus
-              className="w-full resize-none bg-transparent px-4 pt-1 pb-3 text-[16px] leading-7 text-foreground outline-none placeholder:text-muted-foreground sm:px-5 sm:text-[17px]"
+              className={cn(
+                "w-full resize-none bg-transparent px-4 pb-3 text-[16px] leading-7 text-foreground outline-none placeholder:text-muted-foreground sm:px-5 sm:text-[17px]",
+                attachments.length > 0 ? "pt-4" : "pt-10 sm:pt-11"
+              )}
               style={{ minHeight: "96px", maxHeight: "164px" }}
               disabled={isLoading}
             />
