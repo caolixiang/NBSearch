@@ -16,6 +16,11 @@ import {
   Zap,
 } from "lucide-react"
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog"
+import {
+  VOICE_SPEED_STEPS,
+  formatVoiceSpeed,
+  normalizeVoiceSpeed,
+} from "@/components/voice-settings-speed"
 import { cn } from "@/lib/utils"
 
 const VOICE_OPTIONS = [
@@ -51,18 +56,11 @@ const PERSONALITY_OPTIONS: readonly PersonalityOption[] = [
   { id: "argumentative", label: "Argumentative", icon: Zap, badge: "18+" },
 ] as const
 
-const SPEED_STEPS = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2] as const
-const SPEED_DOT_COUNT = 16
-
 export type VoiceOptionId = (typeof VOICE_OPTIONS)[number]["id"]
 export type VoicePersonalityId = (typeof PERSONALITY_OPTIONS)[number]["id"]
 
 export function getVoiceOptionLabel(voiceId: string): string {
   return VOICE_OPTIONS.find((option) => option.id === voiceId)?.label || "Leo"
-}
-
-function formatSpeed(value: number): string {
-  return value.toFixed(2).replace(/\.00$/, ".0")
 }
 
 interface VoiceSettingsSheetProps {
@@ -117,16 +115,10 @@ function PersonalityCard({
 }
 
 function SpeedControl({ speed, onSpeedChange }: { speed: number; onSpeedChange: (speed: number) => void }) {
-  const normalizedSpeed = useMemo(() => {
-    return SPEED_STEPS.reduce((currentBest, currentValue) => {
-      const currentDistance = Math.abs(currentValue - speed)
-      const bestDistance = Math.abs(currentBest - speed)
-      return currentDistance < bestDistance ? currentValue : currentBest
-    }, SPEED_STEPS[0])
-  }, [speed])
+  const normalizedSpeed = useMemo(() => normalizeVoiceSpeed(speed), [speed])
 
-  const selectedSpeedIndex = Math.max(0, SPEED_STEPS.indexOf(normalizedSpeed))
-  const selectedPercent = (selectedSpeedIndex / (SPEED_STEPS.length - 1)) * 100
+  const selectedSpeedIndex = Math.max(0, VOICE_SPEED_STEPS.indexOf(normalizedSpeed))
+  const selectedPercent = (selectedSpeedIndex / (VOICE_SPEED_STEPS.length - 1)) * 100
 
   return (
     <div className="mt-2 flex items-center gap-3 px-2">
@@ -136,26 +128,28 @@ function SpeedControl({ speed, onSpeedChange }: { speed: number; onSpeedChange: 
           style={{ width: `calc(${selectedPercent}% + 1.35rem)` }}
         />
         <div className="pointer-events-none absolute inset-x-3 top-1/2 z-10 flex -translate-y-1/2 items-center justify-between">
-          {Array.from({ length: SPEED_DOT_COUNT }).map((_, index) => (
+          {VOICE_SPEED_STEPS.map((option, index) => (
             <span
-              key={index}
+              key={option}
               className={cn(
                 "size-1 rounded-full transition-colors",
-                index / (SPEED_DOT_COUNT - 1) <= selectedPercent / 100 ? "bg-background/55" : "bg-foreground/18"
+                index / (VOICE_SPEED_STEPS.length - 1) <= selectedPercent / 100
+                  ? "bg-background/55"
+                  : "bg-foreground/18"
               )}
             />
           ))}
         </div>
         <div className="relative z-20 h-full w-full">
-          {SPEED_STEPS.map((option, index) => {
+          {VOICE_SPEED_STEPS.map((option, index) => {
             const active = option === normalizedSpeed
-            const percent = (index / (SPEED_STEPS.length - 1)) * 100
+            const percent = (index / (VOICE_SPEED_STEPS.length - 1)) * 100
             return (
               <button
                 key={option}
                 type="button"
                 onClick={() => onSpeedChange(option)}
-                aria-label={`语速 ${formatSpeed(option)}x`}
+                aria-label={`语速 ${formatVoiceSpeed(option)}x`}
                 aria-pressed={active}
                 className="absolute top-1/2 flex size-8 -translate-y-1/2 -translate-x-1/2 items-center justify-center"
                 style={{ left: `${percent}%` }}
@@ -166,7 +160,7 @@ function SpeedControl({ speed, onSpeedChange }: { speed: number; onSpeedChange: 
           })}
         </div>
       </div>
-      <span className="w-10 text-right text-sm font-semibold tabular-nums text-foreground">{formatSpeed(normalizedSpeed)}x</span>
+      <span className="w-10 text-right text-sm font-semibold tabular-nums text-foreground">{formatVoiceSpeed(normalizedSpeed)}x</span>
     </div>
   )
 }
