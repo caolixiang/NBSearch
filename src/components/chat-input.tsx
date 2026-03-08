@@ -453,7 +453,7 @@ export function ChatInput({
           </div>
         ) : (
           <div className="flex items-center justify-between px-3.5 pb-3">
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-2">
               <input
                 ref={fileInputRef}
                 type="file"
@@ -465,11 +465,12 @@ export function ChatInput({
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className="flex size-10 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                className="inline-flex size-10 shrink-0 items-center justify-center rounded-full border border-border bg-background text-foreground transition-colors hover:bg-secondary/55"
                 aria-label="上传附件"
               >
                 <Paperclip className="size-5" />
               </button>
+              <div className="h-8 w-px shrink-0 bg-border/70" />
             </div>
 
             <div className="flex items-center gap-1.5">
