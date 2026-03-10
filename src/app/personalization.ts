@@ -13,7 +13,6 @@ export const APP_TIMEZONE_OPTIONS: AppTimezoneOption[] = [
   { value: "America/New_York", label: "America/New_York（纽约）" },
   { value: "Europe/London", label: "Europe/London（伦敦）" },
   { value: "Europe/Berlin", label: "Europe/Berlin（柏林）" },
-  { value: "UTC", label: "UTC" },
 ]
 
 export function normalizeAppTimezone(value: string | undefined): string {

@@ -706,7 +706,7 @@ export function SettingsDialog({
                       ))}
                     </select>
                     <p className="text-xs text-muted-foreground">
-                      默认使用 `Asia/Shanghai`，你可以在这里切换到其他 IANA 时区。
+                      默认使用上海时间，你也可以切换到东京、纽约、伦敦等常见时区。
                     </p>
                   </div>
 
