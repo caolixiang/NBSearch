@@ -209,6 +209,23 @@ describe("normalizeAssistantMarkdown", () => {
     expect(normalized).toBe("**1. 艰辛童年：从流浪儿到革命后代**")
   })
 
+  it("keeps two-digit ordered list items intact", () => {
+    const normalized = normalizeAssistantMarkdown([
+      "9. **Demis Hassabis**: Google DeepMind CEO。  ",
+      "10. **Geoffrey Hinton**: 深度学习之父。  ",
+      "11. **Ian Goodfellow**: GANs发明者。  ",
+      "12. **Jeff Dean**: Google DeepMind首席科学家。",
+    ].join("\n"))
+
+    expect(normalized).toContain("9. **Demis Hassabis**: Google DeepMind CEO。")
+    expect(normalized).toContain("10. **Geoffrey Hinton**: 深度学习之父。")
+    expect(normalized).toContain("11. **Ian Goodfellow**: GANs发明者。")
+    expect(normalized).toContain("12. **Jeff Dean**: Google DeepMind首席科学家。")
+    expect(normalized).not.toContain("\n1\n0. **Geoffrey Hinton**")
+    expect(normalized).not.toContain("\n1\n1. **Ian Goodfellow**")
+    expect(normalized).not.toContain("\n1\n2. **Jeff Dean**")
+  })
+
   it("normalizes broken year range lines to avoid markdown list bullets", () => {
     const normalized = normalizeAssistantMarkdown("字节跳动内部晋升路径（2017\n- 2021）")
     expect(normalized).toBe("字节跳动内部晋升路径（2017 - 2021）")

@@ -418,7 +418,7 @@ export function normalizeAssistantMarkdown(content: string): string {
   normalized = normalized.replace(/([^\n])(?=\s#{1,6}\s)/g, "$1\n")
   normalized = normalized.replace(/(^|\n)(#{1,6})([^\s#])/g, "$1$2 $3")
   normalized = normalized.replace(/\[Image blocked:[^\]]*](?:\([^)]*\))?/gi, "")
-  normalized = normalized.replace(/([^\n*_])(?=\d+\.\s)/g, "$1\n")
+  normalized = normalized.replace(/([^\n*_\d])(?=\d+\.\s)/g, "$1\n")
   normalized = normalized.replace(/\[(!\[(?:\\.|[^\]])*]\([^)]+\))\]\([^)]+\)/g, "$1")
   normalized = normalized.replace(/\[!\[([\s\S]*?)\]\(([^)]+)\)\]\([^)]+\)/g, (_, alt, imgSrc) => {
     const cleanAlt = alt.replace(/[\n\r]+/g, " ").replace(/\s+/g, " ").trim()
