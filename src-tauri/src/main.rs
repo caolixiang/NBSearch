@@ -4,13 +4,20 @@ use std::{
     collections::HashMap,
     fs,
     path::{Path, PathBuf},
-    sync::Mutex,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Mutex,
+    },
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use tauri::Manager;
+use tauri::{
+    menu::MenuBuilder,
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    Manager, WindowEvent,
+};
 use tauri_plugin_updater::UpdaterExt;
 use url::Url;
 use wreq::header::{HeaderMap, HeaderName, HeaderValue};
@@ -1650,14 +1657,103 @@ async fn download_image_to_downloads(
     })
 }
 
+const MAIN_WINDOW_LABEL: &str = "main";
+const TRAY_ICON_ID: &str = "main-tray";
+const TRAY_SHOW_WINDOW_MENU_ID: &str = "tray-show-window";
+const TRAY_QUIT_MENU_ID: &str = "tray-quit";
+
+struct CloseToTrayState {
+    quitting: AtomicBool,
+}
+
+impl Default for CloseToTrayState {
+    fn default() -> Self {
+        Self {
+            quitting: AtomicBool::new(false),
+        }
+    }
+}
+
+impl CloseToTrayState {
+    fn mark_quitting(&self) {
+        self.quitting.store(true, Ordering::Relaxed);
+    }
+
+    fn is_quitting(&self) -> bool {
+        self.quitting.load(Ordering::Relaxed)
+    }
+}
+
+fn restore_main_window<R: tauri::Runtime, M: Manager<R>>(manager: &M) {
+    if let Some(window) = manager.get_webview_window(MAIN_WINDOW_LABEL) {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
+
+fn setup_tray<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<()> {
+    let tray_menu = MenuBuilder::new(app)
+        .text(TRAY_SHOW_WINDOW_MENU_ID, "显示窗口")
+        .separator()
+        .text(TRAY_QUIT_MENU_ID, "退出")
+        .build()?;
+
+    let mut tray_builder = TrayIconBuilder::with_id(TRAY_ICON_ID)
+        .menu(&tray_menu)
+        .tooltip("NBSearch")
+        .show_menu_on_left_click(false)
+        .on_menu_event(|app: &tauri::AppHandle<R>, event: tauri::menu::MenuEvent| {
+            match event.id().as_ref() {
+                TRAY_SHOW_WINDOW_MENU_ID => restore_main_window(app),
+                TRAY_QUIT_MENU_ID => {
+                    app.state::<CloseToTrayState>().mark_quitting();
+                    app.exit(0);
+                }
+                _ => {}
+            }
+        })
+        .on_tray_icon_event(|tray: &tauri::tray::TrayIcon<R>, event: TrayIconEvent| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                restore_main_window(tray.app_handle());
+            }
+        });
+
+    if let Some(icon) = app.default_window_icon().cloned() {
+        tray_builder = tray_builder.icon(icon);
+    }
+
+    let _tray = tray_builder.build(app)?;
+    Ok(())
+}
+
 fn main() {
     tauri::Builder::default()
         .manage(PreparedAppUpdateState::default())
+        .manage(CloseToTrayState::default())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_sql::Builder::default().build())
+        .setup(|app| {
+            setup_tray(&app.handle())?;
+            Ok(())
+        })
+        .on_window_event(|window, event| match event {
+            WindowEvent::CloseRequested { api, .. } if window.label() == MAIN_WINDOW_LABEL => {
+                if !window.state::<CloseToTrayState>().is_quitting() {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
+            _ => {}
+        })
         .invoke_handler(tauri::generate_handler![
             runtime_info,
             resolve_storage_paths,
