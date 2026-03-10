@@ -17,6 +17,7 @@
 - 模型调用统一走网关 HTTP 接口；当前未引入 AI SDK，也未引入 `openai` 原生 SDK。
 - 工具链统一使用 Bun + Tauri CLI，不保留 Node 兜底路径。
 - 本地数据库目录固定为 `~/.nbsearch`（默认库文件：`~/.nbsearch/data/chat-app.db`）。
+- 发版时必须先调用 `scripts/bump-version.sh` 更新版本号，不允许手工分别修改版本文件后直接发版。
 
 ## 写入规则
 
