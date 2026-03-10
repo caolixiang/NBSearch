@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   Dialog,
   DialogContent,
@@ -17,6 +17,7 @@ import {
 import { getRuntimeInfo, hasTauriRuntime } from "@/app/runtime-info"
 import { checkForAppUpdate, installAppUpdate } from "@/app/updater"
 import { cn } from "@/lib/utils"
+import { getGatewaySaveButtonState } from "./settings-dialog-gateway-save"
 import { Bell, Database, Eye, EyeOff, Globe, Key, Palette, Shield } from "lucide-react"
 
 interface SettingsDialogProps {
@@ -70,6 +71,10 @@ export function SettingsDialog({
   const [activeTab, setActiveTab] = useState<TabId>("gateway")
   const [baseUrl, setBaseUrl] = useState("")
   const [apiKey, setApiKey] = useState("")
+  const [savedGatewayConfig, setSavedGatewayConfig] = useState({
+    baseUrl: "",
+    apiKey: "",
+  })
   const [themeMode, setThemeMode] = useState<AppThemeMode>("light")
   const [fontSizeMode, setFontSizeMode] = useState<AppFontSizeMode>("default")
   const [showApiKey, setShowApiKey] = useState(false)
@@ -127,8 +132,14 @@ export function SettingsDialog({
     if (!open) {
       return
     }
-    setBaseUrl(runtime.config.apiBaseUrl || "")
-    setApiKey(runtime.config.apiKey || "")
+    const nextBaseUrl = runtime.config.apiBaseUrl || ""
+    const nextApiKey = runtime.config.apiKey || ""
+    setBaseUrl(nextBaseUrl)
+    setApiKey(nextApiKey)
+    setSavedGatewayConfig({
+      baseUrl: nextBaseUrl,
+      apiKey: nextApiKey,
+    })
     setThemeMode(runtime.config.themeMode)
     setFontSizeMode(runtime.config.fontSizeMode)
     setShowApiKey(false)
@@ -144,6 +155,19 @@ export function SettingsDialog({
     runtime.config.themeMode,
     runtime.config.fontSizeMode,
   ])
+
+  const gatewaySaveButtonState = useMemo(
+    () =>
+      getGatewaySaveButtonState({
+        current: {
+          baseUrl,
+          apiKey,
+        },
+        saved: savedGatewayConfig,
+        busy: gatewayBusy,
+      }),
+    [apiKey, baseUrl, gatewayBusy, savedGatewayConfig]
+  )
 
   const clearImageCache = async () => {
     if (!hasTauriRuntime() || cacheBusy) {
@@ -166,7 +190,7 @@ export function SettingsDialog({
   }
 
   const saveGatewayConfig = async () => {
-    if (gatewayBusy) {
+    if (gatewayBusy || !gatewaySaveButtonState.hasChanges) {
       return
     }
     setGatewayBusy(true)
@@ -191,6 +215,10 @@ export function SettingsDialog({
       })
       setBaseUrl(resolved.apiBaseUrl)
       setApiKey(resolved.apiKey)
+      setSavedGatewayConfig({
+        baseUrl: resolved.apiBaseUrl,
+        apiKey: resolved.apiKey,
+      })
     } catch {
       setGatewayMessage("保存失败，请重试")
     } finally {
@@ -385,7 +413,12 @@ export function SettingsDialog({
                     <input
                       type="url"
                       value={baseUrl}
-                      onChange={(event) => setBaseUrl(event.target.value)}
+                      onChange={(event) => {
+                        setBaseUrl(event.target.value)
+                        if (gatewayMessage) {
+                          setGatewayMessage("")
+                        }
+                      }}
                       placeholder="https://api.openai.com/v1"
                       className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:border-ring focus:ring-1 focus:ring-ring transition-colors"
                     />
@@ -403,7 +436,12 @@ export function SettingsDialog({
                       <input
                         type={showApiKey ? "text" : "password"}
                         value={apiKey}
-                        onChange={(event) => setApiKey(event.target.value)}
+                        onChange={(event) => {
+                          setApiKey(event.target.value)
+                          if (gatewayMessage) {
+                            setGatewayMessage("")
+                          }
+                        }}
                         placeholder="gw-..."
                         className="w-full rounded-lg border border-input bg-background px-3 py-2 pr-10 text-sm font-mono text-foreground placeholder:text-muted-foreground outline-none focus:border-ring focus:ring-1 focus:ring-ring transition-colors"
                       />
@@ -429,13 +467,17 @@ export function SettingsDialog({
                 <div className="flex justify-end pt-2">
                   <Button
                     size="sm"
-                    className="bg-foreground text-background hover:opacity-80"
+                    className={cn(
+                      gatewaySaveButtonState.hasChanges
+                        ? "bg-foreground text-background hover:opacity-80 disabled:opacity-100"
+                        : "bg-muted text-muted-foreground hover:bg-muted disabled:opacity-100"
+                    )}
                     onClick={() => {
                       void saveGatewayConfig()
                     }}
-                    disabled={gatewayBusy}
+                    disabled={gatewaySaveButtonState.disabled}
                   >
-                    {gatewayBusy ? "保存中..." : "保存"}
+                    {gatewaySaveButtonState.label}
                   </Button>
                 </div>
               </div>
