@@ -1,4 +1,7 @@
 import { describe, expect, it } from "bun:test"
+import { createElement } from "react"
+import { renderToStaticMarkup } from "react-dom/server"
+import { MarkdownBody } from "./markdown-content/markdown-body"
 import { expandGrokRenderTags, normalizeAssistantMarkdown, parseThinkSections } from "./markdown-content/index"
 
 describe("parseThinkSections", () => {
@@ -484,5 +487,24 @@ describe("expandGrokRenderTags", () => {
 
     expect(expanded).toContain("</think>")
     expect(expanded).toContain("![fallback-e](https://img.test/fallback-e.jpg)")
+  })
+})
+
+describe("MarkdownBody", () => {
+  it("preserves ordered list start attribute in markdown rendering", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownBody, {
+        content: [
+          "### 中文/国内视角AI博主（36-50）",
+          "36. **Kai-Fu Lee (@kaifulee)**: 01.ai CEO。",
+          "37. **宝玉 (@dotey)**: AI资讯与 Prompt 工程传播者。",
+        ].join("\n"),
+        streaming: false,
+      })
+    )
+
+    expect(html).toContain('<ol start="36"')
+    expect(html).toContain("Kai-Fu Lee (@kaifulee)")
+    expect(html).toContain("宝玉 (@dotey)")
   })
 })

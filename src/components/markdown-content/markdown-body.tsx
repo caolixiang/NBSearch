@@ -129,9 +129,21 @@ export function MarkdownBody({ content, streaming = false }: { content: string; 
             </div>
           )
         },
-        ul: ({ children }) => <ul className="my-2 list-disc space-y-1 pl-6">{children}</ul>,
-        ol: ({ children }) => <ol className="my-2 list-decimal space-y-1 pl-6">{children}</ol>,
-        li: ({ children }) => <li className="leading-7">{children}</li>,
+        ul: ({ children, className, ...props }) => (
+          <ul {...props} className={cn("my-2 list-disc space-y-1 pl-6", className)}>
+            {children}
+          </ul>
+        ),
+        ol: ({ children, className, ...props }) => (
+          <ol {...props} className={cn("my-2 list-decimal space-y-1 pl-6", className)}>
+            {children}
+          </ol>
+        ),
+        li: ({ children, className, ...props }) => (
+          <li {...props} className={cn("leading-7", className)}>
+            {children}
+          </li>
+        ),
         a: ({ href, children }) => {
           const nonEmptyChildren = Children.toArray(children).filter(
             (child) => !(typeof child === "string" && child.trim() === "")
