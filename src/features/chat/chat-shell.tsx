@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { AppFontSizeMode, AppRuntime, AppThemeMode } from "@/app/contracts"
 import { applyAppearanceSettings } from "@/app/appearance"
-import { applyAppearanceConfigToRuntime, applyGatewayConfigToRuntime } from "@/app/runtime"
+import { applyAppearanceConfigToRuntime, applyGatewayConfigToRuntime, applyPersonalizationConfigToRuntime } from "@/app/runtime"
 import type { ChatAnchors, ChatMessage as DomainChatMessage } from "@/domain/chat/types"
 import type { ConversationRecord } from "@/domain/storage/repository"
 import { ChatInput } from "@/components/chat-input"
@@ -328,6 +328,9 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     []
   )
 
+  const handlePersonalizationConfigChange = useCallback((next: { timezone: string }) => {
+    applyPersonalizationConfigToRuntime(next)
+  }, [])
 
   const refreshConversations = useCallback(async (): Promise<ConversationRecord[]> => {
     const list = await repository.listConversations()
@@ -1352,6 +1355,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
         runtime={runtime}
         onGatewayConfigChange={handleGatewayConfigChange}
         onAppearanceConfigChange={handleAppearanceConfigChange}
+        onPersonalizationConfigChange={handlePersonalizationConfigChange}
       />
     </main>
   )

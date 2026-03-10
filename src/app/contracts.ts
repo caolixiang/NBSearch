@@ -13,6 +13,7 @@ export interface AppConfig {
   voiceEnabled: boolean
   themeMode: AppThemeMode
   fontSizeMode: AppFontSizeMode
+  timezone?: string
   streamIdleTimeoutMs?: number
   streamIdleRetryMaxAttempts?: number
   streamIdleRetryDelayMs?: number

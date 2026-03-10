@@ -1,4 +1,5 @@
 import type { AppConfig, AppFontSizeMode, AppThemeMode } from "./contracts"
+import { DEFAULT_APP_TIMEZONE, normalizeAppTimezone } from "./personalization"
 import { hasTauriRuntime } from "./runtime-info"
 
 function parseBool(input: string | undefined, fallback: boolean): boolean {
@@ -20,6 +21,7 @@ interface GatewayConfigPayload {
   apiKey?: string
   theme?: string
   fontSize?: string
+  timezone?: string
   streamIdleTimeoutMs?: number
   streamIdleRetryMaxAttempts?: number
   streamIdleRetryDelayMs?: number
@@ -35,6 +37,11 @@ interface GatewayConfigPayload {
 interface AppearanceConfigPayload {
   theme?: string
   fontSize?: string
+  configPath?: string
+}
+
+interface PersonalizationConfigPayload {
+  timezone?: string
   configPath?: string
 }
 
@@ -89,6 +96,7 @@ function readEnvAppConfig(): AppConfig {
     voiceEnabled: parseBool(import.meta.env.VITE_APP_VOICE_ENABLED, true),
     themeMode: normalizeThemeMode(import.meta.env.VITE_APP_THEME_MODE),
     fontSizeMode: normalizeFontSizeMode(import.meta.env.VITE_APP_FONT_SIZE_MODE),
+    timezone: normalizeAppTimezone(import.meta.env.VITE_APP_TIMEZONE || DEFAULT_APP_TIMEZONE),
     streamIdleTimeoutMs: normalizeIntegerInRange(
       import.meta.env.VITE_APP_STREAM_IDLE_TIMEOUT_MS,
       DEFAULT_STREAM_IDLE_TIMEOUT_MS,
@@ -198,6 +206,22 @@ export async function saveAppearanceConfigToToml(input: {
   }
 }
 
+export async function savePersonalizationConfigToToml(input: {
+  timezone: string
+}): Promise<PersonalizationConfigPayload | null> {
+  if (!hasTauriRuntime()) {
+    return null
+  }
+  try {
+    const { invoke } = await import("@tauri-apps/api/core")
+    return await invoke<PersonalizationConfigPayload>("save_personalization_config", {
+      timezone: normalizeAppTimezone(input.timezone),
+    })
+  } catch {
+    return null
+  }
+}
+
 export async function loadAppConfig(): Promise<AppConfig> {
   const envConfig = readEnvAppConfig()
   const fileConfig = await readGatewayConfigFromToml()
@@ -205,6 +229,7 @@ export async function loadAppConfig(): Promise<AppConfig> {
   const fileApiKey = normalizeGatewayValue(fileConfig?.apiKey)
   const fileThemeMode = normalizeThemeMode(fileConfig?.theme)
   const fileFontSizeMode = normalizeFontSizeMode(fileConfig?.fontSize)
+  const fileTimezone = normalizeAppTimezone(fileConfig?.timezone)
   const fileStreamIdleTimeoutMs = normalizeIntegerInRange(
     fileConfig?.streamIdleTimeoutMs,
     envConfig.streamIdleTimeoutMs ?? DEFAULT_STREAM_IDLE_TIMEOUT_MS,
@@ -262,6 +287,7 @@ export async function loadAppConfig(): Promise<AppConfig> {
   const hasFileTheme = typeof fileConfig?.theme === "string" && fileConfig.theme.trim().length > 0
   const hasFileFontSize =
     typeof fileConfig?.fontSize === "string" && fileConfig.fontSize.trim().length > 0
+  const hasFileTimezone = typeof fileConfig?.timezone === "string" && fileConfig.timezone.trim().length > 0
 
   return {
     ...envConfig,
@@ -270,6 +296,7 @@ export async function loadAppConfig(): Promise<AppConfig> {
     apiKey: fileApiKey || envConfig.apiKey,
     themeMode: hasFileTheme ? fileThemeMode : envConfig.themeMode,
     fontSizeMode: hasFileFontSize ? fileFontSizeMode : envConfig.fontSizeMode,
+    timezone: hasFileTimezone ? fileTimezone : envConfig.timezone,
     streamIdleTimeoutMs: fileStreamIdleTimeoutMs,
     streamIdleRetryMaxAttempts: fileStreamIdleRetryMaxAttempts,
     streamIdleRetryDelayMs: fileStreamIdleRetryDelayMs,

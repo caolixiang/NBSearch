@@ -13,12 +13,14 @@ import {
   loadAppConfig,
   saveAppearanceConfigToToml,
   saveGatewayConfigToToml,
+  savePersonalizationConfigToToml,
 } from "@/app/config"
+import { DEFAULT_APP_TIMEZONE, resolveAppTimezoneOptions } from "@/app/personalization"
 import { getRuntimeInfo, hasTauriRuntime } from "@/app/runtime-info"
 import { checkForAppUpdate, installAppUpdate } from "@/app/updater"
 import { cn } from "@/lib/utils"
 import { getGatewaySaveButtonState } from "./settings-dialog-gateway-save"
-import { Bell, Database, Eye, EyeOff, Globe, Key, Palette, Shield } from "lucide-react"
+import { Bell, Clock3, Database, Eye, EyeOff, Globe, Key, Palette, Shield, SlidersHorizontal } from "lucide-react"
 
 interface SettingsDialogProps {
   open: boolean
@@ -29,6 +31,7 @@ interface SettingsDialogProps {
     themeMode: AppThemeMode
     fontSizeMode: AppFontSizeMode
   }) => void
+  onPersonalizationConfigChange: (next: { timezone: string }) => void
 }
 
 const tabs = [
@@ -36,6 +39,7 @@ const tabs = [
   { id: "appearance", label: "外观", icon: Palette },
   { id: "notifications", label: "通知", icon: Bell },
   { id: "privacy", label: "隐私与安全", icon: Shield },
+  { id: "personalization", label: "个性化配置", icon: SlidersHorizontal },
   { id: "data", label: "数据管理", icon: Database },
 ] as const
 
@@ -67,6 +71,7 @@ export function SettingsDialog({
   runtime,
   onGatewayConfigChange,
   onAppearanceConfigChange,
+  onPersonalizationConfigChange,
 }: SettingsDialogProps) {
   const [activeTab, setActiveTab] = useState<TabId>("gateway")
   const [baseUrl, setBaseUrl] = useState("")
@@ -77,10 +82,14 @@ export function SettingsDialog({
   })
   const [themeMode, setThemeMode] = useState<AppThemeMode>("light")
   const [fontSizeMode, setFontSizeMode] = useState<AppFontSizeMode>("default")
+  const [timezone, setTimezone] = useState(DEFAULT_APP_TIMEZONE)
+  const [savedTimezone, setSavedTimezone] = useState(DEFAULT_APP_TIMEZONE)
   const [showApiKey, setShowApiKey] = useState(false)
   const [gatewayBusy, setGatewayBusy] = useState(false)
   const [gatewayMessage, setGatewayMessage] = useState("")
   const [appearanceMessage, setAppearanceMessage] = useState("")
+  const [personalizationBusy, setPersonalizationBusy] = useState(false)
+  const [personalizationMessage, setPersonalizationMessage] = useState("")
   const [imageCacheStats, setImageCacheStats] = useState<ImageCacheStats | null>(null)
   const [cacheBusy, setCacheBusy] = useState(false)
   const [cacheMessage, setCacheMessage] = useState("")
@@ -142,9 +151,13 @@ export function SettingsDialog({
     })
     setThemeMode(runtime.config.themeMode)
     setFontSizeMode(runtime.config.fontSizeMode)
+    const nextTimezone = runtime.config.timezone || DEFAULT_APP_TIMEZONE
+    setTimezone(nextTimezone)
+    setSavedTimezone(nextTimezone)
     setShowApiKey(false)
     setGatewayMessage("")
     setAppearanceMessage("")
+    setPersonalizationMessage("")
     setUpdateAvailableVersion("")
     setUpdateMessage("")
     setUpdateEnabled(null)
@@ -154,6 +167,7 @@ export function SettingsDialog({
     runtime.config.apiKey,
     runtime.config.themeMode,
     runtime.config.fontSizeMode,
+    runtime.config.timezone,
   ])
 
   const gatewaySaveButtonState = useMemo(
@@ -168,6 +182,14 @@ export function SettingsDialog({
       }),
     [apiKey, baseUrl, gatewayBusy, savedGatewayConfig]
   )
+
+  const personalizationTimezoneOptions = useMemo(() => resolveAppTimezoneOptions(timezone), [timezone])
+  const personalizationHasChanges = timezone !== savedTimezone
+  const personalizationButtonLabel = personalizationBusy
+    ? "保存中..."
+    : personalizationHasChanges
+      ? "保存"
+      : "已保存"
 
   const clearImageCache = async () => {
     if (!hasTauriRuntime() || cacheBusy) {
@@ -291,6 +313,36 @@ export function SettingsDialog({
     },
     [applyAndPersistAppearance, fontSizeMode, themeMode]
   )
+
+  const savePersonalizationConfig = async () => {
+    if (personalizationBusy || !personalizationHasChanges) {
+      return
+    }
+    setPersonalizationBusy(true)
+    setPersonalizationMessage("")
+
+    try {
+      const nextTimezone = timezone.trim() || DEFAULT_APP_TIMEZONE
+      let resolvedTimezone = nextTimezone
+      if (hasTauriRuntime()) {
+        const saved = await savePersonalizationConfigToToml({
+          timezone: nextTimezone,
+        })
+        if (!saved) {
+          throw new Error("persist_personalization_config_failed")
+        }
+        const resolved = await loadAppConfig()
+        resolvedTimezone = resolved.timezone || DEFAULT_APP_TIMEZONE
+      }
+      setTimezone(resolvedTimezone)
+      setSavedTimezone(resolvedTimezone)
+      onPersonalizationConfigChange({ timezone: resolvedTimezone })
+    } catch {
+      setPersonalizationMessage("保存失败，请重试")
+    } finally {
+      setPersonalizationBusy(false)
+    }
+  }
 
   const checkUpdates = useCallback(async () => {
     if (!hasTauriRuntime() || updateBusy || installBusy) {
@@ -620,6 +672,64 @@ export function SettingsDialog({
                       <div className="h-5 w-9 rounded-full bg-muted" />
                     </div>
                   ))}
+                </div>
+              </div>
+            )}
+
+            {activeTab === "personalization" && (
+              <div className="space-y-5">
+                <div>
+                  <h3 className="text-sm font-medium text-foreground">个性化配置</h3>
+                  <p className="mt-0.5 text-xs text-muted-foreground">配置与你的使用习惯相关的偏好项</p>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="space-y-1.5">
+                    <label className="flex items-center gap-1.5 text-sm font-medium text-foreground">
+                      <Clock3 className="size-3.5 text-muted-foreground" />
+                      时区
+                    </label>
+                    <select
+                      value={timezone}
+                      onChange={(event) => {
+                        setTimezone(event.target.value)
+                        if (personalizationMessage) {
+                          setPersonalizationMessage("")
+                        }
+                      }}
+                      className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-ring focus:ring-1 focus:ring-ring transition-colors"
+                    >
+                      {personalizationTimezoneOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-xs text-muted-foreground">
+                      默认使用 `Asia/Shanghai`，你可以在这里切换到其他 IANA 时区。
+                    </p>
+                  </div>
+
+                  {personalizationMessage ? (
+                    <p className="text-xs text-muted-foreground">{personalizationMessage}</p>
+                  ) : null}
+                </div>
+
+                <div className="flex justify-end pt-2">
+                  <Button
+                    size="sm"
+                    className={cn(
+                      personalizationHasChanges
+                        ? "bg-foreground text-background hover:opacity-80 disabled:opacity-100"
+                        : "bg-muted text-muted-foreground hover:bg-muted disabled:opacity-100"
+                    )}
+                    onClick={() => {
+                      void savePersonalizationConfig()
+                    }}
+                    disabled={personalizationBusy || !personalizationHasChanges}
+                  >
+                    {personalizationButtonLabel}
+                  </Button>
                 </div>
               </div>
             )}

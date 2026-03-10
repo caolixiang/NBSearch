@@ -53,3 +53,10 @@ export function applyAppearanceConfigToRuntime(next: {
   runtimeSingleton.config.themeMode = next.themeMode
   runtimeSingleton.config.fontSizeMode = next.fontSizeMode
 }
+
+export function applyPersonalizationConfigToRuntime(next: { timezone: string }): void {
+  if (!runtimeSingleton) {
+    return
+  }
+  runtimeSingleton.config.timezone = next.timezone
+}
