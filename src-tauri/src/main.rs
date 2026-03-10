@@ -1,5 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod tray_icon_rgba;
+
 use std::{
     collections::HashMap,
     fs,
@@ -1724,8 +1726,16 @@ fn setup_tray<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<()>
             }
         });
 
-    if let Some(icon) = app.default_window_icon().cloned() {
-        tray_builder = tray_builder.icon(icon);
+    let tray_icon = tauri::image::Image::new(
+        &tray_icon_rgba::TRAY_TEMPLATE_ICON_RGBA,
+        tray_icon_rgba::TRAY_TEMPLATE_ICON_WIDTH,
+        tray_icon_rgba::TRAY_TEMPLATE_ICON_HEIGHT,
+    );
+    tray_builder = tray_builder.icon(tray_icon);
+
+    #[cfg(target_os = "macos")]
+    {
+        tray_builder = tray_builder.icon_as_template(true);
     }
 
     let _tray = tray_builder.build(app)?;
