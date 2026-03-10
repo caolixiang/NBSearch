@@ -1733,7 +1733,7 @@ fn setup_tray<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<()>
 }
 
 fn main() {
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .manage(PreparedAppUpdateState::default())
         .manage(CloseToTrayState::default())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -1772,6 +1772,13 @@ fn main() {
             download_image_to_downloads,
             save_pdf_document
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application");
+
+    app.run(|app_handle, event| {
+        #[cfg(target_os = "macos")]
+        if let tauri::RunEvent::Reopen { .. } = event {
+            restore_main_window(app_handle);
+        }
+    });
 }
