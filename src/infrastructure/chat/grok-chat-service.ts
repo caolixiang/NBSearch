@@ -1,4 +1,5 @@
 import type { AppConfig } from "../../app/contracts"
+import { normalizeAppTimezone } from "../../app/personalization"
 import type { ChatService } from "../../domain/chat/service"
 import type {
   ChatAnchors,
@@ -104,6 +105,7 @@ export class GrokChatService implements ChatService {
   private readonly turnInProgressRetryMaxAttempts: number
   private readonly turnInProgressRetryDelayMs: number
   private readonly recoveryRuntime: GatewayRecoveryRuntime
+  private readonly userTimezone: string
 
   constructor(
     private readonly repository: AppRepository,
@@ -113,6 +115,7 @@ export class GrokChatService implements ChatService {
     this.apiKey = config.apiKey || ""
     this.runtimeFetch = createRuntimeFetch(fetch)
     this.gatewayBaseUrl = normalizeGatewayBaseUrl(this.apiUrl)
+    this.userTimezone = normalizeAppTimezone(config.timezone)
     this.streamIdleTimeoutMs = normalizeTurnRecoverySetting(
       config.streamIdleTimeoutMs,
       STREAM_IDLE_TIMEOUT_MS_DEFAULT,
@@ -317,6 +320,7 @@ export class GrokChatService implements ChatService {
         anchoredSessionId,
         fallbackPreviousResponseId,
         regenerateTargetResponseId,
+        timezone: this.userTimezone,
       })
 
       const accumulator = new GatewayStreamAccumulator(this.apiUrl)

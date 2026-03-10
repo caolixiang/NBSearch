@@ -1,3 +1,8 @@
+import {
+  buildConversationLocaleInstructions,
+  buildTurnTimeContextSuffix,
+} from "./gateway-turn-context"
+
 const MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024
 
 type ResponsesInputContentBlock =
@@ -27,6 +32,8 @@ type BuildGatewayTurnRequestPayloadInput = {
   anchoredSessionId?: string
   fallbackPreviousResponseId?: string
   regenerateTargetResponseId?: string
+  timezone?: string
+  now?: () => Date
 }
 
 function normalizeAttachmentFiles(attachments?: File[]): File[] {
@@ -47,6 +54,17 @@ export function buildUserMessageText(text: string, attachments?: File[]): string
     return attachmentLines.join("\n")
   }
   return `${content}\n\n${attachmentLines.join("\n")}`
+}
+
+function buildGatewayRequestText(text: string, attachments: File[], turnTimeContextSuffix: string): string {
+  const content = text.trim() || (attachments.length > 0 ? "请分析这个附件。" : "")
+  if (!turnTimeContextSuffix) {
+    return content
+  }
+  if (!content) {
+    return turnTimeContextSuffix
+  }
+  return `${content}\n\n${turnTimeContextSuffix}`
 }
 
 function arrayBufferToBase64(buffer: ArrayBuffer): string {
@@ -112,13 +130,6 @@ async function buildResponsesInputContent(
     })
   }
 
-  if (!content && files.length > 0) {
-    blocks.unshift({
-      type: "text",
-      text: "请分析这个附件。",
-    })
-  }
-
   return blocks
 }
 
@@ -146,13 +157,20 @@ export async function buildGatewayTurnRequestPayload(
     return requestBodyPayload
   }
 
-  const contentBlocks = await buildResponsesInputContent(input.text, input.attachments)
+  const attachments = normalizeAttachmentFiles(input.attachments)
+  const timezone = input.timezone?.trim() || ""
+  const turnTimeContextSuffix = timezone ? buildTurnTimeContextSuffix(timezone, input.now?.() || new Date()) : ""
+  const requestText = buildGatewayRequestText(input.text, attachments, turnTimeContextSuffix)
+  const contentBlocks = await buildResponsesInputContent(requestText, attachments)
   requestBodyPayload["input"] = [
     {
       role: "user",
       content: contentBlocks,
     },
   ]
+  if (!input.anchoredSessionId?.trim() && timezone) {
+    requestBodyPayload["instructions"] = buildConversationLocaleInstructions(timezone)
+  }
   if (previousResponseId) {
     requestBodyPayload["previous_response_id"] = previousResponseId
   }
