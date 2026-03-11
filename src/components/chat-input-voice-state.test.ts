@@ -1,11 +1,52 @@
 import { describe, expect, it } from "bun:test"
-import { resolveVoiceConnectionErrorMessage, shouldRenderVoicePanel } from "./chat-input-voice-state"
+import { resolveVoiceConnectionErrorMessage, shouldClearPendingManualVoiceText, shouldRenderVoicePanel } from "./chat-input-voice-state"
 
 describe("chat-input voice state", () => {
-  it("keeps the voice panel visible while connecting or active", () => {
+  it("renders the voice panel only after voice mode is fully active", () => {
     expect(shouldRenderVoicePanel("idle")).toBe(false)
-    expect(shouldRenderVoicePanel("connecting")).toBe(true)
+    expect(shouldRenderVoicePanel("connecting")).toBe(false)
     expect(shouldRenderVoicePanel("active")).toBe(true)
+  })
+
+  it("clears pending manual voice text only when the final user event matches", () => {
+    expect(
+      shouldClearPendingManualVoiceText(
+        {
+          role: "user",
+          text: "你好呀",
+          final: true,
+          topic: "livekit.transcription",
+          source: "livekit.transcription",
+        },
+        "你好呀"
+      )
+    ).toBe(true)
+
+    expect(
+      shouldClearPendingManualVoiceText(
+        {
+          role: "user",
+          text: "你好呀",
+          final: false,
+          topic: "livekit.transcription",
+          source: "livekit.transcription",
+        },
+        "你好呀"
+      )
+    ).toBe(false)
+
+    expect(
+      shouldClearPendingManualVoiceText(
+        {
+          role: "assistant",
+          text: "你好呀",
+          final: true,
+          topic: "livekit.transcription",
+          source: "livekit.transcription",
+        },
+        "你好呀"
+      )
+    ).toBe(false)
   })
 
   it("maps microphone permission failures to a readable message", () => {

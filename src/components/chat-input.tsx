@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useRef, useCallback, useEffect, useMemo } from "react"
+import { useState, useRef, useCallback, useEffect, useMemo, type CSSProperties } from "react"
 import type { VoiceService, VoiceTextEvent } from "@/domain/voice/service"
 import { Button } from "@/components/ui/button"
 import {
@@ -27,9 +27,11 @@ import {
 import {
   getVoiceEntryAriaLabel,
   getVoiceEntryBarHeights,
+  getVoiceEntryConnectingBarMotion,
   type VoiceEntryState,
 } from "@/components/chat-input-voice-entry"
 import {
+  shouldClearPendingManualVoiceText,
   shouldRenderVoicePanel,
 } from "@/components/chat-input-voice-state"
 import { logClientError } from "@/app/client-log"
@@ -46,20 +48,31 @@ function AudioWaveIcon({ state = "idle" }: { state?: VoiceEntryState }) {
   const isConnecting = state === "connecting"
 
   return (
-    <div
-      aria-hidden="true"
-      className={cn(
-        "relative flex items-center justify-center gap-0.5 text-current",
-        isConnecting && "origin-center motion-safe:animate-[spin_1.15s_linear_infinite]"
-      )}
-    >
-      {heights.map((height, index) => (
+    <div aria-hidden="true" className="relative flex items-end justify-center gap-0.5 text-current">
+      {heights.map((height, index) => {
+        const connectingMotion = getVoiceEntryConnectingBarMotion(index)
+        const connectingStyle = isConnecting
+          ? ({
+              "--voice-wave-delay": `${connectingMotion.delayMs}ms`,
+              "--voice-wave-duration": `${connectingMotion.durationMs}ms`,
+              "--voice-wave-min": `${connectingMotion.minScale}`,
+              "--voice-wave-max": `${connectingMotion.maxScale}`,
+            } as CSSProperties)
+          : undefined
+        return (
         <div
           key={`${height}-${index}`}
-          className="relative z-10 w-0.5 rounded-full bg-current transition-[height,color] duration-200 ease-out"
-          style={{ height }}
+          className={cn(
+            "relative z-10 w-0.5 rounded-full bg-current transition-[height,color] duration-200 ease-out",
+            isConnecting && "voice-connecting-wave-bar"
+          )}
+          style={{
+            height,
+            ...(connectingStyle || {}),
+          }}
         />
-      ))}
+        )
+      })}
     </div>
   )
 }
@@ -272,14 +285,7 @@ export function ChatInput({
         const conversationId = voiceConversationIdRef.current
         if (event.role === "user") {
           const pendingManualText = pendingManualVoiceTextRef.current.trim()
-          if (!pendingManualText || pendingManualText !== event.text.trim()) {
-            setInput(event.text)
-            if (textareaRef.current) {
-              textareaRef.current.style.height = "auto"
-              textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 200)}px`
-            }
-          }
-          if (event.final && pendingManualText === event.text.trim()) {
+          if (shouldClearPendingManualVoiceText(event, pendingManualText)) {
             pendingManualVoiceTextRef.current = ""
           }
         }
@@ -676,12 +682,6 @@ export function ChatInput({
             : "rounded-[1.75rem]"
         )}
       >
-        {isVoiceConnecting ? (
-          <div className="pointer-events-none absolute right-4 top-4 z-10 rounded-2xl border border-border/80 bg-background/95 px-3 py-1.5 text-sm font-medium text-foreground shadow-sm backdrop-blur-sm">
-            连接中……
-          </div>
-        ) : null}
-
         {shouldRenderAttachmentTray ? (
           <div className={cn("px-4 pt-3", isVoiceMode && "min-h-[3.5rem] pb-1")}>
             {imageAttachments.length > 0 ? (
@@ -763,7 +763,7 @@ export function ChatInput({
               onCompositionEnd={() => {
                 isComposingRef.current = false
               }}
-              placeholder={isVoiceConnecting ? "比平时花费更长。请稍候..." : "不方便说话，你也可以打字"}
+              placeholder="不方便说话，你也可以打字"
               rows={1}
               autoFocus
               className={cn(
@@ -877,14 +877,14 @@ export function ChatInput({
               onCompositionEnd={() => {
                 isComposingRef.current = false
               }}
-              placeholder={isRecording ? "正在录音..." : "你想知道什么？"}
+              placeholder={isVoiceConnecting ? "连接中……" : isRecording ? "正在录音..." : "你想知道什么？"}
               rows={1}
               className={cn(
                 "min-h-10 flex-1 resize-none bg-transparent py-2 text-[16px] leading-7 text-foreground outline-none placeholder:text-muted-foreground sm:text-[17px]",
                 isRecording && "placeholder:text-red-400"
               )}
               style={{ maxHeight: "200px" }}
-              disabled={isLoading}
+              disabled={isLoading || isVoiceConnecting}
             />
 
             <div className="flex shrink-0 items-center gap-1.5">
@@ -898,6 +898,7 @@ export function ChatInput({
                     : "text-muted-foreground hover:text-foreground hover:bg-secondary"
                 )}
                 aria-label={isRecording ? "停止录音" : "语音输入"}
+                disabled={isVoiceConnecting}
               >
                 {isRecording ? <MicOff className="size-4" /> : <Mic className="size-4" />}
               </button>

@@ -1,7 +1,19 @@
 import type { VoiceEntryState } from "./chat-input-voice-entry"
+import type { VoiceTextEvent } from "@/domain/voice/service"
 
 export function shouldRenderVoicePanel(state: VoiceEntryState): boolean {
-  return state === "active" || state === "connecting"
+  return state === "active"
+}
+
+export function shouldClearPendingManualVoiceText(event: VoiceTextEvent, pendingManualText: string): boolean {
+  if (event.role !== "user" || !event.final) {
+    return false
+  }
+  const normalizedPendingText = pendingManualText.trim()
+  if (!normalizedPendingText) {
+    return false
+  }
+  return normalizedPendingText === event.text.trim()
 }
 
 export function resolveVoiceConnectionErrorMessage(error: unknown): string {

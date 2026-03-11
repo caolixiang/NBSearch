@@ -2,18 +2,36 @@ export type VoiceEntryState = "idle" | "connecting" | "active"
 
 export const VOICE_ENTRY_CONNECTING_DELAY_MS = 420
 
+interface VoiceEntryConnectingBarMotion {
+  readonly delayMs: number
+  readonly durationMs: number
+  readonly minScale: number
+  readonly maxScale: number
+}
+
 const IDLE_BAR_HEIGHTS = ["0.4rem", "0.8rem", "1.2rem", "0.7rem", "1rem", "0.4rem"] as const
 const CONNECTING_BAR_HEIGHTS = [
-  "1.19988rem",
-  "1.06865rem",
-  "0.68365rem",
-  "0.3341rem",
-  "0.25rem",
-  "0.25rem",
+  "0.5rem",
+  "0.72rem",
+  "0.92rem",
+  "0.62rem",
+  "0.42rem",
+] as const
+
+const CONNECTING_BAR_MOTION: readonly VoiceEntryConnectingBarMotion[] = [
+  { delayMs: 0, durationMs: 780, minScale: 0.56, maxScale: 1.22 },
+  { delayMs: 90, durationMs: 900, minScale: 0.52, maxScale: 1.14 },
+  { delayMs: 180, durationMs: 840, minScale: 0.48, maxScale: 1.28 },
+  { delayMs: 270, durationMs: 920, minScale: 0.5, maxScale: 1.18 },
+  { delayMs: 360, durationMs: 760, minScale: 0.54, maxScale: 1.34 },
 ] as const
 
 export function getVoiceEntryBarHeights(state: VoiceEntryState): readonly string[] {
   return state === "connecting" ? CONNECTING_BAR_HEIGHTS : IDLE_BAR_HEIGHTS
+}
+
+export function getVoiceEntryConnectingBarMotion(index: number): VoiceEntryConnectingBarMotion {
+  return CONNECTING_BAR_MOTION[index] ?? CONNECTING_BAR_MOTION[CONNECTING_BAR_MOTION.length - 1]
 }
 
 export function getVoiceEntryAriaLabel(state: VoiceEntryState): string {
