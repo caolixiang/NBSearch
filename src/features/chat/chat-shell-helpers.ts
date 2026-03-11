@@ -14,6 +14,18 @@ export function newConversationId(): string {
   return `conv_${crypto.randomUUID()}`
 }
 
+export function resolveVoiceResumeConversationId(
+  localConversationId: string,
+  anchors?: Partial<ChatAnchors>
+): string | undefined {
+  const sessionId = (anchors?.sessionId || "").trim()
+  const candidate = (anchors?.conversationId || "").trim()
+  if (!sessionId || !candidate || candidate === localConversationId) {
+    return undefined
+  }
+  return candidate
+}
+
 export function toRenderMessage(message: DomainChatMessage): RenderChatMessage | null {
   if (message.role !== "user" && message.role !== "assistant") {
     return null

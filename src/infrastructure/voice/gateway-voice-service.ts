@@ -9,9 +9,11 @@ import type {
 import { createRuntimeFetch } from "../http/runtime-fetch"
 
 interface GatewayErrorPayload {
-  error?: {
-    message?: string
-  }
+  error?:
+    | {
+        message?: string
+      }
+    | string
 }
 
 function trimSlash(value: string): string {
@@ -37,12 +39,36 @@ function normalizeVoiceGatewayBaseUrl(input: string): string {
 
 async function readErrorMessage(response: Response): Promise<string> {
   const fallback = `request failed with status ${response.status}`
-  try {
-    const payload = (await response.json()) as GatewayErrorPayload
-    return payload.error?.message?.trim() || fallback
-  } catch {
+  const raw = await response.text().catch(() => "")
+  if (!raw.trim()) {
     return fallback
   }
+  try {
+    const payload = JSON.parse(raw) as GatewayErrorPayload
+    const errorPayload = payload.error
+    if (typeof errorPayload === "string" && errorPayload.trim()) {
+      return errorPayload.trim()
+    }
+    if (
+      errorPayload &&
+      typeof errorPayload === "object" &&
+      typeof errorPayload.message === "string" &&
+      errorPayload.message.trim()
+    ) {
+      return errorPayload.message.trim()
+    }
+    return raw.trim() || fallback
+  } catch {
+    return raw.trim() || fallback
+  }
+}
+
+function shouldRetryWithoutSession(message: string, input: VoiceTokenRequest): boolean {
+  return (
+    Boolean(input.sessionId?.trim()) &&
+    Boolean(input.conversationId?.trim()) &&
+    message.toLowerCase().includes("unknown session_id")
+  )
 }
 
 export class GatewayVoiceService implements VoiceService {
@@ -67,22 +93,41 @@ export class GatewayVoiceService implements VoiceService {
     const personality = input.personality === null ? null : (input.personality || "").trim() || null
     const url = `${this.baseUrl}/api/v1/voice/token`
     try {
-      const response = await this.runtimeFetch(url, {
-        method: "POST",
-        headers: this.headers(),
-        body: JSON.stringify({
-          voice: input.voice,
-          personality,
-          speed: input.speed,
-          session_id: input.sessionId,
-          voice_gateway_session_id: input.voiceGatewaySessionId,
-          stateful: true,
-        }),
-      })
+      const sendIssueToken = async (requestInput: VoiceTokenRequest): Promise<Response> =>
+        this.runtimeFetch(url, {
+          method: "POST",
+          headers: this.headers(),
+          body: JSON.stringify({
+            voice: requestInput.voice,
+            personality,
+            speed: requestInput.speed,
+            session_id: requestInput.sessionId,
+            conversation_id: requestInput.conversationId,
+            strict_resume: requestInput.strictResume,
+            voice_gateway_session_id: requestInput.voiceGatewaySessionId,
+            stateful: true,
+          }),
+        })
+
+      let effectiveInput = input
+      let response = await sendIssueToken(effectiveInput)
 
       if (!response.ok) {
         const message = await readErrorMessage(response)
-        throw new Error(message)
+        if (response.status === 400 && shouldRetryWithoutSession(message, effectiveInput)) {
+          effectiveInput = {
+            ...effectiveInput,
+            sessionId: undefined,
+            strictResume: true,
+          }
+          response = await sendIssueToken(effectiveInput)
+          if (!response.ok) {
+            const retryMessage = await readErrorMessage(response)
+            throw new Error(retryMessage)
+          }
+        } else {
+          throw new Error(message)
+        }
       }
 
       const payload = (await response.json()) as {
@@ -100,14 +145,15 @@ export class GatewayVoiceService implements VoiceService {
         url: payload.url,
         roomName: payload.room_name,
         participantName: payload.participant_name,
-        sessionId: payload.session_id || input.sessionId || "",
+        sessionId: payload.session_id || effectiveInput.sessionId || "",
         requestId: payload.request_id,
-        conversationId: payload.conversation_id,
+        conversationId: payload.conversation_id || effectiveInput.conversationId,
       }
     } catch (error) {
       void logClientError("voice.issue_token", error, {
         url,
         sessionId: input.sessionId || "",
+        conversationId: input.conversationId || "",
         voiceGatewaySessionId: input.voiceGatewaySessionId || "",
       })
       throw error

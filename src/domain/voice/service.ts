@@ -19,9 +19,11 @@ export interface VoiceSessionSettings {
 
 export interface VoiceTokenRequest {
   sessionId?: string
+  conversationId?: string
   voice?: string
   personality?: string | null
   speed?: number
+  strictResume?: boolean
   voiceGatewaySessionId?: string
 }
 

@@ -41,6 +41,7 @@ export interface LivekitSessionSnapshot {
 
 export interface LivekitConnectInput {
   sessionId?: string
+  conversationId?: string
   settings: VoiceSessionSettings
 }
 
@@ -506,9 +507,11 @@ export class LivekitSessionController {
 
     const tokenInput: VoiceTokenRequest = {
       sessionId: input.sessionId?.trim() || undefined,
+      conversationId: input.conversationId?.trim() || undefined,
       voice: settings.voice,
       personality: settings.instructions ? null : settings.personality,
       speed: settings.speed,
+      strictResume: Boolean(input.conversationId?.trim()),
       voiceGatewaySessionId,
     }
 
@@ -516,7 +519,7 @@ export class LivekitSessionController {
     const issuedSnapshot = this.setSnapshot({
       sessionId: token.sessionId,
       requestId: token.requestId || "",
-      conversationId: token.conversationId || "",
+      conversationId: token.conversationId || input.conversationId?.trim() || "",
       roomName: token.roomName || "",
       legId: `leg_${crypto.randomUUID().replaceAll("-", "")}`,
       voiceGatewaySessionId,

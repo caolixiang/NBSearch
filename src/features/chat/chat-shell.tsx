@@ -37,6 +37,7 @@ import {
   findLatestAssistantMessageId,
   getLastPendingUserMessage,
   newConversationId,
+  resolveVoiceResumeConversationId,
   resolveSendAnchors,
 } from "./chat-shell-helpers"
 import { useChatShellModels } from "./use-chat-shell-models"
@@ -598,6 +599,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
   const handlePrepareVoiceSession = useCallback(async (): Promise<{
     conversationId: string
     sessionId?: string
+    upstreamConversationId?: string
   }> => {
     const conversationId = await ensureConversation()
     const latestConversations = await repository.listConversations()
@@ -607,6 +609,10 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     return {
       conversationId,
       sessionId: latestConversation?.anchors.sessionId?.trim() || undefined,
+      upstreamConversationId: resolveVoiceResumeConversationId(
+        conversationId,
+        latestConversation?.anchors
+      ),
     }
   }, [conversations, ensureConversation, repository])
 

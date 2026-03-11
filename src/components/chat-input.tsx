@@ -90,6 +90,7 @@ interface ChatInputProps {
   onPrepareVoiceSession?: () => Promise<{
     conversationId: string
     sessionId?: string
+    upstreamConversationId?: string
   }>
   onVoiceRuntimeEvent?: (event: ChatInputVoiceRuntimeEvent) => void | Promise<void>
 }
@@ -595,6 +596,7 @@ export function ChatInput({
       didStartControllerConnect = true
       await controller.connect({
         sessionId: prepared.sessionId?.trim() || undefined,
+        conversationId: prepared.upstreamConversationId?.trim() || undefined,
         settings: resolvedVoiceSettings,
       })
       setVoiceEntryState("active")
