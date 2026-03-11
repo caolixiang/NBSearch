@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, mock } from "bun:test"
 import { RoomEvent, Track, type Room as LivekitRoom } from "livekit-client"
-import type { VoiceService, VoiceTokenResult } from "../../domain/voice/service"
+import type { VoiceService, VoiceSessionEventInput, VoiceTokenResult } from "../../domain/voice/service"
 import { LivekitSessionController, requestVoiceMediaAccess } from "./livekit-session"
 
 const originalNavigatorDescriptor = Object.getOwnPropertyDescriptor(globalThis, "navigator")
@@ -264,6 +264,43 @@ describe("LivekitSessionController", () => {
     expect(room.disconnect.mock.calls.length).toBe(1)
     expect(onError.mock.calls.length).toBe(1)
     expect(controller.getSnapshot().connected).toBe(false)
+  })
+
+  it("reports a valid session_closed end_reason after connect failure", async () => {
+    const room = new FakeRoom()
+    room.localParticipant.setMicrophoneEnabled = mock(async () => {
+      throw new Error("NotAllowedError: Permission denied")
+    })
+    const sessionEvents: VoiceSessionEventInput[] = []
+    const controller = new LivekitSessionController(
+      {
+        ...createVoiceService(),
+        reportSessionEvent: async (input) => {
+          sessionEvents.push(input)
+        },
+      },
+      {},
+      {
+        createRoom: () => room as unknown as LivekitRoom,
+      }
+    )
+
+    await expect(
+      controller.connect({
+        sessionId: "sess-voice-1",
+        settings: {
+          voice: "ara",
+          personality: "assistant",
+          instructions: "",
+          isRawInstructions: false,
+          speed: 1,
+        },
+      })
+    ).rejects.toThrow("NotAllowedError: Permission denied")
+
+    expect(sessionEvents.some((item) => item.eventType === "session_failed")).toBe(true)
+    expect(sessionEvents.at(-1)?.eventType).toBe("session_closed")
+    expect(sessionEvents.at(-1)?.endReason).toBe("api_close")
   })
 
   it("samples local microphone levels while voice mode is active", async () => {

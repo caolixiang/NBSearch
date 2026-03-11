@@ -7,6 +7,14 @@ export type VoiceSessionEventType =
   | "session_closed"
   | "session_expired"
 
+export type VoiceSessionEndReason =
+  | "manual_close"
+  | "api_close"
+  | "network_drop"
+  | "idle_timeout"
+  | "server_shutdown"
+  | "upstream_error"
+
 export type VoiceTextEventRole = "user" | "assistant"
 
 export interface VoiceSessionSettings {
@@ -58,7 +66,7 @@ export interface VoiceSessionEventInput {
   voiceGatewaySessionId?: string
   voiceGatewayLegId?: string
   livekitRoom?: string
-  endReason?: string
+  endReason?: VoiceSessionEndReason
   wsCloseCode?: number
   wsCloseText?: string
   error?: string

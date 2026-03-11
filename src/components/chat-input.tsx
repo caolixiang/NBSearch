@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useRef, useCallback, useEffect, useMemo, type CSSProperties } from "react"
-import type { VoiceService, VoiceTextEvent } from "@/domain/voice/service"
+import type { VoiceService, VoiceSessionEndReason, VoiceTextEvent } from "@/domain/voice/service"
 import { Button } from "@/components/ui/button"
 import {
   ArrowUp,
@@ -356,7 +356,7 @@ export function ChatInput({
   }, [applyVoiceConnectionFailure, clearVoiceSpeechHoldTimeout, emitVoiceRuntimeEvent, voiceService])
 
   const disconnectVoiceController = useCallback(
-    async (endReason = "manual_close") => {
+    async (endReason: VoiceSessionEndReason = "manual_close") => {
       clearVoiceConnectTimeout()
       const controller = voiceControllerRef.current
       if (!controller) {

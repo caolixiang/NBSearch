@@ -12,6 +12,7 @@ import {
 import { logClientError } from "../../app/client-log"
 import type {
   VoiceService,
+  VoiceSessionEndReason,
   VoiceSessionEventInput,
   VoiceSessionSettings,
   VoiceTextEvent,
@@ -136,7 +137,7 @@ export async function requestVoiceMediaAccess(): Promise<void> {
 export class LivekitSessionController {
   private room: Room | null = null
   private snapshot: LivekitSessionSnapshot = createInitialSnapshot()
-  private disconnectReason = "network_drop"
+  private disconnectReason: VoiceSessionEndReason = "network_drop"
   private reportedConversationStarted = false
   private reportedConversationId = ""
   private reportedResponseId = ""
@@ -408,7 +409,7 @@ export class LivekitSessionController {
     }
   }
 
-  private async failSession(message: string, endReason: string): Promise<void> {
+  private async failSession(message: string, closeReason: VoiceSessionEndReason): Promise<void> {
     if (this.failingSession) {
       return
     }
@@ -425,7 +426,7 @@ export class LivekitSessionController {
     })
     try {
       this.lifecycle.onError?.(this.getSnapshot(), message)
-      await this.disconnect(endReason)
+      await this.disconnect(closeReason)
     } finally {
       this.failingSession = false
     }
@@ -551,7 +552,7 @@ export class LivekitSessionController {
 
     room.on(RoomEvent.MediaDevicesError, (error) => {
       const message = readErrorMessage(error)
-      void this.failSession(message, "media_device_error")
+      void this.failSession(message, "api_close")
     })
   }
 
@@ -627,7 +628,7 @@ export class LivekitSessionController {
         roomName: this.snapshot.roomName || token.roomName || "",
         voiceGatewaySessionId: voiceGatewaySessionId,
       })
-      await this.failSession(message, "session_failed")
+      await this.failSession(message, "api_close")
       throw error
     }
   }
@@ -703,7 +704,7 @@ export class LivekitSessionController {
     this.applySpeakerMutedToRoom()
   }
 
-  async disconnect(endReason = "manual_close"): Promise<void> {
+  async disconnect(endReason: VoiceSessionEndReason = "manual_close"): Promise<void> {
     if (this.disconnecting) {
       return
     }
