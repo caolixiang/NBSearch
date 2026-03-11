@@ -4,7 +4,7 @@ import { applyAppearanceSettings } from "@/app/appearance"
 import { applyAppearanceConfigToRuntime, applyGatewayConfigToRuntime, applyPersonalizationConfigToRuntime } from "@/app/runtime"
 import type { ChatAnchors, ChatMessage as DomainChatMessage } from "@/domain/chat/types"
 import type { ConversationRecord } from "@/domain/storage/repository"
-import { ChatInput } from "@/components/chat-input"
+import { ChatInput, type ChatInputVoiceRuntimeEvent } from "@/components/chat-input"
 import { ChatMessage, type RenderChatMessage, TypingIndicator } from "@/components/chat-message"
 import { ChatSidebar } from "@/components/chat-sidebar"
 import { ModelSelector } from "@/components/model-selector"
@@ -42,6 +42,7 @@ import {
 import { useChatShellModels } from "./use-chat-shell-models"
 import { useChatShellAppUpdate } from "./use-chat-shell-app-update"
 import { useChatShellScroll } from "./use-chat-shell-scroll"
+import { commitVoiceMessage } from "./voice-message-commit"
 
 const DRAFT_CONVERSATION_ID = "draft_new_conversation"
 const PENDING_RECOVERY_POLL_INTERVAL_MS = 2500
@@ -349,6 +350,68 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     [chatService, setMessagesForConversation, setPersistedReasoningDurationForConversation, setPersistedReasoningForConversation]
   )
 
+  const refreshConversationCaches = useCallback(
+    async (conversationId: string): Promise<void> => {
+      await refreshConversations()
+      if (activeConversationIdRef.current === conversationId) {
+        await loadMessages(conversationId)
+      }
+    },
+    [loadMessages, refreshConversations]
+  )
+
+  const upsertConversationAnchors = useCallback(
+    async (
+      conversationId: string,
+      patch: Partial<ChatAnchors>,
+      updatedAt = Date.now()
+    ): Promise<ConversationRecord> => {
+      const latestConversations = await repository.listConversations()
+      const fallbackConversation =
+        latestConversations.find((item) => item.id === conversationId) ||
+        conversations.find((item) => item.id === conversationId) ||
+        null
+      const nextConversation: ConversationRecord = {
+        id: conversationId,
+        title: fallbackConversation?.title || "",
+        anchors: {
+          ...(fallbackConversation?.anchors || {}),
+          conversationId,
+          ...patch,
+        },
+        createdAt: fallbackConversation?.createdAt || updatedAt,
+        updatedAt,
+      }
+      await repository.upsertConversation(nextConversation)
+      return nextConversation
+    },
+    [conversations, repository]
+  )
+
+  const upsertVoiceSessionRecord = useCallback(
+    async (
+      conversationId: string,
+      event: ChatInputVoiceRuntimeEvent,
+      status: "issued" | "connected" | "bound" | "closed" | "failed"
+    ): Promise<void> => {
+      const sessionId =
+        event.snapshot.voiceGatewaySessionId.trim() ||
+        event.snapshot.legId.trim() ||
+        `voice_${crypto.randomUUID().replaceAll("-", "")}`
+      const now = Date.now()
+      await repository.upsertVoiceSession({
+        id: sessionId,
+        conversationId,
+        livekitRoom: event.snapshot.roomName || "",
+        requestId: event.snapshot.requestId || "",
+        status,
+        startedAt: now,
+        endedAt: status === "closed" || status === "failed" ? now : null,
+      })
+    },
+    [repository]
+  )
+
   const attemptRecoverPendingAssistant = useCallback(
     async (
       conversationId: string,
@@ -480,6 +543,21 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     },
     [createConversation]
   )
+
+  const handlePrepareVoiceSession = useCallback(async (): Promise<{
+    conversationId: string
+    sessionId?: string
+  }> => {
+    const conversationId = await ensureConversation()
+    const latestConversations = await repository.listConversations()
+    const latestConversation =
+      latestConversations.find((item) => item.id === conversationId) ||
+      conversations.find((item) => item.id === conversationId)
+    return {
+      conversationId,
+      sessionId: latestConversation?.anchors.sessionId?.trim() || undefined,
+    }
+  }, [conversations, ensureConversation, repository])
 
   useEffect(() => {
     let mounted = true
@@ -854,6 +932,101 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
   useEffect(() => {
     handleSendMessageRef.current = handleSendMessage
   }, [handleSendMessage])
+
+  const handleVoiceRuntimeEvent = useCallback(
+    async (event: ChatInputVoiceRuntimeEvent): Promise<void> => {
+      const conversationId = event.conversationId.trim()
+      if (!conversationId || conversationId === DRAFT_CONVERSATION_ID) {
+        return
+      }
+
+      if (event.type === "issued") {
+        clearLastErrorForConversation(conversationId)
+        await upsertConversationAnchors(conversationId, {
+          ...(event.snapshot.sessionId.trim() ? { sessionId: event.snapshot.sessionId.trim() } : {}),
+        })
+        await upsertVoiceSessionRecord(conversationId, event, "issued")
+        await refreshConversations()
+        return
+      }
+
+      if (event.type === "connected") {
+        clearLastErrorForConversation(conversationId)
+        await upsertVoiceSessionRecord(conversationId, event, "connected")
+        return
+      }
+
+      if (event.type === "disconnected") {
+        await upsertVoiceSessionRecord(conversationId, event, "closed")
+        return
+      }
+
+      if (event.type === "error") {
+        setLastErrorForConversation(conversationId, event.error)
+        await upsertVoiceSessionRecord(conversationId, event, "failed")
+        return
+      }
+
+      if (!event.event.final) {
+        return
+      }
+
+      clearLastErrorForConversation(conversationId)
+      const latestConversations = await repository.listConversations()
+      const fallbackConversation =
+        latestConversations.find((item) => item.id === conversationId) ||
+        conversations.find((item) => item.id === conversationId) ||
+        null
+
+      if (event.event.role === "user") {
+        await commitVoiceMessage({
+          repository,
+          conversationId,
+          fallbackConversation,
+          role: "user",
+          text: event.event.text,
+          sessionId: event.snapshot.sessionId || fallbackConversation?.anchors.sessionId || "",
+        })
+      } else {
+        const previousResponseId =
+          fallbackConversation?.anchors.lastResponseId?.trim() ||
+          resolveSendAnchors(
+            conversationId,
+            fallbackConversation || undefined,
+            messagesByConversationIdRef.current[conversationId] || []
+          ).lastResponseId ||
+          ""
+        await commitVoiceMessage({
+          repository,
+          conversationId,
+          fallbackConversation,
+          role: "assistant",
+          text: event.event.text,
+          sessionId: event.snapshot.sessionId || fallbackConversation?.anchors.sessionId || "",
+          responseId: event.event.responseId || "",
+          previousResponseId,
+        })
+        const shouldMarkBound = Boolean(
+          event.snapshot.conversationId.trim() || event.event.conversationId?.trim()
+        )
+        if (shouldMarkBound) {
+          await upsertVoiceSessionRecord(conversationId, event, "bound")
+        }
+      }
+
+      await refreshConversationCaches(conversationId)
+    },
+    [
+      clearLastErrorForConversation,
+      conversations,
+      refreshConversationCaches,
+      refreshConversations,
+      repository,
+      setLastErrorForConversation,
+      upsertConversationAnchors,
+      upsertVoiceSessionRecord,
+    ]
+  )
 
   const handleRegenerateMessage = useCallback(
     async (targetMessage: RenderChatMessage): Promise<void> => {
@@ -1335,6 +1508,12 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
             }}
             isLoading={isActiveConversationStreaming}
             voiceEnabled={runtime.config.voiceEnabled}
+            activeConversationId={activeConversationId}
+            voiceService={runtime.services.voice}
+            onPrepareVoiceSession={handlePrepareVoiceSession}
+            onVoiceRuntimeEvent={(event) => {
+              void handleVoiceRuntimeEvent(event)
+            }}
             onHeightChange={(height) => {
               setChatInputHeight((prev) => (Math.abs(prev - height) < 1 ? prev : height))
             }}

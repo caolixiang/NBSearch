@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useRef, useCallback, useEffect, useMemo } from "react"
+import type { VoiceService, VoiceTextEvent } from "@/domain/voice/service"
 import { Button } from "@/components/ui/button"
 import {
   ArrowUp,
@@ -26,9 +27,13 @@ import {
 import {
   getVoiceEntryAriaLabel,
   getVoiceEntryBarHeights,
-  VOICE_ENTRY_CONNECTING_DELAY_MS,
   type VoiceEntryState,
 } from "@/components/chat-input-voice-entry"
+import { resolveVoicePersonalityPayload } from "@/components/voice-settings-personality"
+import {
+  LivekitSessionController,
+  type LivekitSessionSnapshot,
+} from "@/infrastructure/voice/livekit-session"
 import { cn } from "@/lib/utils"
 
 function AudioWaveIcon({ state = "idle" }: { state?: VoiceEntryState }) {
@@ -75,7 +80,43 @@ interface ChatInputProps {
   onStop?: () => void
   onHeightChange?: (height: number) => void
   voiceEnabled?: boolean
+  activeConversationId?: string | null
+  voiceService?: VoiceService
+  onPrepareVoiceSession?: () => Promise<{
+    conversationId: string
+    sessionId?: string
+  }>
+  onVoiceRuntimeEvent?: (event: ChatInputVoiceRuntimeEvent) => void | Promise<void>
 }
+
+export type ChatInputVoiceRuntimeEvent =
+  | {
+      type: "issued"
+      conversationId: string
+      snapshot: LivekitSessionSnapshot
+    }
+  | {
+      type: "connected"
+      conversationId: string
+      snapshot: LivekitSessionSnapshot
+    }
+  | {
+      type: "disconnected"
+      conversationId: string
+      snapshot: LivekitSessionSnapshot
+    }
+  | {
+      type: "error"
+      conversationId: string
+      snapshot: LivekitSessionSnapshot
+      error: string
+    }
+  | {
+      type: "text"
+      conversationId: string
+      snapshot: LivekitSessionSnapshot
+      event: VoiceTextEvent
+    }
 
 export function ChatInput({
   onSendMessage,
@@ -83,6 +124,10 @@ export function ChatInput({
   onStop,
   onHeightChange,
   voiceEnabled = true,
+  activeConversationId,
+  voiceService,
+  onPrepareVoiceSession,
+  onVoiceRuntimeEvent,
 }: ChatInputProps) {
   const [input, setInput] = useState("")
   const [isRecording, setIsRecording] = useState(false)
@@ -102,6 +147,10 @@ export function ChatInput({
   const containerRef = useRef<HTMLDivElement>(null)
   const isComposingRef = useRef(false)
   const voiceConnectTimeoutRef = useRef<number | null>(null)
+  const voiceControllerRef = useRef<LivekitSessionController | null>(null)
+  const voiceConversationIdRef = useRef("")
+  const onVoiceRuntimeEventRef = useRef(onVoiceRuntimeEvent)
+  const pendingManualVoiceTextRef = useRef("")
   const isVoiceMode = voiceEntryState === "active"
   const isVoiceConnecting = voiceEntryState === "connecting"
 
@@ -112,6 +161,121 @@ export function ChatInput({
     window.clearTimeout(voiceConnectTimeoutRef.current)
     voiceConnectTimeoutRef.current = null
   }, [])
+
+  const emitVoiceRuntimeEvent = useCallback((event: ChatInputVoiceRuntimeEvent) => {
+    void onVoiceRuntimeEventRef.current?.(event)
+  }, [])
+
+  const resetVoiceUiState = useCallback(() => {
+    clearVoiceConnectTimeout()
+    setVoiceEntryState("idle")
+    setIsVoiceMicMuted(false)
+    setIsVoiceSpeakerMuted(false)
+    setIsVoiceSettingsOpen(false)
+    pendingManualVoiceTextRef.current = ""
+    voiceConversationIdRef.current = ""
+  }, [clearVoiceConnectTimeout])
+
+  const getVoiceController = useCallback(() => {
+    if (!voiceService) {
+      return null
+    }
+    if (voiceControllerRef.current) {
+      return voiceControllerRef.current
+    }
+    voiceControllerRef.current = new LivekitSessionController(voiceService, {
+      onIssued: (snapshot) => {
+        const conversationId = voiceConversationIdRef.current
+        if (!conversationId) {
+          return
+        }
+        emitVoiceRuntimeEvent({
+          type: "issued",
+          conversationId,
+          snapshot,
+        })
+      },
+      onConnected: (snapshot) => {
+        const conversationId = voiceConversationIdRef.current
+        if (!conversationId) {
+          return
+        }
+        setVoiceEntryState("active")
+        setIsVoiceMicMuted(snapshot.micMuted)
+        setIsVoiceSpeakerMuted(snapshot.speakerMuted)
+        emitVoiceRuntimeEvent({
+          type: "connected",
+          conversationId,
+          snapshot,
+        })
+      },
+      onDisconnected: (snapshot) => {
+        const conversationId = voiceConversationIdRef.current
+        resetVoiceUiState()
+        if (!conversationId) {
+          return
+        }
+        emitVoiceRuntimeEvent({
+          type: "disconnected",
+          conversationId,
+          snapshot,
+        })
+      },
+      onError: (snapshot, error) => {
+        const conversationId = voiceConversationIdRef.current
+        resetVoiceUiState()
+        if (!conversationId) {
+          return
+        }
+        emitVoiceRuntimeEvent({
+          type: "error",
+          conversationId,
+          snapshot,
+          error,
+        })
+      },
+      onTextEvent: (snapshot, event) => {
+        const conversationId = voiceConversationIdRef.current
+        if (event.role === "user") {
+          const pendingManualText = pendingManualVoiceTextRef.current.trim()
+          if (!pendingManualText || pendingManualText !== event.text.trim()) {
+            setInput(event.text)
+            if (textareaRef.current) {
+              textareaRef.current.style.height = "auto"
+              textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 200)}px`
+            }
+          }
+          if (event.final && pendingManualText === event.text.trim()) {
+            pendingManualVoiceTextRef.current = ""
+          }
+        }
+        if (!conversationId) {
+          return
+        }
+        emitVoiceRuntimeEvent({
+          type: "text",
+          conversationId,
+          snapshot,
+          event,
+        })
+      },
+    })
+    return voiceControllerRef.current
+  }, [emitVoiceRuntimeEvent, resetVoiceUiState, voiceService])
+
+  const disconnectVoiceController = useCallback(
+    async (endReason = "manual_close") => {
+      clearVoiceConnectTimeout()
+      const controller = voiceControllerRef.current
+      if (!controller) {
+        resetVoiceUiState()
+        return
+      }
+      await controller.disconnect(endReason)
+      resetVoiceUiState()
+    },
+    [clearVoiceConnectTimeout, resetVoiceUiState]
+  )
 
   const isImageAttachment = (file: File): boolean => {
     const mimeType = (file.type || "").toLowerCase()
@@ -130,6 +294,14 @@ export function ChatInput({
   )
 
   const selectedVoiceLabel = getVoiceOptionLabel(selectedVoiceId)
+  const resolvedVoiceSettings = useMemo(() => {
+    const personalityPayload = resolveVoicePersonalityPayload(selectedVoicePersonalityId, savedVoicePrompt)
+    return {
+      voice: selectedVoiceId,
+      speed: voiceSpeed,
+      ...personalityPayload,
+    }
+  }, [savedVoicePrompt, selectedVoiceId, selectedVoicePersonalityId, voiceSpeed])
 
   const fileAttachments = useMemo(
     () =>
@@ -138,6 +310,10 @@ export function ChatInput({
         .filter(({ file }) => !isImageAttachment(file)),
     [attachments]
   )
+
+  useEffect(() => {
+    onVoiceRuntimeEventRef.current = onVoiceRuntimeEvent
+  }, [onVoiceRuntimeEvent])
 
   useEffect(() => {
     return () => {
@@ -149,12 +325,8 @@ export function ChatInput({
     if (voiceEnabled) {
       return
     }
-    clearVoiceConnectTimeout()
-    setVoiceEntryState("idle")
-    setIsVoiceMicMuted(false)
-    setIsVoiceSpeakerMuted(false)
-    setIsVoiceSettingsOpen(false)
-  }, [clearVoiceConnectTimeout, voiceEnabled])
+    void disconnectVoiceController("manual_close")
+  }, [disconnectVoiceController, voiceEnabled])
 
   useEffect(() => {
     if (!isVoiceMode || !textareaRef.current) {
@@ -172,6 +344,24 @@ export function ChatInput({
     const frame = window.requestAnimationFrame(focusInput)
     return () => window.cancelAnimationFrame(frame)
   }, [isVoiceMode])
+
+  useEffect(() => {
+    const activeId = activeConversationId?.trim() || ""
+    const voiceConversationId = voiceConversationIdRef.current
+    if (!voiceConversationId || !voiceControllerRef.current) {
+      return
+    }
+    if (activeId && activeId === voiceConversationId) {
+      return
+    }
+    void disconnectVoiceController("manual_close")
+  }, [activeConversationId, disconnectVoiceController])
+
+  useEffect(() => {
+    return () => {
+      void disconnectVoiceController("manual_close")
+    }
+  }, [disconnectVoiceController])
 
   useEffect(() => {
     if (!onHeightChange || !containerRef.current) {
@@ -205,6 +395,13 @@ export function ChatInput({
     }
   }, [imageAttachments])
 
+  useEffect(() => {
+    if (!isVoiceMode || !voiceControllerRef.current) {
+      return
+    }
+    void voiceControllerRef.current.updateSettings(resolvedVoiceSettings)
+  }, [isVoiceMode, resolvedVoiceSettings])
+
   const clearFilePickerSelection = () => {
     const inputElement = fileInputRef.current
     if (!inputElement) {
@@ -218,16 +415,37 @@ export function ChatInput({
     fileInputRef.current?.click()
   }
 
-  const handleSubmit = useCallback(() => {
-    if ((!input.trim() && attachments.length === 0) || isLoading) return
-    onSendMessage(input.trim(), attachments.length > 0 ? attachments : undefined)
+  const handleSubmit = useCallback(async () => {
+    const normalizedInput = input.trim()
+    if ((!normalizedInput && attachments.length === 0) || isLoading) {
+      return
+    }
+
+    if (isVoiceMode) {
+      if (!normalizedInput || attachments.length > 0) {
+        return
+      }
+      const controller = voiceControllerRef.current
+      if (!controller) {
+        return
+      }
+      await controller.sendText(normalizedInput)
+      pendingManualVoiceTextRef.current = normalizedInput
+      setInput("")
+      if (textareaRef.current) {
+        textareaRef.current.style.height = "auto"
+      }
+      return
+    }
+
+    onSendMessage(normalizedInput, attachments.length > 0 ? attachments : undefined)
     setInput("")
     setAttachments([])
     clearFilePickerSelection()
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto"
     }
-  }, [attachments, input, isLoading, onSendMessage])
+  }, [attachments, input, isLoading, isVoiceMode, onSendMessage])
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     const nativeEvent = e.nativeEvent as KeyboardEvent & { isComposing?: boolean }
@@ -236,7 +454,7 @@ export function ChatInput({
     }
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault()
-      handleSubmit()
+      void handleSubmit()
     }
   }
 
@@ -327,29 +545,72 @@ export function ChatInput({
     }
   }
 
-  const handleStartVoiceMode = () => {
-    if (!voiceEnabled || isLoading || isVoiceConnecting || isVoiceMode) {
+  const handleStartVoiceMode = useCallback(async () => {
+    if (!voiceEnabled || isLoading || isVoiceConnecting || isVoiceMode || !voiceService || !onPrepareVoiceSession) {
       return
     }
     clearVoiceConnectTimeout()
     setIsRecording(false)
     setVoiceEntryState("connecting")
-    voiceConnectTimeoutRef.current = window.setTimeout(() => {
-      voiceConnectTimeoutRef.current = null
-      setVoiceEntryState("active")
-    }, VOICE_ENTRY_CONNECTING_DELAY_MS)
-  }
 
-  const handleStopVoiceMode = () => {
-    clearVoiceConnectTimeout()
-    setVoiceEntryState("idle")
-    setIsVoiceMicMuted(false)
-    setIsVoiceSpeakerMuted(false)
-    setIsVoiceSettingsOpen(false)
-  }
+    try {
+      const prepared = await onPrepareVoiceSession()
+      const conversationId = prepared.conversationId.trim()
+      if (!conversationId) {
+        throw new Error("voice conversation is required")
+      }
+      voiceConversationIdRef.current = conversationId
+      const controller = getVoiceController()
+      if (!controller) {
+        throw new Error("voice service unavailable")
+      }
+      await controller.connect({
+        sessionId: prepared.sessionId?.trim() || undefined,
+        settings: resolvedVoiceSettings,
+      })
+      setVoiceEntryState("active")
+    } catch {
+      resetVoiceUiState()
+    }
+  }, [
+    clearVoiceConnectTimeout,
+    getVoiceController,
+    isLoading,
+    isVoiceConnecting,
+    isVoiceMode,
+    onPrepareVoiceSession,
+    resetVoiceUiState,
+    resolvedVoiceSettings,
+    voiceEnabled,
+    voiceService,
+  ])
+
+  const handleStopVoiceMode = useCallback(() => {
+    void disconnectVoiceController("manual_close")
+  }, [disconnectVoiceController])
+
+  const handleToggleVoiceMicMuted = useCallback(async () => {
+    const nextMuted = !isVoiceMicMuted
+    setIsVoiceMicMuted(nextMuted)
+    try {
+      await voiceControllerRef.current?.setMicrophoneMuted(nextMuted)
+    } catch {
+      setIsVoiceMicMuted((previous) => !previous)
+    }
+  }, [isVoiceMicMuted])
+
+  const handleToggleVoiceSpeakerMuted = useCallback(async () => {
+    const nextMuted = !isVoiceSpeakerMuted
+    setIsVoiceSpeakerMuted(nextMuted)
+    try {
+      await voiceControllerRef.current?.setSpeakerMuted(nextMuted)
+    } catch {
+      setIsVoiceSpeakerMuted((previous) => !previous)
+    }
+  }, [isVoiceSpeakerMuted])
 
   const voiceEntryAriaLabel = getVoiceEntryAriaLabel(voiceEntryState)
-  const voiceEntryButtonDisabled = isLoading || isVoiceConnecting
+  const voiceEntryButtonDisabled = isLoading || isVoiceConnecting || !voiceService || !onPrepareVoiceSession
 
   const voiceButtonClassName =
     "inline-flex h-10 items-center justify-center gap-2 rounded-full border border-border bg-background px-3.5 text-sm font-medium text-foreground transition-colors hover:bg-secondary/55"
@@ -479,13 +740,16 @@ export function ChatInput({
                 onClick={openFilePicker}
                 className="inline-flex size-10 shrink-0 items-center justify-center rounded-full border border-border bg-background text-foreground transition-colors hover:bg-secondary/55"
                 aria-label="上传附件"
+                disabled
               >
                 <Paperclip className="size-5" />
               </button>
               <div className="hidden h-8 w-px shrink-0 bg-border/70 sm:block" />
               <button
                 type="button"
-                onClick={() => setIsVoiceMicMuted((value) => !value)}
+                onClick={() => {
+                  void handleToggleVoiceMicMuted()
+                }}
                 className={voiceButtonClassName}
                 aria-label={isVoiceMicMuted ? "取消麦克风静音" : "麦克风静音"}
               >
@@ -494,7 +758,9 @@ export function ChatInput({
               </button>
               <button
                 type="button"
-                onClick={() => setIsVoiceSpeakerMuted((value) => !value)}
+                onClick={() => {
+                  void handleToggleVoiceSpeakerMuted()
+                }}
                 className="inline-flex size-11 shrink-0 items-center justify-center rounded-full border border-border bg-background text-foreground transition-colors hover:bg-secondary/55"
                 aria-label={isVoiceSpeakerMuted ? "取消扬声器静音" : "扬声器静音"}
               >
@@ -514,11 +780,13 @@ export function ChatInput({
               </button>
             </div>
 
-            <button
-              type="button"
-              onClick={handleStopVoiceMode}
-              className="inline-flex h-10 shrink-0 items-center justify-center rounded-full bg-foreground px-6 text-sm font-semibold text-background transition-opacity hover:opacity-90 sm:min-w-[7.5rem]"
-            >
+              <button
+                type="button"
+                onClick={() => {
+                  handleStopVoiceMode()
+                }}
+                className="inline-flex h-10 shrink-0 items-center justify-center rounded-full bg-foreground px-6 text-sm font-semibold text-background transition-opacity hover:opacity-90 sm:min-w-[7.5rem]"
+              >
               停止
             </button>
           </div>
@@ -585,7 +853,9 @@ export function ChatInput({
               {voiceEnabled ? (
                 <button
                   type="button"
-                  onClick={handleStartVoiceMode}
+                  onClick={() => {
+                    void handleStartVoiceMode()
+                  }}
                   className={cn(
                     "group flex flex-col justify-center rounded-full focus:outline-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
                     voiceEntryButtonDisabled ? "cursor-not-allowed" : "hover:opacity-80",
@@ -625,8 +895,10 @@ export function ChatInput({
                       ? "bg-foreground text-background hover:opacity-80"
                       : "bg-muted text-muted-foreground cursor-not-allowed"
                   )}
-                  onClick={handleSubmit}
-                  disabled={!input.trim() && attachments.length === 0}
+                  onClick={() => {
+                    void handleSubmit()
+                  }}
+                  disabled={(!input.trim() && attachments.length === 0) || isVoiceMode}
                 >
                   <ArrowUp className="size-4" />
                   <span className="sr-only">发送</span>
