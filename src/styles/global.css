@@ -277,6 +277,30 @@
   }
 }
 
+.voice-entry-idle-button:hover .voice-entry-idle-bar {
+  animation-name: voiceIdleWavePulse;
+  animation-duration: var(--voice-idle-wave-duration, 360ms);
+  animation-delay: var(--voice-idle-wave-delay, 0ms);
+  animation-timing-function: ease-out;
+  animation-iteration-count: 1;
+}
+
+.voice-entry-idle-bar {
+  transform-origin: center bottom;
+}
+
+@keyframes voiceIdleWavePulse {
+  0% {
+    transform: scaleY(1);
+  }
+  45% {
+    transform: scaleY(var(--voice-idle-wave-peak, 1.12));
+  }
+  100% {
+    transform: scaleY(1);
+  }
+}
+
 .voice-connecting-wave-bar {
   transform-origin: center bottom;
   will-change: transform, opacity;

@@ -3,6 +3,7 @@ import {
   getVoiceEntryAriaLabel,
   getVoiceEntryBarHeights,
   getVoiceEntryConnectingBarMotion,
+  getVoiceEntryIdleBarMotion,
   VOICE_ENTRY_CONNECTING_DELAY_MS,
 } from "./chat-input-voice-entry"
 
@@ -39,6 +40,19 @@ describe("chat-input voice entry", () => {
       durationMs: 760,
       minScale: 0.54,
       maxScale: 1.34,
+    })
+  })
+
+  it("provides per-bar hover motion config for the idle waveform", () => {
+    expect(getVoiceEntryIdleBarMotion(0)).toEqual({
+      delayMs: 0,
+      durationMs: 340,
+      peakScale: 1.08,
+    })
+    expect(getVoiceEntryIdleBarMotion(9)).toEqual({
+      delayMs: 150,
+      durationMs: 340,
+      peakScale: 1.08,
     })
   })
 })

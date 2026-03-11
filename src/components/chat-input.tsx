@@ -28,6 +28,7 @@ import {
   getVoiceEntryAriaLabel,
   getVoiceEntryBarHeights,
   getVoiceEntryConnectingBarMotion,
+  getVoiceEntryIdleBarMotion,
   type VoiceEntryState,
 } from "@/components/chat-input-voice-entry"
 import {
@@ -52,6 +53,7 @@ function AudioWaveIcon({ state = "idle" }: { state?: VoiceEntryState }) {
     <div aria-hidden="true" className="relative flex items-end justify-center gap-0.5 text-current">
       {heights.map((height, index) => {
         const connectingMotion = getVoiceEntryConnectingBarMotion(index)
+        const idleMotion = getVoiceEntryIdleBarMotion(index)
         const connectingStyle = isConnecting
           ? ({
               "--voice-wave-delay": `${connectingMotion.delayMs}ms`,
@@ -59,13 +61,17 @@ function AudioWaveIcon({ state = "idle" }: { state?: VoiceEntryState }) {
               "--voice-wave-min": `${connectingMotion.minScale}`,
               "--voice-wave-max": `${connectingMotion.maxScale}`,
             } as CSSProperties)
-          : undefined
+          : ({
+              "--voice-idle-wave-delay": `${idleMotion.delayMs}ms`,
+              "--voice-idle-wave-duration": `${idleMotion.durationMs}ms`,
+              "--voice-idle-wave-peak": `${idleMotion.peakScale}`,
+            } as CSSProperties)
         return (
         <div
           key={`${height}-${index}`}
           className={cn(
             "relative z-10 w-0.5 rounded-full bg-current transition-[height,color] duration-200 ease-out",
-            isConnecting && "voice-connecting-wave-bar"
+            isConnecting ? "voice-connecting-wave-bar" : "voice-entry-idle-bar"
           )}
           style={{
             height,
@@ -915,7 +921,8 @@ export function ChatInput({
                   }}
                   className={cn(
                     "group flex flex-col justify-center rounded-full focus:outline-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
-                    voiceEntryButtonDisabled ? "cursor-not-allowed" : "hover:opacity-80",
+                    !isVoiceConnecting && "voice-entry-idle-button",
+                    voiceEntryButtonDisabled ? "cursor-not-allowed" : "",
                     isLoading && !isVoiceConnecting ? "opacity-45" : "opacity-100"
                   )}
                   aria-label={voiceEntryAriaLabel}
@@ -926,7 +933,7 @@ export function ChatInput({
                       "relative flex h-10 aspect-square items-center justify-center gap-0.5 rounded-full transition-[background-color,color,transform] duration-200 ease-out",
                       isVoiceConnecting
                         ? "bg-muted text-muted-foreground"
-                        : "bg-foreground text-background ring-1 ring-transparent"
+                        : "bg-foreground text-background ring-1 ring-inset ring-transparent before:absolute before:inset-0 before:rounded-full before:bg-foreground before:ring-0 before:transition-[clip-path,background-color] before:duration-200 before:ease-out before:[clip-path:circle(50%_at_50%_50%)]"
                     )}
                   >
                     <AudioWaveIcon state={isVoiceConnecting ? "connecting" : "idle"} />
