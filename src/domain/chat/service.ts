@@ -1,5 +1,7 @@
 import type { ChatAnchors, ChatMessage, ChatStreamEvent, SendChatTurnInput } from "./types"
 
+export type ChatSessionAvailability = "available" | "missing" | "unknown"
+
 export interface ChatService {
   streamTurn(
     input: SendChatTurnInput,
@@ -31,6 +33,8 @@ export interface ChatService {
       anchors: ChatAnchors
     }
   }>
+
+  inspectSessionAvailability(sessionId: string): Promise<ChatSessionAvailability>
 
   upsertAnchors(anchors: ChatAnchors): Promise<void>
 }

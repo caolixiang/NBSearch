@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test"
-import { resolveVoiceResumeConversationId } from "./chat-shell-helpers"
+import { clearStaleSessionAnchors, resolveVoiceResumeConversationId } from "./chat-shell-helpers"
 
 describe("chat-shell voice resume helpers", () => {
   it("skips voice resume when the conversation has no upstream session", () => {
@@ -26,5 +26,19 @@ describe("chat-shell voice resume helpers", () => {
         conversationId: "conv_upstream_1",
       })
     ).toBe("conv_upstream_1")
+  })
+
+  it("clears stale remote anchors but keeps the local conversation id", () => {
+    expect(
+      clearStaleSessionAnchors({
+        conversationId: "conv_local_1",
+        sessionId: "sess_stale_1",
+        lastResponseId: "resp_stale_1",
+      })
+    ).toEqual({
+      conversationId: "conv_local_1",
+      sessionId: "",
+      lastResponseId: "",
+    })
   })
 })

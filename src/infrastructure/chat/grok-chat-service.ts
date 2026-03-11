@@ -1,6 +1,6 @@
 import type { AppConfig } from "../../app/contracts"
 import { normalizeAppTimezone } from "../../app/personalization"
-import type { ChatService } from "../../domain/chat/service"
+import type { ChatService, ChatSessionAvailability } from "../../domain/chat/service"
 import type {
   ChatAnchors,
   ChatDeepSearchResearch,
@@ -258,6 +258,29 @@ export class GrokChatService implements ChatService {
       sessionId,
       fallbackPreviousResponseId: (input.anchors.lastResponseId || "").trim(),
     })
+  }
+
+  async inspectSessionAvailability(sessionId: string): Promise<ChatSessionAvailability> {
+    const normalizedSessionId = (sessionId || "").trim()
+    if (!normalizedSessionId) {
+      return "missing"
+    }
+    const url = `${this.gatewayBaseUrl}/sessions/${encodeURIComponent(normalizedSessionId)}/state`
+    try {
+      const response = await this.runtimeFetch(url, {
+        method: "GET",
+        headers: this.recoveryRuntime.createAuthHeaders(),
+      })
+      if (response.status === 404) {
+        return "missing"
+      }
+      if (!response.ok) {
+        return "unknown"
+      }
+      return "available"
+    } catch {
+      return "unknown"
+    }
   }
 
   async upsertAnchors(anchors: ChatAnchors): Promise<void> {

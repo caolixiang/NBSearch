@@ -30,6 +30,7 @@ import {
   buildReasoningCaches,
   buildSidebarConversationItems,
   buildStreamingReasoningViewModel,
+  clearStaleSessionAnchors,
   computeMessageBottomSpacerPx,
   buildUserMessageContent,
   buildVisibleMessages,
@@ -606,15 +607,29 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     const latestConversation =
       latestConversations.find((item) => item.id === conversationId) ||
       conversations.find((item) => item.id === conversationId)
+    const preparedSessionId = latestConversation?.anchors.sessionId?.trim() || ""
+    let sessionId = preparedSessionId || undefined
+    if (preparedSessionId) {
+      const availability = await chatService.inspectSessionAvailability(preparedSessionId)
+      if (availability === "missing" && latestConversation) {
+        await repository.upsertConversation({
+          ...latestConversation,
+          anchors: clearStaleSessionAnchors(latestConversation.anchors),
+          updatedAt: Date.now(),
+        })
+        await refreshConversations()
+        sessionId = undefined
+      }
+    }
     return {
       conversationId,
-      sessionId: latestConversation?.anchors.sessionId?.trim() || undefined,
+      sessionId,
       upstreamConversationId: resolveVoiceResumeConversationId(
         conversationId,
         latestConversation?.anchors
       ),
     }
-  }, [conversations, ensureConversation, repository])
+  }, [chatService, conversations, ensureConversation, refreshConversations, repository])
 
   useEffect(() => {
     let mounted = true

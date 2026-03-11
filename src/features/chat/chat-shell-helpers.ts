@@ -26,6 +26,14 @@ export function resolveVoiceResumeConversationId(
   return candidate
 }
 
+export function clearStaleSessionAnchors(anchors?: Partial<ChatAnchors>): Partial<ChatAnchors> {
+  return {
+    conversationId: anchors?.conversationId || "",
+    sessionId: "",
+    lastResponseId: "",
+  }
+}
+
 export function toRenderMessage(message: DomainChatMessage): RenderChatMessage | null {
   if (message.role !== "user" && message.role !== "assistant") {
     return null
