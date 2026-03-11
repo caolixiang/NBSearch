@@ -306,6 +306,9 @@ export function buildCitationItems(
     if (!mappedUrl) {
       return
     }
+    if (seenUrls.has(mappedUrl)) {
+      return
+    }
     const key = `${entry.cardId}\u0000${entry.citationId || ""}`
     if (seenInlineKeys.has(key)) {
       return

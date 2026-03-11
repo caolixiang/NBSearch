@@ -97,6 +97,27 @@ describe("buildCitationItems", () => {
     expect(rows[1]?.url).toBe("https://b.example.com/ref")
     expect(rows[1]?.label).toBe("B Ref")
   })
+
+  it("deduplicates inline citations that resolve to the same url via different cards", () => {
+    const rows = buildCitationItems(
+      {
+        inlineCitations: [
+          { cardId: "card_a", citationId: "1" },
+          { cardId: "card_b", citationId: "2" },
+        ],
+        citationCards: [
+          { cardId: "card_a", url: "https://mem0.ai/" },
+          { cardId: "card_b", url: "https://mem0.ai/" },
+        ],
+      },
+      undefined,
+      "正文。"
+    )
+
+    expect(rows).toHaveLength(1)
+    expect(rows[0]?.url).toBe("https://mem0.ai/")
+    expect(rows[0]?.key).toBe("card_a\u00001")
+  })
 })
 
 describe("shouldHidePdfExportForGeneratedContent", () => {
