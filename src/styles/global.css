@@ -301,6 +301,30 @@
   }
 }
 
+.voice-panel-speaking-bar {
+  transform-origin: center bottom;
+  animation-name: voicePanelSpeakingWave;
+  animation-duration: var(--voice-panel-wave-duration, 780ms);
+  animation-delay: var(--voice-panel-wave-delay, 0ms);
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+}
+
+@keyframes voicePanelSpeakingWave {
+  0% {
+    transform: scaleY(1);
+    opacity: 0.86;
+  }
+  45% {
+    transform: scaleY(var(--voice-panel-wave-peak, 1.16));
+    opacity: 1;
+  }
+  100% {
+    transform: scaleY(1);
+    opacity: 0.9;
+  }
+}
+
 .voice-connecting-wave-bar {
   transform-origin: center bottom;
   will-change: transform, opacity;

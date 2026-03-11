@@ -35,7 +35,11 @@ import {
   shouldClearPendingManualVoiceText,
   shouldRenderVoicePanel,
 } from "@/components/chat-input-voice-state"
-import { getVoiceMeterBarHeights } from "@/components/chat-input-voice-meter"
+import {
+  getVoiceMeterBarHeights,
+  getVoiceMeterBarMotion,
+  isVoiceMeterSpeaking,
+} from "@/components/chat-input-voice-meter"
 import { logClientError } from "@/app/client-log"
 import { resolveVoicePersonalityPayload } from "@/components/voice-settings-personality"
 import {
@@ -84,21 +88,34 @@ function AudioWaveIcon({ state = "idle" }: { state?: VoiceEntryState }) {
   )
 }
 
-function VoiceLevelIndicator({ level }: { level: number }) {
-  const heights = getVoiceMeterBarHeights(level)
+function VoiceLevelIndicator({ speaking }: { speaking: boolean }) {
+  const heights = getVoiceMeterBarHeights(speaking)
 
   return (
     <div aria-hidden="true" className="hidden min-[360px]:flex items-end gap-0.5">
-      {heights.map((height, index) => (
+      {heights.map((height, index) => {
+        const motion = getVoiceMeterBarMotion(index)
+        return (
         <div
           key={`${height}-${index}`}
-          className="w-0.5 rounded-full bg-blue-300 transition-[height,opacity] duration-150 ease-out"
+          className={cn(
+            "w-0.5 rounded-full bg-blue-300 transition-[height,opacity] duration-200 ease-out",
+            speaking && "voice-panel-speaking-bar"
+          )}
           style={{
             height,
-            opacity: level > 0 ? 1 : 0.74,
+            opacity: speaking ? 1 : 0.74,
+            ...(speaking
+              ? ({
+                  "--voice-panel-wave-delay": `${motion.delayMs}ms`,
+                  "--voice-panel-wave-duration": `${motion.durationMs}ms`,
+                  "--voice-panel-wave-peak": `${motion.peakScale}`,
+                } as CSSProperties)
+              : {}),
           }}
         />
-      ))}
+        )
+      })}
     </div>
   )
 }
@@ -169,7 +186,7 @@ export function ChatInput({
   const [selectedVoicePersonalityId, setSelectedVoicePersonalityId] = useState<VoicePersonalityId>(DEFAULT_VOICE_PERSONALITY_ID)
   const [savedVoicePrompt, setSavedVoicePrompt] = useState("")
   const [voiceSpeed, setVoiceSpeed] = useState(1)
-  const [voiceMicLevel, setVoiceMicLevel] = useState(0)
+  const [isVoiceUserSpeaking, setIsVoiceUserSpeaking] = useState(false)
   const [attachments, setAttachments] = useState<File[]>([])
   const [imagePreviewUrlByIndex, setImagePreviewUrlByIndex] = useState<Record<number, string>>({})
   const [loadedPreviewByIndex, setLoadedPreviewByIndex] = useState<Record<number, true>>({})
@@ -178,6 +195,7 @@ export function ChatInput({
   const containerRef = useRef<HTMLDivElement>(null)
   const isComposingRef = useRef(false)
   const voiceConnectTimeoutRef = useRef<number | null>(null)
+  const voiceSpeechHoldTimeoutRef = useRef<number | null>(null)
   const voiceControllerRef = useRef<LivekitSessionController | null>(null)
   const voiceConversationIdRef = useRef("")
   const onVoiceRuntimeEventRef = useRef(onVoiceRuntimeEvent)
@@ -194,6 +212,14 @@ export function ChatInput({
     voiceConnectTimeoutRef.current = null
   }, [])
 
+  const clearVoiceSpeechHoldTimeout = useCallback(() => {
+    if (voiceSpeechHoldTimeoutRef.current === null) {
+      return
+    }
+    window.clearTimeout(voiceSpeechHoldTimeoutRef.current)
+    voiceSpeechHoldTimeoutRef.current = null
+  }, [])
+
   const emitVoiceRuntimeEvent = useCallback((event: ChatInputVoiceRuntimeEvent) => {
     void onVoiceRuntimeEventRef.current?.(event)
   }, [])
@@ -204,12 +230,13 @@ export function ChatInput({
       setVoiceEntryState("idle")
       setIsVoiceMicMuted(false)
       setIsVoiceSpeakerMuted(false)
-      setVoiceMicLevel(0)
+      clearVoiceSpeechHoldTimeout()
+      setIsVoiceUserSpeaking(false)
       setIsVoiceSettingsOpen(false)
       pendingManualVoiceTextRef.current = ""
       voiceConversationIdRef.current = ""
     },
-    [clearVoiceConnectTimeout]
+    [clearVoiceConnectTimeout, clearVoiceSpeechHoldTimeout]
   )
 
   const resetVoiceUiState = useCallback(() => {
@@ -217,11 +244,12 @@ export function ChatInput({
     setVoiceEntryState("idle")
     setIsVoiceMicMuted(false)
     setIsVoiceSpeakerMuted(false)
-    setVoiceMicLevel(0)
+    clearVoiceSpeechHoldTimeout()
+    setIsVoiceUserSpeaking(false)
     setIsVoiceSettingsOpen(false)
     pendingManualVoiceTextRef.current = ""
     voiceConversationIdRef.current = ""
-  }, [clearVoiceConnectTimeout])
+  }, [clearVoiceConnectTimeout, clearVoiceSpeechHoldTimeout])
 
   const getVoiceController = useCallback(() => {
     if (!voiceService) {
@@ -307,11 +335,19 @@ export function ChatInput({
         })
       },
       onMicLevel: (_snapshot, level) => {
-        setVoiceMicLevel(level)
+        if (isVoiceMeterSpeaking(level)) {
+          clearVoiceSpeechHoldTimeout()
+          setIsVoiceUserSpeaking(true)
+          voiceSpeechHoldTimeoutRef.current = window.setTimeout(() => {
+            setIsVoiceUserSpeaking(false)
+            voiceSpeechHoldTimeoutRef.current = null
+          }, 240)
+          return
+        }
       },
     })
     return voiceControllerRef.current
-  }, [applyVoiceConnectionFailure, emitVoiceRuntimeEvent, voiceService])
+  }, [applyVoiceConnectionFailure, clearVoiceSpeechHoldTimeout, emitVoiceRuntimeEvent, voiceService])
 
   const disconnectVoiceController = useCallback(
     async (endReason = "manual_close") => {
@@ -368,8 +404,9 @@ export function ChatInput({
   useEffect(() => {
     return () => {
       clearVoiceConnectTimeout()
+      clearVoiceSpeechHoldTimeout()
     }
-  }, [clearVoiceConnectTimeout])
+  }, [clearVoiceConnectTimeout, clearVoiceSpeechHoldTimeout])
 
   useEffect(() => {
     if (voiceEnabled) {
@@ -651,12 +688,16 @@ export function ChatInput({
   const handleToggleVoiceMicMuted = useCallback(async () => {
     const nextMuted = !isVoiceMicMuted
     setIsVoiceMicMuted(nextMuted)
+    if (nextMuted) {
+      clearVoiceSpeechHoldTimeout()
+      setIsVoiceUserSpeaking(false)
+    }
     try {
       await voiceControllerRef.current?.setMicrophoneMuted(nextMuted)
     } catch {
       setIsVoiceMicMuted((previous) => !previous)
     }
-  }, [isVoiceMicMuted])
+  }, [clearVoiceSpeechHoldTimeout, isVoiceMicMuted])
 
   const handleToggleVoiceSpeakerMuted = useCallback(async () => {
     const nextMuted = !isVoiceSpeakerMuted
@@ -813,7 +854,7 @@ export function ChatInput({
                 aria-label={isVoiceMicMuted ? "取消麦克风静音" : "麦克风静音"}
                 disabled={isVoiceConnecting}
               >
-                <VoiceLevelIndicator level={isVoiceMicMuted ? 0 : voiceMicLevel} />
+                <VoiceLevelIndicator speaking={!isVoiceMicMuted && isVoiceUserSpeaking} />
                 {isVoiceMicMuted ? <MicOff className="size-4.5" /> : <Mic className="size-4.5" />}
               </button>
               <button

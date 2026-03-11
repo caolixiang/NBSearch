@@ -1,32 +1,40 @@
 import { describe, expect, it } from "bun:test"
-import { getVoiceMeterBarHeights, normalizeVoiceMeterLevel } from "./chat-input-voice-meter"
+import { getVoiceMeterBarHeights, getVoiceMeterBarMotion, isVoiceMeterSpeaking } from "./chat-input-voice-meter"
 
 describe("chat-input voice meter", () => {
-  it("normalizes invalid or tiny mic levels to zero", () => {
-    expect(normalizeVoiceMeterLevel(Number.NaN)).toBe(0)
-    expect(normalizeVoiceMeterLevel(-1)).toBe(0)
-    expect(normalizeVoiceMeterLevel(0.02)).toBe(0)
+  it("treats low or invalid mic levels as silence", () => {
+    expect(isVoiceMeterSpeaking(Number.NaN)).toBe(false)
+    expect(isVoiceMeterSpeaking(0.02)).toBe(false)
+    expect(isVoiceMeterSpeaking(0.08)).toBe(true)
   })
 
-  it("boosts valid mic levels into a visible range", () => {
-    expect(normalizeVoiceMeterLevel(0.2)).toBeGreaterThan(0.3)
-    expect(normalizeVoiceMeterLevel(1)).toBe(1)
+  it("returns static low bars when silent and fixed taller bars when speaking", () => {
+    expect(getVoiceMeterBarHeights(false)).toEqual([
+      "0.18rem",
+      "0.2rem",
+      "0.18rem",
+      "0.16rem",
+      "0.14rem",
+    ])
+    expect(getVoiceMeterBarHeights(true)).toEqual([
+      "0.34rem",
+      "0.41rem",
+      "0.45rem",
+      "0.31rem",
+      "0.22rem",
+    ])
   })
 
-  it("maps mic levels to five compact bar heights", () => {
-    expect(getVoiceMeterBarHeights(0)).toEqual([
-      "0.200rem",
-      "0.300rem",
-      "0.420rem",
-      "0.320rem",
-      "0.220rem",
-    ])
-    expect(getVoiceMeterBarHeights(1)).toEqual([
-      "0.460rem",
-      "0.720rem",
-      "0.980rem",
-      "0.760rem",
-      "0.540rem",
-    ])
+  it("provides staggered motion config for speaking animation", () => {
+    expect(getVoiceMeterBarMotion(0)).toEqual({
+      delayMs: 0,
+      durationMs: 760,
+      peakScale: 1.18,
+    })
+    expect(getVoiceMeterBarMotion(9)).toEqual({
+      delayMs: 360,
+      durationMs: 740,
+      peakScale: 1.22,
+    })
   })
 })
