@@ -43,16 +43,16 @@ export class GatewayVoiceService implements VoiceService {
   }
 
   async issueToken(input: VoiceTokenRequest): Promise<VoiceTokenResult> {
+    const personality = input.personality === null ? null : (input.personality || "").trim() || null
     const response = await fetch(`${this.baseUrl}/api/v1/voice/token`, {
       method: "POST",
       headers: this.headers(),
       body: JSON.stringify({
         voice: input.voice,
-        personality: input.personality,
+        personality,
         speed: input.speed,
         session_id: input.sessionId,
-        conversation_id: input.conversationId,
-        strict_resume: input.strictResume,
+        voice_gateway_session_id: input.voiceGatewaySessionId,
         stateful: true,
       }),
     })
@@ -78,7 +78,7 @@ export class GatewayVoiceService implements VoiceService {
       participantName: payload.participant_name,
       sessionId: payload.session_id || input.sessionId || "",
       requestId: payload.request_id,
-      conversationId: payload.conversation_id || input.conversationId,
+      conversationId: payload.conversation_id,
     }
   }
 

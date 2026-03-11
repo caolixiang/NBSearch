@@ -7,13 +7,22 @@ export type VoiceSessionEventType =
   | "session_closed"
   | "session_expired"
 
+export type VoiceTextEventRole = "user" | "assistant"
+
+export interface VoiceSessionSettings {
+  voice: string
+  personality: string | null
+  instructions: string
+  isRawInstructions: boolean
+  speed: number
+}
+
 export interface VoiceTokenRequest {
   sessionId?: string
-  conversationId?: string
-  strictResume?: boolean
   voice?: string
-  personality?: string
+  personality?: string | null
   speed?: number
+  voiceGatewaySessionId?: string
 }
 
 export interface VoiceTokenResult {
@@ -24,6 +33,16 @@ export interface VoiceTokenResult {
   sessionId: string
   requestId?: string
   conversationId?: string
+}
+
+export interface VoiceTextEvent {
+  role: VoiceTextEventRole
+  text: string
+  final: boolean
+  topic: string
+  responseId?: string
+  conversationId?: string
+  source?: string
 }
 
 export interface VoiceSessionEventInput {
