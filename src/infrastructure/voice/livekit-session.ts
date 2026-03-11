@@ -1,6 +1,8 @@
 import {
   type ChatMessage as LivekitChatMessage,
+  createAudioAnalyser,
   type LocalParticipant,
+  type LocalTrackPublication,
   type Participant,
   Room,
   RoomEvent,
@@ -51,10 +53,19 @@ export interface LivekitSessionLifecycle {
   onDisconnected?: (snapshot: LivekitSessionSnapshot) => void
   onError?: (snapshot: LivekitSessionSnapshot, error: string) => void
   onTextEvent?: (snapshot: LivekitSessionSnapshot, event: VoiceTextEvent) => void
+  onMicLevel?: (snapshot: LivekitSessionSnapshot, level: number) => void
+}
+
+interface VoiceAudioAnalyser {
+  calculateVolume: () => number
+  cleanup: () => Promise<void> | void
 }
 
 export interface LivekitSessionControllerDeps {
   createRoom?: () => Room
+  createAudioAnalyser?: (track: NonNullable<LocalTrackPublication["audioTrack"]>) => VoiceAudioAnalyser
+  setInterval?: typeof globalThis.setInterval
+  clearInterval?: typeof globalThis.clearInterval
 }
 
 const DEFAULT_CAPTURE_OPTIONS = {
@@ -62,6 +73,7 @@ const DEFAULT_CAPTURE_OPTIONS = {
   echoCancellation: true,
   noiseSuppression: true,
 } as const
+const MIC_LEVEL_SAMPLE_MS = 96
 
 const REMOTE_AUDIO_HOST_DATASET_KEY = "livekitVoiceAudioHost"
 
@@ -133,6 +145,8 @@ export class LivekitSessionController {
   private remoteAudioHost: HTMLDivElement | null = null
   private disconnecting = false
   private failingSession = false
+  private micLevelTimer: ReturnType<typeof globalThis.setInterval> | null = null
+  private micLevelCleanup: (() => Promise<void> | void) | null = null
 
   constructor(
     private readonly voiceService: VoiceService,
@@ -248,6 +262,60 @@ export class LivekitSessionController {
     }
     this.recentTextKeys.set(key, now)
     return true
+  }
+
+  private emitMicLevel(level: number): void {
+    const normalizedLevel = Number.isFinite(level) ? Math.max(0, Math.min(1, level)) : 0
+    this.lifecycle.onMicLevel?.(this.getSnapshot(), normalizedLevel)
+  }
+
+  private stopMicLevelMonitoring(resetLevel = true): void {
+    const clearIntervalFn = this.deps.clearInterval ?? globalThis.clearInterval.bind(globalThis)
+    if (this.micLevelTimer !== null) {
+      clearIntervalFn(this.micLevelTimer)
+      this.micLevelTimer = null
+    }
+    const cleanup = this.micLevelCleanup
+    this.micLevelCleanup = null
+    if (cleanup) {
+      void Promise.resolve(cleanup()).catch((error) => {
+        void logClientError("voice.mic_level_cleanup", error, {
+          sessionId: this.snapshot.sessionId,
+          roomName: this.snapshot.roomName,
+        })
+      })
+    }
+    if (resetLevel) {
+      this.emitMicLevel(0)
+    }
+  }
+
+  private startMicLevelMonitoring(publication?: LocalTrackPublication): void {
+    this.stopMicLevelMonitoring(false)
+    const audioTrack = publication?.audioTrack
+    if (!audioTrack) {
+      this.emitMicLevel(0)
+      return
+    }
+    try {
+      const analyserFactory = this.deps.createAudioAnalyser ?? createAudioAnalyser
+      const analyser = analyserFactory(audioTrack)
+      this.micLevelCleanup = analyser.cleanup
+      const setIntervalFn = this.deps.setInterval ?? globalThis.setInterval.bind(globalThis)
+      const sampleLevel = () => {
+        const rawLevel = analyser.calculateVolume()
+        const boostedLevel = Number.isFinite(rawLevel) ? Math.max(0, Math.min(1, rawLevel * 2.8)) : 0
+        this.emitMicLevel(boostedLevel)
+      }
+      sampleLevel()
+      this.micLevelTimer = setIntervalFn(sampleLevel, MIC_LEVEL_SAMPLE_MS)
+    } catch (error) {
+      this.emitMicLevel(0)
+      void logClientError("voice.mic_level", error, {
+        sessionId: this.snapshot.sessionId,
+        roomName: this.snapshot.roomName,
+      })
+    }
   }
 
   private async emitTextEvent(event: VoiceTextEvent): Promise<void> {
@@ -491,6 +559,7 @@ export class LivekitSessionController {
     if (this.room) {
       await this.disconnect()
     }
+    this.stopMicLevelMonitoring(false)
 
     const settings = {
       ...input.settings,
@@ -536,7 +605,8 @@ export class LivekitSessionController {
 
     try {
       await room.connect(token.url, token.token)
-      await room.localParticipant.setMicrophoneEnabled(true, DEFAULT_CAPTURE_OPTIONS)
+      const microphonePublication = await room.localParticipant.setMicrophoneEnabled(true, DEFAULT_CAPTURE_OPTIONS)
+      this.startMicLevelMonitoring(microphonePublication)
       await room.startAudio().catch((error) => {
         void logClientError("voice.audio_playback", error, {
           sessionId: this.snapshot.sessionId,
@@ -616,9 +686,15 @@ export class LivekitSessionController {
     const room = this.room
     if (!room) {
       this.setSnapshot({ micMuted: muted })
+      this.emitMicLevel(0)
       return
     }
-    await room.localParticipant.setMicrophoneEnabled(!muted, DEFAULT_CAPTURE_OPTIONS)
+    const publication = await room.localParticipant.setMicrophoneEnabled(!muted, DEFAULT_CAPTURE_OPTIONS)
+    if (muted) {
+      this.stopMicLevelMonitoring()
+    } else {
+      this.startMicLevelMonitoring(publication)
+    }
     this.setSnapshot({ micMuted: muted })
   }
 
@@ -632,6 +708,7 @@ export class LivekitSessionController {
       return
     }
     if (!this.room) {
+      this.stopMicLevelMonitoring()
       this.cleanupRemoteAudioHost()
       this.setSnapshot({ connected: false })
       return
@@ -641,6 +718,7 @@ export class LivekitSessionController {
     this.room = null
     this.disconnectReason = endReason
     try {
+      this.stopMicLevelMonitoring()
       await room.disconnect()
     } finally {
       this.cleanupRemoteAudioHost()

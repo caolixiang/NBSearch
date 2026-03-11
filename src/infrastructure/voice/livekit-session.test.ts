@@ -101,7 +101,12 @@ class FakeRoom {
 
   readonly remoteParticipants = new Map<string, { identity: string; setVolume: ReturnType<typeof mock> }>()
 
-  readonly localParticipant = {
+  readonly localParticipant: {
+    identity: string
+    setMicrophoneEnabled: ReturnType<typeof mock>
+    publishData: ReturnType<typeof mock>
+    sendChatMessage: ReturnType<typeof mock>
+  } = {
     identity: "local-participant",
     setMicrophoneEnabled: mock(async () => undefined),
     publishData: mock(async () => undefined),
@@ -259,5 +264,65 @@ describe("LivekitSessionController", () => {
     expect(room.disconnect.mock.calls.length).toBe(1)
     expect(onError.mock.calls.length).toBe(1)
     expect(controller.getSnapshot().connected).toBe(false)
+  })
+
+  it("samples local microphone levels while voice mode is active", async () => {
+    const room = new FakeRoom()
+    const localAudioTrack = {
+      mediaStreamTrack: {},
+    }
+    room.localParticipant.setMicrophoneEnabled = mock(async () => ({
+      audioTrack: localAudioTrack,
+    }))
+    const onMicLevel = mock((_snapshot: unknown, _level: number) => undefined)
+    const timerRef: { current: (() => void) | null } = { current: null }
+    const clearIntervalFn = mock(() => undefined)
+    const cleanup = mock(() => undefined)
+    const calculateVolume = mock(() => 0.24)
+    const controller = new LivekitSessionController(
+      createVoiceService(),
+      {
+        onMicLevel,
+      },
+      {
+        createRoom: () => room as unknown as LivekitRoom,
+        createAudioAnalyser: () => ({
+          calculateVolume,
+          cleanup,
+        }),
+        setInterval: ((handler: () => void) => {
+          timerRef.current = handler
+          return 1 as unknown as ReturnType<typeof globalThis.setInterval>
+        }) as typeof globalThis.setInterval,
+        clearInterval: clearIntervalFn as typeof globalThis.clearInterval,
+      }
+    )
+
+    await controller.connect({
+      sessionId: "sess-voice-1",
+      settings: {
+        voice: "ara",
+        personality: "assistant",
+        instructions: "",
+        isRawInstructions: false,
+        speed: 1,
+      },
+    })
+
+    const micLevelCalls = onMicLevel.mock.calls as Array<[unknown, number]>
+    expect(micLevelCalls.length).toBe(1)
+    const firstMicLevelCall = micLevelCalls[0]
+    expect(firstMicLevelCall?.[1]).toBeGreaterThan(0.6)
+
+    if (timerRef.current) {
+      timerRef.current()
+    }
+    expect(calculateVolume.mock.calls.length).toBeGreaterThanOrEqual(2)
+
+    await controller.setMicrophoneMuted(true)
+    expect(clearIntervalFn.mock.calls.length).toBeGreaterThan(0)
+    expect(cleanup.mock.calls.length).toBe(1)
+    const lastMicLevelCall = micLevelCalls.at(-1)
+    expect(lastMicLevelCall?.[1]).toBe(0)
   })
 })

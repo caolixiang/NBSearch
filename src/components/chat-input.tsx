@@ -34,6 +34,7 @@ import {
   shouldClearPendingManualVoiceText,
   shouldRenderVoicePanel,
 } from "@/components/chat-input-voice-state"
+import { getVoiceMeterBarHeights } from "@/components/chat-input-voice-meter"
 import { logClientError } from "@/app/client-log"
 import { resolveVoicePersonalityPayload } from "@/components/voice-settings-personality"
 import {
@@ -77,21 +78,18 @@ function AudioWaveIcon({ state = "idle" }: { state?: VoiceEntryState }) {
   )
 }
 
-function VoiceLevelIndicator({ active }: { active: boolean }) {
-  const heights = active ? [0.34, 0.41, 0.45, 0.31, 0.22] : [0.18, 0.2, 0.18, 0.16, 0.14]
+function VoiceLevelIndicator({ level }: { level: number }) {
+  const heights = getVoiceMeterBarHeights(level)
 
   return (
     <div aria-hidden="true" className="hidden min-[360px]:flex items-end gap-0.5">
       {heights.map((height, index) => (
         <div
           key={`${height}-${index}`}
-          className={cn(
-            "w-0.5 rounded-full transition-[height,opacity] duration-300",
-            active ? "bg-blue-300 opacity-100 animate-pulse" : "bg-muted-foreground/45 opacity-70"
-          )}
+          className="w-0.5 rounded-full bg-blue-300 transition-[height,opacity] duration-150 ease-out"
           style={{
-            height: `${height}rem`,
-            animationDelay: `${index * 120}ms`,
+            height,
+            opacity: level > 0 ? 1 : 0.74,
           }}
         />
       ))}
@@ -165,6 +163,7 @@ export function ChatInput({
   const [selectedVoicePersonalityId, setSelectedVoicePersonalityId] = useState<VoicePersonalityId>(DEFAULT_VOICE_PERSONALITY_ID)
   const [savedVoicePrompt, setSavedVoicePrompt] = useState("")
   const [voiceSpeed, setVoiceSpeed] = useState(1)
+  const [voiceMicLevel, setVoiceMicLevel] = useState(0)
   const [attachments, setAttachments] = useState<File[]>([])
   const [imagePreviewUrlByIndex, setImagePreviewUrlByIndex] = useState<Record<number, string>>({})
   const [loadedPreviewByIndex, setLoadedPreviewByIndex] = useState<Record<number, true>>({})
@@ -199,6 +198,7 @@ export function ChatInput({
       setVoiceEntryState("idle")
       setIsVoiceMicMuted(false)
       setIsVoiceSpeakerMuted(false)
+      setVoiceMicLevel(0)
       setIsVoiceSettingsOpen(false)
       pendingManualVoiceTextRef.current = ""
       voiceConversationIdRef.current = ""
@@ -211,6 +211,7 @@ export function ChatInput({
     setVoiceEntryState("idle")
     setIsVoiceMicMuted(false)
     setIsVoiceSpeakerMuted(false)
+    setVoiceMicLevel(0)
     setIsVoiceSettingsOpen(false)
     pendingManualVoiceTextRef.current = ""
     voiceConversationIdRef.current = ""
@@ -298,6 +299,9 @@ export function ChatInput({
           snapshot,
           event,
         })
+      },
+      onMicLevel: (_snapshot, level) => {
+        setVoiceMicLevel(level)
       },
     })
     return voiceControllerRef.current
@@ -803,7 +807,7 @@ export function ChatInput({
                 aria-label={isVoiceMicMuted ? "取消麦克风静音" : "麦克风静音"}
                 disabled={isVoiceConnecting}
               >
-                <VoiceLevelIndicator active={!isVoiceMicMuted} />
+                <VoiceLevelIndicator level={isVoiceMicMuted ? 0 : voiceMicLevel} />
                 {isVoiceMicMuted ? <MicOff className="size-4.5" /> : <Mic className="size-4.5" />}
               </button>
               <button
