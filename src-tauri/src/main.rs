@@ -5,6 +5,7 @@ mod tray_icon_rgba;
 use std::{
     collections::HashMap,
     fs,
+    io::Write,
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -33,6 +34,15 @@ struct RuntimeInfo {
     platform: String,
     app_data_dir: String,
     app_log_dir: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ClientLogPayload {
+    level: String,
+    scope: String,
+    message: String,
+    context: Option<serde_json::Value>,
 }
 
 const NBSEARCH_UPDATER_ENDPOINT: Option<&str> = option_env!("NBSEARCH_UPDATER_ENDPOINT");
@@ -112,6 +122,36 @@ fn runtime_info(app: tauri::AppHandle) -> RuntimeInfo {
         app_data_dir,
         app_log_dir,
     }
+}
+
+fn resolve_app_log_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let dir = app
+        .path()
+        .app_log_dir()
+        .map_err(|e| format!("resolve app log dir failed: {e}"))?;
+    fs::create_dir_all(&dir).map_err(|e| format!("create app log dir failed: {e}"))?;
+    Ok(dir)
+}
+
+#[tauri::command]
+fn append_client_log(app: tauri::AppHandle, payload: ClientLogPayload) -> Result<(), String> {
+    let log_path = resolve_app_log_dir(&app)?.join("frontend.log");
+    let mut file = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)
+        .map_err(|e| format!("open frontend log failed: {e}"))?;
+
+    let line = serde_json::json!({
+        "ts_ms": now_ms(),
+        "level": payload.level.trim(),
+        "scope": payload.scope.trim(),
+        "message": payload.message.trim(),
+        "context": payload.context.unwrap_or(serde_json::Value::Null),
+    });
+
+    writeln!(file, "{}", line).map_err(|e| format!("write frontend log failed: {e}"))?;
+    Ok(())
 }
 
 #[derive(Serialize)]
@@ -1766,6 +1806,7 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             runtime_info,
+            append_client_log,
             resolve_storage_paths,
             read_gateway_config,
             save_gateway_config,

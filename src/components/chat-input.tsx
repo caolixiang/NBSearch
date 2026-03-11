@@ -30,9 +30,9 @@ import {
   type VoiceEntryState,
 } from "@/components/chat-input-voice-entry"
 import {
-  resolveVoiceConnectionErrorMessage,
   shouldRenderVoicePanel,
 } from "@/components/chat-input-voice-state"
+import { logClientError } from "@/app/client-log"
 import { resolveVoicePersonalityPayload } from "@/components/voice-settings-personality"
 import {
   LivekitSessionController,
@@ -143,7 +143,6 @@ export function ChatInput({
   const [selectedVoicePersonalityId, setSelectedVoicePersonalityId] = useState<VoicePersonalityId>(DEFAULT_VOICE_PERSONALITY_ID)
   const [savedVoicePrompt, setSavedVoicePrompt] = useState("")
   const [voiceSpeed, setVoiceSpeed] = useState(1)
-  const [voiceErrorMessage, setVoiceErrorMessage] = useState("")
   const [attachments, setAttachments] = useState<File[]>([])
   const [imagePreviewUrlByIndex, setImagePreviewUrlByIndex] = useState<Record<number, string>>({})
   const [loadedPreviewByIndex, setLoadedPreviewByIndex] = useState<Record<number, true>>({})
@@ -173,14 +172,14 @@ export function ChatInput({
   }, [])
 
   const applyVoiceConnectionFailure = useCallback(
-    (message: string) => {
+    () => {
       clearVoiceConnectTimeout()
       setVoiceEntryState("idle")
       setIsVoiceMicMuted(false)
       setIsVoiceSpeakerMuted(false)
+      setIsVoiceSettingsOpen(false)
       pendingManualVoiceTextRef.current = ""
       voiceConversationIdRef.current = ""
-      setVoiceErrorMessage(message)
     },
     [clearVoiceConnectTimeout]
   )
@@ -191,7 +190,6 @@ export function ChatInput({
     setIsVoiceMicMuted(false)
     setIsVoiceSpeakerMuted(false)
     setIsVoiceSettingsOpen(false)
-    setVoiceErrorMessage("")
     pendingManualVoiceTextRef.current = ""
     voiceConversationIdRef.current = ""
   }, [clearVoiceConnectTimeout])
@@ -209,7 +207,6 @@ export function ChatInput({
         if (!conversationId) {
           return
         }
-        setVoiceErrorMessage("")
         emitVoiceRuntimeEvent({
           type: "issued",
           conversationId,
@@ -221,7 +218,6 @@ export function ChatInput({
         if (!conversationId) {
           return
         }
-        setVoiceErrorMessage("")
         setVoiceEntryState("active")
         setIsVoiceMicMuted(snapshot.micMuted)
         setIsVoiceSpeakerMuted(snapshot.speakerMuted)
@@ -245,7 +241,14 @@ export function ChatInput({
       },
       onError: (snapshot, error) => {
         const conversationId = voiceConversationIdRef.current
-        applyVoiceConnectionFailure(resolveVoiceConnectionErrorMessage(error))
+        void logClientError("voice.connect", error, {
+          conversationId,
+          sessionId: snapshot.sessionId,
+          requestId: snapshot.requestId,
+          conversationIdFromGateway: snapshot.conversationId,
+          roomName: snapshot.roomName,
+        })
+        applyVoiceConnectionFailure()
         if (!conversationId) {
           return
         }
@@ -573,8 +576,8 @@ export function ChatInput({
     }
     clearVoiceConnectTimeout()
     setIsRecording(false)
-    setVoiceErrorMessage("")
     setVoiceEntryState("connecting")
+    let didStartControllerConnect = false
 
     try {
       const prepared = await onPrepareVoiceSession()
@@ -587,13 +590,19 @@ export function ChatInput({
       if (!controller) {
         throw new Error("voice service unavailable")
       }
+      didStartControllerConnect = true
       await controller.connect({
         sessionId: prepared.sessionId?.trim() || undefined,
         settings: resolvedVoiceSettings,
       })
       setVoiceEntryState("active")
     } catch (error) {
-      applyVoiceConnectionFailure(resolveVoiceConnectionErrorMessage(error))
+      if (!didStartControllerConnect) {
+        void logClientError("voice.prepare", error, {
+          conversationId: voiceConversationIdRef.current,
+        })
+      }
+      applyVoiceConnectionFailure()
     }
   }, [
     applyVoiceConnectionFailure,
@@ -747,10 +756,6 @@ export function ChatInput({
               style={{ minHeight: "96px", maxHeight: "164px" }}
               disabled={isLoading || isVoiceConnecting}
             />
-
-            {voiceErrorMessage ? (
-              <div className="px-4 pb-1 text-sm text-red-500 sm:px-5">{voiceErrorMessage}</div>
-            ) : null}
 
             <div className="flex flex-col gap-2 px-4 pb-4 sm:flex-row sm:items-center sm:justify-between sm:px-4 sm:pb-3">
             <div className="flex min-w-0 flex-wrap items-center gap-2 sm:flex-nowrap">
@@ -938,10 +943,6 @@ export function ChatInput({
           </div>
         )}
       </div>
-
-      {!shouldShowVoicePanel && voiceErrorMessage ? (
-        <div className="px-2 pt-2 text-sm text-red-500">{voiceErrorMessage}</div>
-      ) : null}
 
       <VoiceSettingsSheet
         open={isVoiceSettingsOpen}
