@@ -43,6 +43,10 @@ import { useChatShellModels } from "./use-chat-shell-models"
 import { useChatShellAppUpdate } from "./use-chat-shell-app-update"
 import { useChatShellScroll } from "./use-chat-shell-scroll"
 import { commitVoiceMessage } from "./voice-message-commit"
+import {
+  resolveVoiceAssistantDeltaTracker,
+  type VoiceAssistantDeltaTracker,
+} from "./voice-assistant-stream"
 
 const DRAFT_CONVERSATION_ID = "draft_new_conversation"
 const PENDING_RECOVERY_POLL_INTERVAL_MS = 2500
@@ -107,9 +111,11 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
   const abortControllerByConversationIdRef = useRef<Record<string, AbortController>>({})
   const activeConversationIdRef = useRef<string | null>(null)
   const messagesByConversationIdRef = useRef(messagesByConversationId)
+  const streamingStateByConversationIdRef = useRef(streamingStateByConversationId)
   const attemptedPendingRecoveryMessageIdByConversationRef = useRef<Record<string, string>>({})
   const autoRetriedPendingRecoveryMessageIdByConversationRef = useRef<Record<string, string>>({})
   const pendingRecoveryNoneRetryTrackerRef = useRef<PendingRecoveryNoneRetryTracker>({})
+  const voiceAssistantDeltaTrackerByConversationRef = useRef<Record<string, VoiceAssistantDeltaTracker>>({})
   const handleSendMessageRef = useRef<
     | ((
         text: string,
@@ -128,6 +134,10 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
   useEffect(() => {
     messagesByConversationIdRef.current = messagesByConversationId
   }, [messagesByConversationId])
+
+  useEffect(() => {
+    streamingStateByConversationIdRef.current = streamingStateByConversationId
+  }, [streamingStateByConversationId])
 
   const setPendingRecoverySyncingForConversation = useCallback(
     (conversationId: string, syncing: boolean) => {
@@ -358,6 +368,47 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       }
     },
     [loadMessages, refreshConversations]
+  )
+
+  const clearVoiceAssistantStreamingState = useCallback(
+    (conversationId: string) => {
+      delete voiceAssistantDeltaTrackerByConversationRef.current[conversationId]
+      removeStreamingStateForConversation(conversationId)
+    },
+    [removeStreamingStateForConversation]
+  )
+
+  const appendVoiceAssistantDelta = useCallback(
+    (conversationId: string, textDelta: string) => {
+      const normalizedDelta = textDelta
+      if (!normalizedDelta) {
+        return
+      }
+      const now = Date.now()
+      const currentStreamingState = getConversationStreamingState(
+        streamingStateByConversationIdRef.current,
+        conversationId
+      )
+      if (!currentStreamingState) {
+        setStreamingStateForConversation(conversationId, {
+          assistantText: normalizedDelta,
+          reasoningEvents: [],
+          reasoningActive: false,
+          reasoningDurationSeconds: 0,
+          startedAt: now,
+          lastHeartbeatAt: now,
+          leadAnchorMessageId: null,
+        })
+      } else {
+        patchStreamingStateForConversation(conversationId, {
+          assistantText: `${currentStreamingState.assistantText}${normalizedDelta}`,
+          lastHeartbeatAt: now,
+          reasoningActive: false,
+        })
+      }
+      shouldAutoScrollRef.current = activeConversationIdRef.current === conversationId
+    },
+    [patchStreamingStateForConversation, setStreamingStateForConversation]
   )
 
   const upsertConversationAnchors = useCallback(
@@ -942,6 +993,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
 
       if (event.type === "issued") {
         clearLastErrorForConversation(conversationId)
+        clearVoiceAssistantStreamingState(conversationId)
         await upsertConversationAnchors(conversationId, {
           ...(event.snapshot.sessionId.trim() ? { sessionId: event.snapshot.sessionId.trim() } : {}),
         })
@@ -957,13 +1009,30 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       }
 
       if (event.type === "disconnected") {
+        clearVoiceAssistantStreamingState(conversationId)
         await upsertVoiceSessionRecord(conversationId, event, "closed")
         return
       }
 
       if (event.type === "error") {
+        clearVoiceAssistantStreamingState(conversationId)
         setLastErrorForConversation(conversationId, event.error)
         await upsertVoiceSessionRecord(conversationId, event, "failed")
+        return
+      }
+
+      if (event.event.role === "assistant" && !event.event.final) {
+        const currentTracker =
+          voiceAssistantDeltaTrackerByConversationRef.current[conversationId] || null
+        const trackerDecision = resolveVoiceAssistantDeltaTracker(currentTracker, {
+          responseId: event.event.responseId,
+          source: event.event.source,
+        })
+        voiceAssistantDeltaTrackerByConversationRef.current[conversationId] = trackerDecision.next
+        if (!trackerDecision.accept) {
+          return
+        }
+        appendVoiceAssistantDelta(conversationId, event.event.text)
         return
       }
 
@@ -988,6 +1057,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
           sessionId: event.snapshot.sessionId || fallbackConversation?.anchors.sessionId || "",
         })
       } else {
+        clearVoiceAssistantStreamingState(conversationId)
         const previousResponseId =
           fallbackConversation?.anchors.lastResponseId?.trim() ||
           resolveSendAnchors(
@@ -1018,7 +1088,9 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     },
     [
       clearLastErrorForConversation,
+      clearVoiceAssistantStreamingState,
       conversations,
+      appendVoiceAssistantDelta,
       refreshConversationCaches,
       refreshConversations,
       repository,
