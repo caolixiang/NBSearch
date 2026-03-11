@@ -16,6 +16,23 @@ function trimSlash(value: string): string {
   return value.replace(/\/$/, "")
 }
 
+function normalizeVoiceGatewayBaseUrl(input: string): string {
+  const trimmed = trimSlash(input.trim())
+  if (!trimmed) {
+    return "http://localhost:8787"
+  }
+  if (trimmed.endsWith("/v1/responses")) {
+    return trimmed.slice(0, -"/v1/responses".length)
+  }
+  if (trimmed.endsWith("/v1")) {
+    return trimmed.slice(0, -"/v1".length)
+  }
+  if (trimmed.endsWith("/responses")) {
+    return trimmed.slice(0, -"/responses".length)
+  }
+  return trimmed
+}
+
 async function readErrorMessage(response: Response): Promise<string> {
   const fallback = `request failed with status ${response.status}`
   try {
@@ -31,7 +48,7 @@ export class GatewayVoiceService implements VoiceService {
   private readonly apiKey: string
 
   constructor(config: AppConfig) {
-    this.baseUrl = trimSlash(config.apiBaseUrl)
+    this.baseUrl = normalizeVoiceGatewayBaseUrl(config.apiBaseUrl)
     this.apiKey = config.apiKey
   }
 
