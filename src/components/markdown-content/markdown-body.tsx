@@ -1,12 +1,50 @@
 "use client"
 
-import { Children, useMemo } from "react"
+import { Children, type ReactNode, useMemo } from "react"
 import { Streamdown, defaultRehypePlugins } from "streamdown"
 import { cn } from "@/lib/utils"
 import { normalizeAssistantMarkdown } from "./markdown-normalize"
 import { ImageCardActions, MarkdownImage } from "./markdown-image"
 import { collectImageParagraphNodes, extractImageSource, isGeneratedImageNode, isImageNode } from "./markdown-image-nodes"
 import { harden } from "rehype-harden"
+
+function flattenTextContent(node: ReactNode): string {
+  if (typeof node === "string" || typeof node === "number") {
+    return String(node)
+  }
+  if (!node || typeof node === "boolean") {
+    return ""
+  }
+  const nested = (node as { props?: { children?: ReactNode } }).props?.children
+  if (nested === undefined) {
+    return ""
+  }
+  return Children.toArray(nested)
+    .map((child) => flattenTextContent(child))
+    .join("")
+}
+
+function normalizeHostLabel(value: string): string {
+  if (!value) {
+    return ""
+  }
+  try {
+    return new URL(value).host.replace(/^www\./i, "")
+  } catch {
+    return ""
+  }
+}
+
+function isCitationPillLink(href: string | undefined, children: ReactNode): boolean {
+  if (!href) {
+    return false
+  }
+  const text = flattenTextContent(children).trim()
+  if (!text) {
+    return false
+  }
+  return text === normalizeHostLabel(href)
+}
 
 export function MarkdownBody({ content, streaming = false }: { content: string; streaming?: boolean }) {
   const normalized = useMemo(() => normalizeAssistantMarkdown(content), [content])
@@ -149,12 +187,17 @@ export function MarkdownBody({ content, streaming = false }: { content: string; 
             (child) => !(typeof child === "string" && child.trim() === "")
           )
           const imageOnlyLink = nonEmptyChildren.length === 1 && isImageNode(nonEmptyChildren[0])
+          const citationPillLink = !imageOnlyLink && isCitationPillLink(href, children)
 
           return (
             <a
               href={href}
               className={cn(
-                imageOnlyLink ? "block w-full" : "text-claude-sienna underline decoration-claude-sienna/50 underline-offset-2"
+                imageOnlyLink
+                  ? "block w-full"
+                  : citationPillLink
+                    ? "inline-flex items-center rounded-full border border-black/10 bg-secondary/30 px-3 py-1 text-[15px] leading-none text-muted-foreground no-underline align-middle transition-colors hover:bg-secondary/50 hover:text-foreground"
+                    : "text-claude-sienna underline decoration-claude-sienna/50 underline-offset-2"
               )}
               target="_blank"
               rel="noreferrer noopener"

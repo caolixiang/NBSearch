@@ -304,7 +304,7 @@ describe("expandGrokRenderTags", () => {
     expect(expanded).toContain("![sample](https://img.test/a.jpg)")
   })
 
-  it("ignores citation cards when expanding grok render tags", () => {
+  it("expands citation cards into inline domain links", () => {
     const expanded = expandGrokRenderTags(
       "正文<grok:render card_id=\"c1\" card_type=\"citation_card\"></grok:render>结束",
       {
@@ -318,8 +318,31 @@ describe("expandGrokRenderTags", () => {
 
     expect(expanded).toContain("正文")
     expect(expanded).toContain("结束")
+    expect(expanded).toContain("[britannica.com](https://www.britannica.com/biography/Mahmoud-Ahmadinejad)")
     expect(expanded).not.toContain("![")
-    expect(expanded).not.toContain("britannica.com/biography/Mahmoud-Ahmadinejad")
+  })
+
+  it("deduplicates adjacent inline citation links that resolve to the same url", () => {
+    const expanded = expandGrokRenderTags(
+      [
+        "结论。",
+        '<grok:render card_id="c1" card_type="citation_card"></grok:render><grok:render card_id="c2" card_type="citation_card"></grok:render>',
+      ].join(""),
+      {
+        c1: {
+          id: "c1",
+          cardType: "citation_card",
+          url: "https://mem0.ai/",
+        },
+        c2: {
+          id: "c2",
+          cardType: "citation_card",
+          url: "https://mem0.ai/",
+        },
+      }
+    )
+
+    expect(expanded.match(/\[mem0\.ai]\(https:\/\/mem0\.ai\/\)/g)?.length || 0).toBe(1)
   })
 
   it("falls back to thumbnail when original is blocked placeholder text", () => {
@@ -506,5 +529,20 @@ describe("MarkdownBody", () => {
     expect(html).toContain('<ol start="36"')
     expect(html).toContain("Kai-Fu Lee (@kaifulee)")
     expect(html).toContain("宝玉 (@dotey)")
+  })
+
+  it("renders host-only markdown links as inline citation pills", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownBody, {
+        content: "正文 [mem0.ai](https://mem0.ai/) [docs.lancedb.com](https://docs.lancedb.com/faq/faq-oss)",
+        streaming: false,
+      })
+    )
+
+    expect(html).toContain('href="https://mem0.ai/"')
+    expect(html).toContain("mem0.ai")
+    expect(html).toContain("docs.lancedb.com")
+    expect(html).toContain("rounded-full")
+    expect(html).toContain("no-underline")
   })
 })

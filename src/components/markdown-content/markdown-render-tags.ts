@@ -8,6 +8,23 @@ import {
   stripFallbackSuffix,
 } from "./markdown-link-utils"
 
+function extractAttrValue(rawAttrs: string, name: string): string {
+  const match = rawAttrs.match(new RegExp(`${name}="([^"]+)"`, "i"))?.[1]
+  return (match || "").trim()
+}
+
+function buildCitationPillLabel(url: string): string {
+  const normalized = normalizeCardTargetUrl(url)
+  if (!normalized) {
+    return ""
+  }
+  try {
+    return new URL(normalized).host.replace(/^www\./i, "")
+  } catch {
+    return ""
+  }
+}
+
 function injectFallbackHintsFromCards(content: string, cards: Record<string, ImageCardMeta>): string {
   if (!content) {
     return content
@@ -120,17 +137,51 @@ export function expandGrokRenderTags(content: string, cards: Record<string, Imag
     return targetUrl ? `[${imageMarkdown}](${wrapMarkdownUrl(targetUrl)})` : imageMarkdown
   }
 
-  const replaceRenderTag = (_raw: string, cardId: string): string => {
-    const normalizedCardId = typeof cardId === "string" ? cardId.trim() : ""
+  let previousCitationUrl = ""
+  let previousCitationEnd = -1
+  let previousRenderedCitation = false
+
+  const replaceRenderTag = (raw: string, rawAttrs: string, offset: number, fullSource: string): string => {
+    const normalizedCardId = extractAttrValue(rawAttrs, "card_id") || extractAttrValue(rawAttrs, "cardId")
     const card = normalizedCardId ? cards[normalizedCardId] : undefined
+    const cardType = (card?.cardType || extractAttrValue(rawAttrs, "card_type") || extractAttrValue(rawAttrs, "cardType")).toLowerCase()
+
+    if (cardType.includes("citation")) {
+      const citationUrl = normalizeCardTargetUrl(card?.url || card?.image?.link || "")
+      const citationLabel = buildCitationPillLabel(citationUrl)
+      const previousChar = offset > 0 ? fullSource.slice(offset - 1, offset) : ""
+      const shouldPrefixSpace =
+        previousRenderedCitation ||
+        (!!previousChar && !/\s/.test(previousChar))
+      previousRenderedCitation = false
+
+      if (!citationUrl || !citationLabel) {
+        previousCitationUrl = ""
+        previousCitationEnd = -1
+        return ""
+      }
+      const betweenPreviousCitationAndCurrent =
+        previousCitationEnd >= 0 ? fullSource.slice(previousCitationEnd, offset) : ""
+      if (previousCitationUrl === citationUrl && !betweenPreviousCitationAndCurrent.trim()) {
+        return ""
+      }
+
+      previousCitationUrl = citationUrl
+      previousCitationEnd = offset + raw.length
+      previousRenderedCitation = true
+      return `${shouldPrefixSpace ? " " : ""}[${escapeMarkdownText(citationLabel)}](${wrapMarkdownUrl(citationUrl)})`
+    }
+
+    previousCitationUrl = ""
+    previousCitationEnd = -1
+    previousRenderedCitation = false
     return toMarkdownImageFromCard(card)
   }
 
-  const withPairTags = source.replace(
-    /<grok:render\b[^>]*card_id="([^"]+)"[^>]*>[\s\S]*?<\/grok:render>/gi,
-    replaceRenderTag
+  const expanded = source.replace(
+    /<grok:render\b([^>]*?)(?:>[\s\S]*?<\/grok:render>|\/>)/gi,
+    (raw, rawAttrs, offset, fullSource) => replaceRenderTag(raw, rawAttrs || "", offset, fullSource)
   )
-  const expanded = withPairTags.replace(/<grok:render\b[^>]*card_id="([^"]+)"[^>]*\/>/gi, replaceRenderTag)
   const expandedWithFallbackHints = injectFallbackHintsFromCards(expanded, cards)
 
   const hasMarkdownImage = /!\[(?:\\.|[^\]])*]\((?:<[^>]+>|[^)]+)\)/.test(expandedWithFallbackHints)
