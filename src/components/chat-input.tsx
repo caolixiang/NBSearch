@@ -29,6 +29,10 @@ import {
   getVoiceEntryBarHeights,
   type VoiceEntryState,
 } from "@/components/chat-input-voice-entry"
+import {
+  resolveVoiceConnectionErrorMessage,
+  shouldRenderVoicePanel,
+} from "@/components/chat-input-voice-state"
 import { resolveVoicePersonalityPayload } from "@/components/voice-settings-personality"
 import {
   LivekitSessionController,
@@ -139,6 +143,7 @@ export function ChatInput({
   const [selectedVoicePersonalityId, setSelectedVoicePersonalityId] = useState<VoicePersonalityId>(DEFAULT_VOICE_PERSONALITY_ID)
   const [savedVoicePrompt, setSavedVoicePrompt] = useState("")
   const [voiceSpeed, setVoiceSpeed] = useState(1)
+  const [voiceErrorMessage, setVoiceErrorMessage] = useState("")
   const [attachments, setAttachments] = useState<File[]>([])
   const [imagePreviewUrlByIndex, setImagePreviewUrlByIndex] = useState<Record<number, string>>({})
   const [loadedPreviewByIndex, setLoadedPreviewByIndex] = useState<Record<number, true>>({})
@@ -153,6 +158,7 @@ export function ChatInput({
   const pendingManualVoiceTextRef = useRef("")
   const isVoiceMode = voiceEntryState === "active"
   const isVoiceConnecting = voiceEntryState === "connecting"
+  const shouldShowVoicePanel = shouldRenderVoicePanel(voiceEntryState)
 
   const clearVoiceConnectTimeout = useCallback(() => {
     if (voiceConnectTimeoutRef.current === null) {
@@ -166,12 +172,26 @@ export function ChatInput({
     void onVoiceRuntimeEventRef.current?.(event)
   }, [])
 
+  const applyVoiceConnectionFailure = useCallback(
+    (message: string) => {
+      clearVoiceConnectTimeout()
+      setVoiceEntryState("idle")
+      setIsVoiceMicMuted(false)
+      setIsVoiceSpeakerMuted(false)
+      pendingManualVoiceTextRef.current = ""
+      voiceConversationIdRef.current = ""
+      setVoiceErrorMessage(message)
+    },
+    [clearVoiceConnectTimeout]
+  )
+
   const resetVoiceUiState = useCallback(() => {
     clearVoiceConnectTimeout()
     setVoiceEntryState("idle")
     setIsVoiceMicMuted(false)
     setIsVoiceSpeakerMuted(false)
     setIsVoiceSettingsOpen(false)
+    setVoiceErrorMessage("")
     pendingManualVoiceTextRef.current = ""
     voiceConversationIdRef.current = ""
   }, [clearVoiceConnectTimeout])
@@ -189,6 +209,7 @@ export function ChatInput({
         if (!conversationId) {
           return
         }
+        setVoiceErrorMessage("")
         emitVoiceRuntimeEvent({
           type: "issued",
           conversationId,
@@ -200,6 +221,7 @@ export function ChatInput({
         if (!conversationId) {
           return
         }
+        setVoiceErrorMessage("")
         setVoiceEntryState("active")
         setIsVoiceMicMuted(snapshot.micMuted)
         setIsVoiceSpeakerMuted(snapshot.speakerMuted)
@@ -223,7 +245,7 @@ export function ChatInput({
       },
       onError: (snapshot, error) => {
         const conversationId = voiceConversationIdRef.current
-        resetVoiceUiState()
+        applyVoiceConnectionFailure(resolveVoiceConnectionErrorMessage(error))
         if (!conversationId) {
           return
         }
@@ -261,7 +283,7 @@ export function ChatInput({
       },
     })
     return voiceControllerRef.current
-  }, [emitVoiceRuntimeEvent, resetVoiceUiState, voiceService])
+  }, [applyVoiceConnectionFailure, emitVoiceRuntimeEvent, voiceService])
 
   const disconnectVoiceController = useCallback(
     async (endReason = "manual_close") => {
@@ -551,6 +573,7 @@ export function ChatInput({
     }
     clearVoiceConnectTimeout()
     setIsRecording(false)
+    setVoiceErrorMessage("")
     setVoiceEntryState("connecting")
 
     try {
@@ -569,17 +592,17 @@ export function ChatInput({
         settings: resolvedVoiceSettings,
       })
       setVoiceEntryState("active")
-    } catch {
-      resetVoiceUiState()
+    } catch (error) {
+      applyVoiceConnectionFailure(resolveVoiceConnectionErrorMessage(error))
     }
   }, [
+    applyVoiceConnectionFailure,
     clearVoiceConnectTimeout,
     getVoiceController,
     isLoading,
     isVoiceConnecting,
     isVoiceMode,
     onPrepareVoiceSession,
-    resetVoiceUiState,
     resolvedVoiceSettings,
     voiceEnabled,
     voiceService,
@@ -700,7 +723,7 @@ export function ChatInput({
           </div>
         ) : null}
 
-        {isVoiceMode ? (
+        {shouldShowVoicePanel ? (
           <>
             <textarea
               ref={textareaRef}
@@ -714,7 +737,7 @@ export function ChatInput({
               onCompositionEnd={() => {
                 isComposingRef.current = false
               }}
-              placeholder="不方便说话，你也可以打字"
+              placeholder={isVoiceConnecting ? "正在连接语音，请允许麦克风权限" : "不方便说话，你也可以打字"}
               rows={1}
               autoFocus
               className={cn(
@@ -722,8 +745,12 @@ export function ChatInput({
                 attachments.length > 0 ? "pt-4" : "pt-10 sm:pt-11"
               )}
               style={{ minHeight: "96px", maxHeight: "164px" }}
-              disabled={isLoading}
+              disabled={isLoading || isVoiceConnecting}
             />
+
+            {voiceErrorMessage ? (
+              <div className="px-4 pb-1 text-sm text-red-500 sm:px-5">{voiceErrorMessage}</div>
+            ) : null}
 
             <div className="flex flex-col gap-2 px-4 pb-4 sm:flex-row sm:items-center sm:justify-between sm:px-4 sm:pb-3">
             <div className="flex min-w-0 flex-wrap items-center gap-2 sm:flex-nowrap">
@@ -752,6 +779,7 @@ export function ChatInput({
                 }}
                 className={voiceButtonClassName}
                 aria-label={isVoiceMicMuted ? "取消麦克风静音" : "麦克风静音"}
+                disabled={isVoiceConnecting}
               >
                 <VoiceLevelIndicator active={!isVoiceMicMuted} />
                 {isVoiceMicMuted ? <MicOff className="size-4.5" /> : <Mic className="size-4.5" />}
@@ -763,6 +791,7 @@ export function ChatInput({
                 }}
                 className="inline-flex size-11 shrink-0 items-center justify-center rounded-full border border-border bg-background text-foreground transition-colors hover:bg-secondary/55"
                 aria-label={isVoiceSpeakerMuted ? "取消扬声器静音" : "扬声器静音"}
+                disabled={isVoiceConnecting}
               >
                 {isVoiceSpeakerMuted ? <VolumeX className="size-5" /> : <Volume2 className="size-5" />}
               </button>
@@ -771,6 +800,7 @@ export function ChatInput({
                 onClick={() => setIsVoiceSettingsOpen(true)}
                 className={cn(voiceButtonClassName, "min-w-[9rem] justify-between px-4")}
                 aria-label="语音设置"
+                disabled={isVoiceConnecting}
               >
                 <span className="inline-flex items-center gap-2">
                   <Settings2 className="size-4" />
@@ -908,6 +938,10 @@ export function ChatInput({
           </div>
         )}
       </div>
+
+      {!shouldShowVoicePanel && voiceErrorMessage ? (
+        <div className="px-2 pt-2 text-sm text-red-500">{voiceErrorMessage}</div>
+      ) : null}
 
       <VoiceSettingsSheet
         open={isVoiceSettingsOpen}
