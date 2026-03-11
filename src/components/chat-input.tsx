@@ -54,7 +54,13 @@ function AudioWaveIcon({ state = "idle" }: { state?: VoiceEntryState }) {
   const isConnecting = state === "connecting"
 
   return (
-    <div aria-hidden="true" className="relative flex items-end justify-center gap-0.5 text-current">
+    <div
+      aria-hidden="true"
+      className={cn(
+        "relative flex justify-center gap-0.5 text-current",
+        isConnecting ? "items-end" : "items-center"
+      )}
+    >
       {heights.map((height, index) => {
         const connectingMotion = getVoiceEntryConnectingBarMotion(index)
         const idleMotion = getVoiceEntryIdleBarMotion(index)
