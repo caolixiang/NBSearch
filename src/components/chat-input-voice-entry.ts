@@ -4,12 +4,12 @@ export const VOICE_ENTRY_CONNECTING_DELAY_MS = 420
 
 const IDLE_BAR_HEIGHTS = ["0.4rem", "0.8rem", "1.2rem", "0.7rem", "1rem", "0.4rem"] as const
 const CONNECTING_BAR_HEIGHTS = [
-  "0.749rem",
-  "1.10696rem",
-  "1.19582rem",
-  "1.00402rem",
-  "0.59398rem",
-  "0.29407rem",
+  "1.19988rem",
+  "1.06865rem",
+  "0.68365rem",
+  "0.3341rem",
+  "0.25rem",
+  "0.25rem",
 ] as const
 
 export function getVoiceEntryBarHeights(state: VoiceEntryState): readonly string[] {

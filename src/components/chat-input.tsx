@@ -43,9 +43,16 @@ import { cn } from "@/lib/utils"
 
 function AudioWaveIcon({ state = "idle" }: { state?: VoiceEntryState }) {
   const heights = getVoiceEntryBarHeights(state)
+  const isConnecting = state === "connecting"
 
   return (
-    <div aria-hidden="true" className="relative flex items-center justify-center gap-0.5 text-current">
+    <div
+      aria-hidden="true"
+      className={cn(
+        "relative flex items-center justify-center gap-0.5 text-current",
+        isConnecting && "origin-center motion-safe:animate-[spin_1.15s_linear_infinite]"
+      )}
+    >
       {heights.map((height, index) => (
         <div
           key={`${height}-${index}`}
@@ -669,6 +676,12 @@ export function ChatInput({
             : "rounded-[1.75rem]"
         )}
       >
+        {isVoiceConnecting ? (
+          <div className="pointer-events-none absolute right-4 top-4 z-10 rounded-2xl border border-border/80 bg-background/95 px-3 py-1.5 text-sm font-medium text-foreground shadow-sm backdrop-blur-sm">
+            连接中……
+          </div>
+        ) : null}
+
         {shouldRenderAttachmentTray ? (
           <div className={cn("px-4 pt-3", isVoiceMode && "min-h-[3.5rem] pb-1")}>
             {imageAttachments.length > 0 ? (
@@ -750,7 +763,7 @@ export function ChatInput({
               onCompositionEnd={() => {
                 isComposingRef.current = false
               }}
-              placeholder={isVoiceConnecting ? "正在连接语音，请允许麦克风权限" : "不方便说话，你也可以打字"}
+              placeholder={isVoiceConnecting ? "比平时花费更长。请稍候..." : "不方便说话，你也可以打字"}
               rows={1}
               autoFocus
               className={cn(
@@ -905,9 +918,9 @@ export function ChatInput({
                 >
                   <div
                     className={cn(
-                      "relative flex h-10 aspect-square items-center justify-center gap-0.5 rounded-full ring-inset transition-colors duration-200 ease-out",
+                      "relative flex h-10 aspect-square items-center justify-center gap-0.5 rounded-full transition-[background-color,color,transform] duration-200 ease-out",
                       isVoiceConnecting
-                        ? "bg-secondary text-muted-foreground ring-0"
+                        ? "bg-muted text-muted-foreground"
                         : "bg-foreground text-background ring-1 ring-transparent"
                     )}
                   >
