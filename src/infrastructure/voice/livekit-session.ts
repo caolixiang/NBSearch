@@ -7,6 +7,7 @@ import {
   Track,
   type TranscriptionSegment,
 } from "livekit-client"
+import { logClientError } from "../../app/client-log"
 import type {
   VoiceService,
   VoiceSessionEventInput,
@@ -51,11 +52,17 @@ export interface LivekitSessionLifecycle {
   onTextEvent?: (snapshot: LivekitSessionSnapshot, event: VoiceTextEvent) => void
 }
 
+export interface LivekitSessionControllerDeps {
+  createRoom?: () => Room
+}
+
 const DEFAULT_CAPTURE_OPTIONS = {
   autoGainControl: true,
   echoCancellation: true,
   noiseSuppression: true,
 } as const
+
+const REMOTE_AUDIO_HOST_DATASET_KEY = "livekitVoiceAudioHost"
 
 function newEventId(prefix: string): string {
   return `${prefix}_${crypto.randomUUID().replaceAll("-", "")}`
@@ -90,6 +97,29 @@ function normalizeTextForDedup(value: string): string {
   return value.replace(/\s+/g, " ").trim().toLowerCase()
 }
 
+function stopMediaStream(stream: MediaStream): void {
+  for (const track of stream.getTracks()) {
+    track.stop()
+  }
+}
+
+export async function requestVoiceMediaAccess(): Promise<void> {
+  const mediaDevices = globalThis.navigator?.mediaDevices
+  if (!mediaDevices?.getUserMedia) {
+    throw new Error("microphone access unavailable")
+  }
+  const stream = await mediaDevices.getUserMedia({
+    audio: DEFAULT_CAPTURE_OPTIONS,
+  })
+  try {
+    if (stream.getAudioTracks().length === 0) {
+      throw new Error("no audio device")
+    }
+  } finally {
+    stopMediaStream(stream)
+  }
+}
+
 export class LivekitSessionController {
   private room: Room | null = null
   private snapshot: LivekitSessionSnapshot = createInitialSnapshot()
@@ -99,10 +129,14 @@ export class LivekitSessionController {
   private reportedResponseId = ""
   private recentTextKeys = new Map<string, number>()
   private readonly textDecoder = new TextDecoder()
+  private remoteAudioHost: HTMLDivElement | null = null
+  private disconnecting = false
+  private failingSession = false
 
   constructor(
     private readonly voiceService: VoiceService,
-    private readonly lifecycle: LivekitSessionLifecycle = {}
+    private readonly lifecycle: LivekitSessionLifecycle = {},
+    private readonly deps: LivekitSessionControllerDeps = {}
   ) {}
 
   getSnapshot(): LivekitSessionSnapshot {
@@ -256,6 +290,78 @@ export class LivekitSessionController {
     }
   }
 
+  private ensureRemoteAudioHost(): HTMLDivElement | null {
+    if (typeof document === "undefined") {
+      return null
+    }
+    if (this.remoteAudioHost?.isConnected) {
+      return this.remoteAudioHost
+    }
+    const host = document.createElement("div")
+    host.dataset[REMOTE_AUDIO_HOST_DATASET_KEY] = "true"
+    host.hidden = true
+    host.style.position = "fixed"
+    host.style.width = "0"
+    host.style.height = "0"
+    host.style.overflow = "hidden"
+    host.style.pointerEvents = "none"
+    document.body.appendChild(host)
+    this.remoteAudioHost = host
+    return host
+  }
+
+  private cleanupRemoteAudioHost(): void {
+    if (!this.remoteAudioHost) {
+      return
+    }
+    this.remoteAudioHost.replaceChildren()
+    this.remoteAudioHost.remove()
+    this.remoteAudioHost = null
+  }
+
+  private attachRemoteAudioTrack(track: { attach: () => HTMLMediaElement }, participant?: Participant): void {
+    const element = track.attach()
+    element.autoplay = true
+    element.muted = false
+    element.setAttribute("playsinline", "true")
+    const host = this.ensureRemoteAudioHost()
+    host?.appendChild(element)
+    if (participant) {
+      this.applySpeakerMutedToParticipant(participant)
+    }
+  }
+
+  private detachRemoteTrackElements(track: { detach: () => HTMLMediaElement | HTMLMediaElement[] }): void {
+    const detached = track.detach()
+    const elements = Array.isArray(detached) ? detached : [detached]
+    for (const element of elements) {
+      element.remove()
+    }
+  }
+
+  private async failSession(message: string, endReason: string): Promise<void> {
+    if (this.failingSession) {
+      return
+    }
+    this.failingSession = true
+    await this.reportSessionEvent({
+      eventType: "session_failed",
+      sessionId: this.snapshot.sessionId,
+      conversationId: this.snapshot.conversationId || undefined,
+      requestId: this.snapshot.requestId || undefined,
+      voiceGatewaySessionId: this.snapshot.voiceGatewaySessionId || undefined,
+      livekitRoom: this.snapshot.roomName || undefined,
+      voiceGatewayLegId: this.snapshot.legId || undefined,
+      error: message,
+    })
+    try {
+      this.lifecycle.onError?.(this.getSnapshot(), message)
+      await this.disconnect(endReason)
+    } finally {
+      this.failingSession = false
+    }
+  }
+
   private attachRoomListeners(room: Room): void {
     room.on(RoomEvent.Connected, () => {
       this.setSnapshot({
@@ -276,8 +382,25 @@ export class LivekitSessionController {
       this.lifecycle.onConnected?.(this.getSnapshot())
     })
 
-    room.on(RoomEvent.TrackSubscribed, (_track, _publication, participant) => {
+    room.on(RoomEvent.TrackSubscribed, (track, _publication, participant) => {
+      if (track.kind === Track.Kind.Audio && participant.identity !== room.localParticipant.identity) {
+        this.attachRemoteAudioTrack(track, participant)
+        void room.startAudio().catch((error) => {
+          void logClientError("voice.audio_playback", error, {
+            sessionId: this.snapshot.sessionId,
+            roomName: this.snapshot.roomName,
+            participantIdentity: participant.identity,
+          })
+        })
+        return
+      }
       this.applySpeakerMutedToParticipant(participant)
+    })
+
+    room.on(RoomEvent.TrackUnsubscribed, (track) => {
+      if (track.kind === Track.Kind.Audio) {
+        this.detachRemoteTrackElements(track)
+      }
     })
 
     room.on(RoomEvent.ChatMessage, (message: LivekitChatMessage, participant?: Participant | LocalParticipant) => {
@@ -338,6 +461,7 @@ export class LivekitSessionController {
     )
 
     room.on(RoomEvent.Disconnected, () => {
+      this.cleanupRemoteAudioHost()
       const closedSnapshot = this.setSnapshot({
         connected: false,
       })
@@ -358,17 +482,7 @@ export class LivekitSessionController {
 
     room.on(RoomEvent.MediaDevicesError, (error) => {
       const message = readErrorMessage(error)
-      void this.reportSessionEvent({
-        eventType: "session_failed",
-        sessionId: this.snapshot.sessionId,
-        conversationId: this.snapshot.conversationId || undefined,
-        requestId: this.snapshot.requestId || undefined,
-        voiceGatewaySessionId: this.snapshot.voiceGatewaySessionId || undefined,
-        livekitRoom: this.snapshot.roomName || undefined,
-        voiceGatewayLegId: this.snapshot.legId || undefined,
-        error: message,
-      })
-      this.lifecycle.onError?.(this.getSnapshot(), message)
+      void this.failSession(message, "media_device_error")
     })
   }
 
@@ -387,6 +501,7 @@ export class LivekitSessionController {
     this.reportedConversationId = ""
     this.reportedResponseId = ""
     this.recentTextKeys.clear()
+    this.failingSession = false
     const voiceGatewaySessionId = `vgs_${crypto.randomUUID().replaceAll("-", "")}`
 
     const tokenInput: VoiceTokenRequest = {
@@ -412,14 +527,19 @@ export class LivekitSessionController {
     })
     this.lifecycle.onIssued?.(issuedSnapshot)
 
-    const room = new Room()
+    const room = this.deps.createRoom?.() ?? new Room()
     this.room = room
     this.attachRoomListeners(room)
 
     try {
       await room.connect(token.url, token.token)
       await room.localParticipant.setMicrophoneEnabled(true, DEFAULT_CAPTURE_OPTIONS)
-      await room.startAudio().catch(() => undefined)
+      await room.startAudio().catch((error) => {
+        void logClientError("voice.audio_playback", error, {
+          sessionId: this.snapshot.sessionId,
+          roomName: this.snapshot.roomName,
+        })
+      })
       this.applySpeakerMutedToRoom()
       if (settings.instructions || settings.isRawInstructions) {
         await this.updateSettings(settings)
@@ -427,17 +547,14 @@ export class LivekitSessionController {
       return this.getSnapshot()
     } catch (error) {
       const message = readErrorMessage(error)
-      void this.reportSessionEvent({
-        eventType: "session_failed",
+      this.setSnapshot({
         sessionId: this.snapshot.sessionId || token.sessionId,
-        conversationId: this.snapshot.conversationId || token.conversationId || undefined,
-        requestId: this.snapshot.requestId || token.requestId || undefined,
-        voiceGatewaySessionId: voiceGatewaySessionId || undefined,
-        livekitRoom: this.snapshot.roomName || token.roomName || undefined,
-        voiceGatewayLegId: this.snapshot.legId || undefined,
-        error: message,
+        requestId: this.snapshot.requestId || token.requestId || "",
+        conversationId: this.snapshot.conversationId || token.conversationId || "",
+        roomName: this.snapshot.roomName || token.roomName || "",
+        voiceGatewaySessionId: voiceGatewaySessionId,
       })
-      this.lifecycle.onError?.(this.getSnapshot(), message)
+      await this.failSession(message, "session_failed")
       throw error
     }
   }
@@ -508,13 +625,23 @@ export class LivekitSessionController {
   }
 
   async disconnect(endReason = "manual_close"): Promise<void> {
+    if (this.disconnecting) {
+      return
+    }
     if (!this.room) {
+      this.cleanupRemoteAudioHost()
       this.setSnapshot({ connected: false })
       return
     }
+    this.disconnecting = true
     const room = this.room
     this.room = null
     this.disconnectReason = endReason
-    await room.disconnect()
+    try {
+      await room.disconnect()
+    } finally {
+      this.cleanupRemoteAudioHost()
+      this.disconnecting = false
+    }
   }
 }

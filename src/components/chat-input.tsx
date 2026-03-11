@@ -37,6 +37,7 @@ import { resolveVoicePersonalityPayload } from "@/components/voice-settings-pers
 import {
   LivekitSessionController,
   type LivekitSessionSnapshot,
+  requestVoiceMediaAccess,
 } from "@/infrastructure/voice/livekit-session"
 import { cn } from "@/lib/utils"
 
@@ -580,6 +581,7 @@ export function ChatInput({
     let didStartControllerConnect = false
 
     try {
+      await requestVoiceMediaAccess()
       const prepared = await onPrepareVoiceSession()
       const conversationId = prepared.conversationId.trim()
       if (!conversationId) {
