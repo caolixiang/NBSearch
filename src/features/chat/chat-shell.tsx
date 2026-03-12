@@ -2,7 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { AppFontSizeMode, AppRuntime, AppThemeMode } from "@/app/contracts"
 import { applyAppearanceSettings } from "@/app/appearance"
 import { applyAppearanceConfigToRuntime, applyGatewayConfigToRuntime, applyPersonalizationConfigToRuntime } from "@/app/runtime"
-import type { ChatAnchors, ChatMessage as DomainChatMessage } from "@/domain/chat/types"
+import type {
+  ChatAnchors,
+  ChatCardAttachmentPayload,
+  ChatMessage as DomainChatMessage,
+} from "@/domain/chat/types"
 import type { ConversationRecord } from "@/domain/storage/repository"
 import { ChatInput, type ChatInputVoiceRuntimeEvent } from "@/components/chat-input"
 import { ChatMessage, type RenderChatMessage, TypingIndicator } from "@/components/chat-message"
@@ -45,6 +49,11 @@ import { useChatShellModels } from "./use-chat-shell-models"
 import { useChatShellAppUpdate } from "./use-chat-shell-app-update"
 import { useChatShellScroll } from "./use-chat-shell-scroll"
 import { commitVoiceMessage } from "./voice-message-commit"
+import {
+  buildVoiceAssistantMessageContent,
+  buildVoiceAssistantReasoningEvents,
+  mergeVoiceAssistantCards,
+} from "./voice-assistant-media"
 import {
   resolveVoiceAssistantDeltaTracker,
   type VoiceAssistantDeltaTracker,
@@ -118,6 +127,8 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
   const autoRetriedPendingRecoveryMessageIdByConversationRef = useRef<Record<string, string>>({})
   const pendingRecoveryNoneRetryTrackerRef = useRef<PendingRecoveryNoneRetryTracker>({})
   const voiceAssistantDeltaTrackerByConversationRef = useRef<Record<string, VoiceAssistantDeltaTracker>>({})
+  const voiceAssistantCardsByConversationRef = useRef<Record<string, ChatCardAttachmentPayload[]>>({})
+  const voiceAssistantCardResponseIdByConversationRef = useRef<Record<string, string>>({})
   const handleSendMessageRef = useRef<
     | ((
         text: string,
@@ -375,10 +386,38 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
   const clearVoiceAssistantStreamingState = useCallback(
     (conversationId: string) => {
       delete voiceAssistantDeltaTrackerByConversationRef.current[conversationId]
+      delete voiceAssistantCardsByConversationRef.current[conversationId]
+      delete voiceAssistantCardResponseIdByConversationRef.current[conversationId]
       removeStreamingStateForConversation(conversationId)
     },
     [removeStreamingStateForConversation]
   )
+
+  const appendVoiceAssistantCards = useCallback(
+    (conversationId: string, responseId: string, cards: ChatCardAttachmentPayload[]) => {
+      if (!conversationId || cards.length === 0) {
+        return
+      }
+      const normalizedResponseId = responseId.trim()
+      const previousResponseId = (voiceAssistantCardResponseIdByConversationRef.current[conversationId] || "").trim()
+      const previousCards =
+        normalizedResponseId && previousResponseId && previousResponseId !== normalizedResponseId
+          ? []
+          : voiceAssistantCardsByConversationRef.current[conversationId] || []
+      voiceAssistantCardsByConversationRef.current[conversationId] = mergeVoiceAssistantCards(previousCards, cards)
+      if (normalizedResponseId) {
+        voiceAssistantCardResponseIdByConversationRef.current[conversationId] = normalizedResponseId
+      }
+    },
+    []
+  )
+
+  const takeVoiceAssistantCards = useCallback((conversationId: string): ChatCardAttachmentPayload[] => {
+    const cards = voiceAssistantCardsByConversationRef.current[conversationId] || []
+    delete voiceAssistantCardsByConversationRef.current[conversationId]
+    delete voiceAssistantCardResponseIdByConversationRef.current[conversationId]
+    return cards
+  }, [])
 
   const appendVoiceAssistantDelta = useCallback(
     (conversationId: string, textDelta: string) => {
@@ -1042,6 +1081,13 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
         return
       }
 
+      if (event.event.role === "assistant" && Array.isArray(event.event.cards) && event.event.cards.length > 0) {
+        appendVoiceAssistantCards(conversationId, event.event.responseId || "", event.event.cards)
+        if (!event.event.text.trim()) {
+          return
+        }
+      }
+
       if (event.event.role === "assistant" && !event.event.final) {
         const currentTracker =
           voiceAssistantDeltaTrackerByConversationRef.current[conversationId] || null
@@ -1079,6 +1125,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
           sessionId: event.snapshot.sessionId || fallbackConversation?.anchors.sessionId || "",
         })
       } else {
+        const assistantCards = takeVoiceAssistantCards(conversationId)
         clearVoiceAssistantStreamingState(conversationId)
         const previousResponseId =
           fallbackConversation?.anchors.lastResponseId?.trim() ||
@@ -1093,7 +1140,8 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
           conversationId,
           fallbackConversation,
           role: "assistant",
-          text: event.event.text,
+          text: buildVoiceAssistantMessageContent(event.event.text, assistantCards),
+          reasoningEvents: buildVoiceAssistantReasoningEvents(assistantCards),
           sessionId: event.snapshot.sessionId || fallbackConversation?.anchors.sessionId || "",
           responseId: event.event.responseId || "",
           previousResponseId,
@@ -1113,6 +1161,8 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       clearVoiceAssistantStreamingState,
       conversations,
       appendVoiceAssistantDelta,
+      appendVoiceAssistantCards,
+      takeVoiceAssistantCards,
       refreshConversationCaches,
       refreshConversations,
       repository,

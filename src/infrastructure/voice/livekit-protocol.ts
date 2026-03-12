@@ -1,4 +1,5 @@
 import type { VoiceSessionSettings, VoiceTextEvent, VoiceTextEventRole } from "../../domain/voice/service"
+import { readCardAttachmentPayload } from "../chat/chunk-parsers-card-attachment-payload"
 
 export const LIVEKIT_TOPIC_CHAT = "lk.chat"
 export const LIVEKIT_TOPIC_TRANSCRIPTION = "lk.transcription"
@@ -98,10 +99,11 @@ function buildTextEvent(
   final: boolean,
   topic: string,
   payload: Record<string, unknown>,
-  sourceType: string
+  sourceType: string,
+  cards: VoiceTextEvent["cards"] = []
 ): VoiceTextEvent | null {
   const normalizedText = text.trim()
-  if (!normalizedText) {
+  if (!normalizedText && cards.length === 0) {
     return null
   }
   const responseId = readTrimmedString(payload["response_id"]) || readTrimmedString(payload["responseId"])
@@ -114,6 +116,7 @@ function buildTextEvent(
     text: normalizedText,
     final,
     topic,
+    ...(cards.length > 0 ? { cards } : {}),
     ...(responseId ? { responseId } : {}),
     ...(conversationId ? { conversationId } : {}),
     ...(sourceType ? { source: sourceType } : {}),
@@ -231,6 +234,13 @@ export function decodeLivekitTextEnvelope(input: {
 
   if (sourceType === "response.audio_transcript.delta") {
     const event = buildTextEvent("assistant", readTrimmedString(payload["delta"]), false, topic, payload, sourceType)
+    if (event) {
+      textEvents.push(event)
+    }
+  } else if (sourceType === "response.grok.output") {
+    const card =
+      readCardAttachmentPayload(payload["card_attachment"]) || readCardAttachmentPayload(payload["cardAttachment"])
+    const event = buildTextEvent("assistant", "", false, topic, payload, sourceType, card ? [card] : [])
     if (event) {
       textEvents.push(event)
     }

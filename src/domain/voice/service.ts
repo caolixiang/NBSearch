@@ -1,3 +1,5 @@
+import type { ChatCardAttachmentPayload } from "../chat/types"
+
 export type VoiceSessionEventType =
   | "session_connected"
   | "conversation_started"
@@ -56,6 +58,7 @@ export interface VoiceTextEvent {
   itemId?: string
   eventId?: string
   voiceEventKey?: string
+  cards?: ChatCardAttachmentPayload[]
 }
 
 export interface VoiceSessionEventInput {

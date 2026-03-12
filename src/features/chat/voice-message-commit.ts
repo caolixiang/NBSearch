@@ -1,4 +1,4 @@
-import type { ChatMessage } from "@/domain/chat/types"
+import type { ChatMessage, ChatReasoningEventDetail } from "@/domain/chat/types"
 import type { AppRepository, ConversationRecord } from "@/domain/storage/repository"
 
 type VoiceMessageRole = "user" | "assistant"
@@ -10,6 +10,7 @@ interface CommitVoiceMessageInput {
   role: VoiceMessageRole
   text: string
   voiceEventKey?: string
+  reasoningEvents?: ChatReasoningEventDetail[]
   sessionId?: string
   responseId?: string
   previousResponseId?: string
@@ -44,6 +45,7 @@ export async function commitVoiceMessage({
   role,
   text,
   voiceEventKey,
+  reasoningEvents,
   sessionId,
   responseId,
   previousResponseId,
@@ -125,6 +127,7 @@ export async function commitVoiceMessage({
       ...existingMessage,
       content: normalizedText,
       ...(normalizedVoiceEventKey ? { voiceEventKey: normalizedVoiceEventKey } : {}),
+      ...(Array.isArray(reasoningEvents) && reasoningEvents.length > 0 ? { reasoningEvents } : {}),
       ...(role === "assistant" && (responseId || "").trim() ? { responseId: responseId!.trim() } : {}),
       ...(role === "assistant" && (previousResponseId || "").trim()
         ? { previousResponseId: previousResponseId!.trim() }
@@ -132,7 +135,8 @@ export async function commitVoiceMessage({
     }
     const isUnchanged =
       normalizeText(existingMessage.content) === normalizeText(normalizedText) &&
-      (existingMessage.voiceEventKey || "").trim() === normalizedVoiceEventKey
+      (existingMessage.voiceEventKey || "").trim() === normalizedVoiceEventKey &&
+      JSON.stringify(existingMessage.reasoningEvents || []) === JSON.stringify(reasoningEvents || [])
     if (!isUnchanged) {
       await repository.updateMessage(conversationId, nextMessage)
       return {
@@ -153,6 +157,7 @@ export async function commitVoiceMessage({
     role,
     content: normalizedText,
     ...(normalizedVoiceEventKey ? { voiceEventKey: normalizedVoiceEventKey } : {}),
+    ...(Array.isArray(reasoningEvents) && reasoningEvents.length > 0 ? { reasoningEvents } : {}),
     ...(role === "assistant" && (responseId || "").trim() ? { responseId: responseId!.trim() } : {}),
     ...(role === "assistant" && (previousResponseId || "").trim()
       ? { previousResponseId: previousResponseId!.trim() }

@@ -88,6 +88,47 @@ describe("livekit-protocol", () => {
     ])
   })
 
+  it("decodes response.grok.output image cards from realtime server events", () => {
+    const envelope = decodeLivekitTextEnvelope({
+      topic: LIVEKIT_TOPIC_REALTIME_SERVER_EVENTS,
+      rawText: JSON.stringify({
+        type: "response.grok.output",
+        event_id: "evt_card_1",
+        item_id: "item_card_1",
+        response_id: "resp_card_1",
+        card_attachment:
+          "{\"id\":\"card_1\",\"cardType\":\"image_card\",\"type\":\"render_searched_image\",\"image\":{\"original\":\"https://img.test/a.jpg\",\"thumbnail\":\"https://img.test/a-thumb.jpg\",\"title\":\"sample\",\"link\":\"https://source.test\"}}",
+      }),
+    })
+
+    expect(envelope.textEvents).toEqual([
+      {
+        role: "assistant",
+        text: "",
+        final: false,
+        topic: LIVEKIT_TOPIC_REALTIME_SERVER_EVENTS,
+        responseId: "resp_card_1",
+        itemId: "item_card_1",
+        eventId: "evt_card_1",
+        source: "response.grok.output",
+        voiceEventKey: "assistant:resp:resp_card_1",
+        cards: [
+          {
+            id: "card_1",
+            cardType: "image_card",
+            type: "render_searched_image",
+            image: {
+              original: "https://img.test/a.jpg",
+              thumbnail: "https://img.test/a-thumb.jpg",
+              title: "sample",
+              link: "https://source.test",
+            },
+          },
+        ],
+      },
+    ])
+  })
+
   it("falls back to participant identity for plain chat payloads", () => {
     const envelope = decodeLivekitTextEnvelope({
       topic: LIVEKIT_TOPIC_CHAT,

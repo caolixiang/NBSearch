@@ -135,4 +135,59 @@ describe("commitVoiceMessage", () => {
     expect(updatedConversation?.title).toBe("给我看两个埃隆马斯克的照片。")
     expect(updatedConversation?.updatedAt).toBe(220)
   })
+
+  it("persists assistant reasoning card attachments for voice image replies", async () => {
+    const repository = new MemoryAppRepository()
+    const conversation: ConversationRecord = {
+      id: "conv_voice_4",
+      title: "语音图片",
+      anchors: {
+        conversationId: "conv_voice_4",
+        sessionId: "sess_voice_4",
+        lastResponseId: "resp_prev_4",
+      },
+      createdAt: 100,
+      updatedAt: 100,
+    }
+    await repository.upsertConversation(conversation)
+
+    await commitVoiceMessage({
+      repository,
+      conversationId: conversation.id,
+      fallbackConversation: conversation,
+      role: "assistant",
+      text:
+        '这里有两张图。\\n<tool-meta>{"webSearch":[],"cards":[{"id":"card_1","cardType":"image_card","type":"render_searched_image","image":{"original":"https://img.test/a.jpg"}}]}</tool-meta>',
+      reasoningEvents: [
+        {
+          kind: "card_attachment",
+          card: {
+            id: "card_1",
+            cardType: "image_card",
+            type: "render_searched_image",
+            image: { original: "https://img.test/a.jpg" },
+          },
+        },
+      ],
+      sessionId: "sess_voice_4",
+      responseId: "resp_voice_4",
+      previousResponseId: "resp_prev_4",
+      now: 230,
+    })
+
+    const messages = await repository.listMessages(conversation.id)
+    expect(messages).toHaveLength(1)
+    expect(messages[0]?.content).toContain("<tool-meta>")
+    expect(messages[0]?.reasoningEvents).toEqual([
+      {
+        kind: "card_attachment",
+        card: {
+          id: "card_1",
+          cardType: "image_card",
+          type: "render_searched_image",
+          image: { original: "https://img.test/a.jpg" },
+        },
+      },
+    ])
+  })
 })
