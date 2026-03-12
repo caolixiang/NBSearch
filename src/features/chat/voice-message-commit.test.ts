@@ -136,6 +136,79 @@ describe("commitVoiceMessage", () => {
     expect(updatedConversation?.updatedAt).toBe(220)
   })
 
+  it("derives a local title for the first voice user turn when enabled", async () => {
+    const repository = new MemoryAppRepository()
+    const conversation: ConversationRecord = {
+      id: "conv_voice_derived_title_1",
+      title: "",
+      anchors: {
+        conversationId: "conv_voice_derived_title_1",
+        sessionId: "sess_voice_derived_title_1",
+      },
+      createdAt: 100,
+      updatedAt: 100,
+    }
+    await repository.upsertConversation(conversation)
+
+    const result = await commitVoiceMessage({
+      repository,
+      conversationId: conversation.id,
+      fallbackConversation: conversation,
+      role: "user",
+      text: "给我几张霍尔木兹海峡的照片。",
+      voiceEventKey: "user:item:voice_title_turn_1",
+      allowDerivedTitle: true,
+      sessionId: "sess_voice_derived_title_1",
+      now: 210,
+    })
+
+    expect(result.conversation.title).toBe("给我几张霍尔木兹海峡的照片。")
+  })
+
+  it("updates the derived voice title when the same turn gets a refined transcript", async () => {
+    const repository = new MemoryAppRepository()
+    const conversation: ConversationRecord = {
+      id: "conv_voice_derived_title_2",
+      title: "",
+      anchors: {
+        conversationId: "conv_voice_derived_title_2",
+        sessionId: "sess_voice_derived_title_2",
+      },
+      createdAt: 100,
+      updatedAt: 100,
+    }
+    await repository.upsertConversation(conversation)
+
+    await commitVoiceMessage({
+      repository,
+      conversationId: conversation.id,
+      fallbackConversation: conversation,
+      role: "user",
+      text: "给我几张霍尔木兹海峡的照片。",
+      voiceEventKey: "user:item:voice_title_turn_2",
+      allowDerivedTitle: true,
+      sessionId: "sess_voice_derived_title_2",
+      now: 210,
+    })
+    const second = await commitVoiceMessage({
+      repository,
+      conversationId: conversation.id,
+      fallbackConversation: conversation,
+      role: "user",
+      text: "给我几张霍尔木兹海峡的照片，直接给我照片。",
+      voiceEventKey: "user:item:voice_title_turn_2",
+      allowDerivedTitle: true,
+      sessionId: "sess_voice_derived_title_2",
+      now: 220,
+    })
+
+    expect(second.skipped).toBe(false)
+    expect(second.conversation.title).toBe("给我几张霍尔木兹海峡的照片，直接给我照片。")
+
+    const updatedConversation = (await repository.listConversations()).find((item) => item.id === conversation.id)
+    expect(updatedConversation?.title).toBe("给我几张霍尔木兹海峡的照片，直接给我照片。")
+  })
+
   it("accepts an explicit upstream title when voice title becomes available", async () => {
     const repository = new MemoryAppRepository()
     const conversation: ConversationRecord = {

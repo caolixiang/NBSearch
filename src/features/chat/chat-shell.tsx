@@ -1207,6 +1207,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
           role: "user",
           text: event.event.text,
           voiceEventKey: event.event.voiceEventKey || "",
+          allowDerivedTitle: true,
           sessionId: event.snapshot.sessionId || fallbackConversation?.anchors.sessionId || "",
         })
       } else {
