@@ -43,16 +43,26 @@ describe("extractResponseNewTitleFromRawChunk", () => {
     expect(title).toBe("刘美贤冬奥金牌照片")
   })
 
-  it("extracts string title from conversation payload and strips eos", () => {
+  it("extracts direct string title from an explicit title payload and strips eos", () => {
     const title = extractResponseNewTitleFromRawChunk({
       result: {
-        conversation: {
-          title: "友好问候<eos>",
-        },
+        title: "友好问候<eos>",
       },
     })
 
     expect(title).toBe("友好问候")
+  })
+
+  it("ignores conversation metadata title placeholders", () => {
+    const title = extractResponseNewTitleFromRawChunk({
+      result: {
+        conversation: {
+          title: "New conversation",
+        },
+      },
+    })
+
+    expect(title).toBe("")
   })
 })
 

@@ -1,4 +1,4 @@
-import { collectRawChunkCandidates, isRecord } from "./chunk-parsers-common"
+import { isRecord, parseRecords } from "./chunk-parsers-common"
 import type { AssistantToolMetaPayload } from "./chunk-parsers-common"
 
 export function appendToolMeta(content: string, payload: AssistantToolMetaPayload): string {
@@ -50,26 +50,34 @@ function readStringTitle(value: unknown): string {
   if (typeof value.title === "string") {
     return normalizeConversationTitle(value.title)
   }
-  if (isRecord(value.conversation) && typeof value.conversation.title === "string") {
-    return normalizeConversationTitle(value.conversation.title)
-  }
   return ""
 }
 
 export function extractResponseNewTitleFromRawChunk(rawChunk: unknown): string {
-  const candidates = collectRawChunkCandidates(rawChunk)
-  for (const candidate of candidates) {
-    const nested = readNewTitle(candidate)
-    if (nested) {
-      return nested
-    }
-    const direct = readDirectNewTitle(candidate)
-    if (direct) {
-      return direct
-    }
-    const stringTitle = readStringTitle(candidate)
-    if (stringTitle) {
-      return stringTitle
+  const records = parseRecords(rawChunk)
+  for (const record of records) {
+    const explicitCandidates = [
+      record,
+      isRecord(record.response) ? record.response : null,
+      isRecord(record.result) ? record.result : null,
+      isRecord(record.result) && isRecord(record.result.response) ? record.result.response : null,
+    ]
+    for (const candidate of explicitCandidates) {
+      if (!candidate) {
+        continue
+      }
+      const nested = readNewTitle(candidate)
+      if (nested) {
+        return nested
+      }
+      const direct = readDirectNewTitle(candidate)
+      if (direct) {
+        return direct
+      }
+      const stringTitle = readStringTitle(candidate)
+      if (stringTitle) {
+        return stringTitle
+      }
     }
   }
 
