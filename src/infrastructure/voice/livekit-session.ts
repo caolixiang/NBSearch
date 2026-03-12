@@ -141,6 +141,7 @@ export class LivekitSessionController {
   private reportedConversationStarted = false
   private reportedConversationId = ""
   private reportedResponseId = ""
+  private canonicalAssistantResponseId = ""
   private recentTextKeys = new Map<string, number>()
   private readonly textDecoder = new TextDecoder()
   private remoteAudioHost: HTMLDivElement | null = null
@@ -265,6 +266,50 @@ export class LivekitSessionController {
     return true
   }
 
+  private rememberCanonicalAssistantResponseId(responseId?: string): void {
+    const normalizedResponseId = responseId?.trim() || ""
+    if (!normalizedResponseId) {
+      return
+    }
+    this.canonicalAssistantResponseId = normalizedResponseId
+  }
+
+  private normalizeVoiceTextEvent(event: VoiceTextEvent): VoiceTextEvent {
+    if (event.role !== "assistant") {
+      return event
+    }
+
+    const source = event.source?.trim() || ""
+    const responseId = event.responseId?.trim() || ""
+
+    if (
+      source === "response.audio_transcript.delta" ||
+      source === "response.audio_transcript.done" ||
+      source === "response.text.delta" ||
+      source === "response.text.final" ||
+      source === "response.text.done" ||
+      source === "response.grok.output"
+    ) {
+      this.rememberCanonicalAssistantResponseId(responseId)
+      return event
+    }
+
+    if (source === "response.human_assist_turn.commit") {
+      const canonicalResponseId = this.canonicalAssistantResponseId || responseId
+      if (!canonicalResponseId) {
+        return event
+      }
+      return {
+        ...event,
+        responseId: canonicalResponseId,
+        voiceEventKey: `assistant:resp:${canonicalResponseId}`,
+      }
+    }
+
+    this.rememberCanonicalAssistantResponseId(responseId)
+    return event
+  }
+
   private emitMicLevel(level: number): void {
     const normalizedLevel = Number.isFinite(level) ? Math.max(0, Math.min(1, level)) : 0
     this.lifecycle.onMicLevel?.(this.getSnapshot(), normalizedLevel)
@@ -320,7 +365,8 @@ export class LivekitSessionController {
   }
 
   private async emitTextEvent(event: VoiceTextEvent): Promise<void> {
-    const normalizedConversationId = event.conversationId?.trim() || ""
+    const normalizedEvent = this.normalizeVoiceTextEvent(event)
+    const normalizedConversationId = normalizedEvent.conversationId?.trim() || ""
     if (normalizedConversationId && normalizedConversationId !== this.snapshot.conversationId) {
       this.setSnapshot({ conversationId: normalizedConversationId })
       await this.reportConversationBound(normalizedConversationId)
@@ -328,17 +374,18 @@ export class LivekitSessionController {
       await this.reportConversationBound(normalizedConversationId)
     }
 
-    if (event.role === "assistant" && event.final) {
-      await this.reportConversationStarted(event.responseId)
-      if (event.responseId?.trim()) {
-        await this.reportAnchorUpdated(event.responseId)
+    if (!this.shouldEmitTextEvent(normalizedEvent)) {
+      return
+    }
+
+    if (normalizedEvent.role === "assistant" && normalizedEvent.final) {
+      await this.reportConversationStarted(normalizedEvent.responseId)
+      if (normalizedEvent.responseId?.trim()) {
+        await this.reportAnchorUpdated(normalizedEvent.responseId)
       }
     }
 
-    if (!this.shouldEmitTextEvent(event)) {
-      return
-    }
-    this.lifecycle.onTextEvent?.(this.getSnapshot(), event)
+    this.lifecycle.onTextEvent?.(this.getSnapshot(), normalizedEvent)
   }
 
   private applySpeakerMutedToParticipant(participant: Participant | undefined): void {
@@ -521,6 +568,9 @@ export class LivekitSessionController {
           participantIdentity: participant?.identity,
           localParticipantIdentity: room.localParticipant.identity,
         })
+        if (envelope.responseCreatedId) {
+          this.rememberCanonicalAssistantResponseId(envelope.responseCreatedId)
+        }
         if (envelope.conversationId) {
           void this.reportConversationBound(envelope.conversationId)
         }
@@ -571,6 +621,7 @@ export class LivekitSessionController {
     this.reportedConversationStarted = false
     this.reportedConversationId = ""
     this.reportedResponseId = ""
+    this.canonicalAssistantResponseId = ""
     this.recentTextKeys.clear()
     this.failingSession = false
     const voiceGatewaySessionId = `vgs_${crypto.randomUUID().replaceAll("-", "")}`

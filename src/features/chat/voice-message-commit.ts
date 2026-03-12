@@ -14,6 +14,8 @@ interface CommitVoiceMessageInput {
   sessionId?: string
   responseId?: string
   previousResponseId?: string
+  upstreamTitle?: string
+  allowDerivedTitle?: boolean
   now?: number
 }
 
@@ -49,6 +51,8 @@ export async function commitVoiceMessage({
   sessionId,
   responseId,
   previousResponseId,
+  upstreamTitle,
+  allowDerivedTitle = false,
   now,
 }: CommitVoiceMessageInput): Promise<CommitVoiceMessageResult> {
   const normalizedText = text.trim()
@@ -91,7 +95,14 @@ export async function commitVoiceMessage({
 
   const nextTitle = (() => {
     const currentTitle = latestConversation?.title || fallbackConversation?.title || ""
+    const normalizedUpstreamTitle = upstreamTitle?.trim() || ""
+    if (normalizedUpstreamTitle) {
+      return normalizedUpstreamTitle
+    }
     if (role !== "user") {
+      return currentTitle
+    }
+    if (!allowDerivedTitle) {
       return currentTitle
     }
     const candidateTitle = fallbackConversationTitleFromText(normalizedText)

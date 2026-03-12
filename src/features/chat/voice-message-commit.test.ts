@@ -4,7 +4,7 @@ import { MemoryAppRepository } from "@/infrastructure/storage/memory/repository"
 import { commitVoiceMessage } from "./voice-message-commit"
 
 describe("commitVoiceMessage", () => {
-  it("persists the first voice user message and derives a title", async () => {
+  it("persists the first voice user message without inventing a title", async () => {
     const repository = new MemoryAppRepository()
     const conversation: ConversationRecord = {
       id: "conv_voice_1",
@@ -29,7 +29,7 @@ describe("commitVoiceMessage", () => {
 
     expect(result.skipped).toBe(false)
     expect(result.message?.role).toBe("user")
-    expect(result.conversation.title).toBe("给我讲个笑话")
+    expect(result.conversation.title).toBe("")
     expect(result.conversation.anchors.sessionId).toBe("sess_voice_1")
 
     const messages = await repository.listMessages(conversation.id)
@@ -132,8 +132,38 @@ describe("commitVoiceMessage", () => {
     expect(messages[0]?.voiceEventKey).toBe("user:resp:resp_voice_turn_1")
 
     const updatedConversation = (await repository.listConversations()).find((item) => item.id === conversation.id)
-    expect(updatedConversation?.title).toBe("给我看两个埃隆马斯克的照片。")
+    expect(updatedConversation?.title).toBe("")
     expect(updatedConversation?.updatedAt).toBe(220)
+  })
+
+  it("accepts an explicit upstream title when voice title becomes available", async () => {
+    const repository = new MemoryAppRepository()
+    const conversation: ConversationRecord = {
+      id: "conv_voice_5",
+      title: "",
+      anchors: {
+        conversationId: "conv_voice_5",
+        sessionId: "sess_voice_5",
+      },
+      createdAt: 100,
+      updatedAt: 100,
+    }
+    await repository.upsertConversation(conversation)
+
+    const result = await commitVoiceMessage({
+      repository,
+      conversationId: conversation.id,
+      fallbackConversation: conversation,
+      role: "assistant",
+      text: "当然可以。",
+      sessionId: "sess_voice_5",
+      responseId: "resp_voice_5",
+      previousResponseId: "resp_prev_5",
+      upstreamTitle: "语音标题",
+      now: 240,
+    })
+
+    expect(result.conversation.title).toBe("语音标题")
   })
 
   it("persists assistant reasoning card attachments for voice image replies", async () => {

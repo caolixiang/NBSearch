@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test"
-import { clearStaleSessionAnchors, resolveVoiceResumeConversationId } from "./chat-shell-helpers"
+import { clearStaleSessionAnchors, getLastPendingUserMessage, resolveVoiceResumeConversationId } from "./chat-shell-helpers"
 
 describe("chat-shell voice resume helpers", () => {
   it("skips voice resume when the conversation has no upstream session", () => {
@@ -40,5 +40,19 @@ describe("chat-shell voice resume helpers", () => {
       sessionId: "",
       lastResponseId: "",
     })
+  })
+
+  it("does not treat voice user finals as pending recovery messages", () => {
+    expect(
+      getLastPendingUserMessage([
+        {
+          id: "voice_user_1",
+          role: "user",
+          content: "帮我看下这张图",
+          voiceEventKey: "user:resp:resp_voice_1",
+          createdAt: 100,
+        },
+      ])
+    ).toBeNull()
   })
 })

@@ -18,6 +18,7 @@ export interface LivekitOutgoingTextPacket {
 export interface LivekitDecodedTextEnvelope {
   textEvents: VoiceTextEvent[]
   conversationId?: string
+  responseCreatedId?: string
 }
 
 function readTrimmedString(value: unknown): string {
@@ -57,6 +58,18 @@ function extractConversationId(payload: Record<string, unknown>): string {
   const conversation = payload["conversation"]
   if (conversation && typeof conversation === "object" && !Array.isArray(conversation)) {
     return readTrimmedString((conversation as Record<string, unknown>)["id"])
+  }
+  return ""
+}
+
+function extractResponseCreatedId(payload: Record<string, unknown>): string {
+  const direct = readTrimmedString(payload["response_id"]) || readTrimmedString(payload["responseId"])
+  if (direct) {
+    return direct
+  }
+  const response = payload["response"]
+  if (response && typeof response === "object" && !Array.isArray(response)) {
+    return readTrimmedString((response as Record<string, unknown>)["id"])
   }
   return ""
 }
@@ -230,6 +243,7 @@ export function decodeLivekitTextEnvelope(input: {
 
   const sourceType = readTrimmedString(payload["type"])
   const conversationId = extractConversationId(payload)
+  const responseCreatedId = sourceType === "response.created" ? extractResponseCreatedId(payload) : ""
   const textEvents: VoiceTextEvent[] = []
 
   if (sourceType === "response.audio_transcript.delta") {
@@ -287,5 +301,6 @@ export function decodeLivekitTextEnvelope(input: {
   return {
     textEvents,
     ...(conversationId ? { conversationId } : {}),
+    ...(responseCreatedId ? { responseCreatedId } : {}),
   }
 }

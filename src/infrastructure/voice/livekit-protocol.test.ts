@@ -65,6 +65,21 @@ describe("livekit-protocol", () => {
     ])
   })
 
+  it("captures canonical response id from response.created", () => {
+    const envelope = decodeLivekitTextEnvelope({
+      topic: LIVEKIT_TOPIC_REALTIME_SERVER_EVENTS,
+      rawText: JSON.stringify({
+        type: "response.created",
+        response: {
+          id: "resp_created_1",
+        },
+      }),
+    })
+
+    expect(envelope.responseCreatedId).toBe("resp_created_1")
+    expect(envelope.textEvents).toEqual([])
+  })
+
   it("decodes user audio transcription completion from realtime server events", () => {
     const envelope = decodeLivekitTextEnvelope({
       topic: LIVEKIT_TOPIC_REALTIME_SERVER_EVENTS,

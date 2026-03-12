@@ -303,6 +303,90 @@ describe("LivekitSessionController", () => {
     expect(sessionEvents.at(-1)?.endReason).toBe("api_close")
   })
 
+  it("keeps the canonical assistant response id and suppresses duplicate human assist finals", async () => {
+    const room = new FakeRoom()
+    const sessionEvents: VoiceSessionEventInput[] = []
+    const onTextEvent = mock((_snapshot: unknown, _event: unknown) => undefined)
+    const controller = new LivekitSessionController(
+      {
+        ...createVoiceService(),
+        reportSessionEvent: async (input) => {
+          sessionEvents.push(input)
+        },
+      },
+      {
+        onTextEvent,
+      },
+      {
+        createRoom: () => room as unknown as LivekitRoom,
+      }
+    )
+
+    await controller.connect({
+      sessionId: "sess-voice-1",
+      settings: {
+        voice: "ara",
+        personality: "assistant",
+        instructions: "",
+        isRawInstructions: false,
+        speed: 1,
+      },
+    })
+
+    ;(controller as unknown as { rememberCanonicalAssistantResponseId: (responseId: string) => void })
+      .rememberCanonicalAssistantResponseId("resp_canonical_1")
+    await (
+      controller as unknown as {
+        emitTextEvent: (event: {
+          role: "assistant"
+          text: string
+          final: boolean
+          topic: string
+          responseId: string
+          source: string
+        }) => Promise<void>
+      }
+    ).emitTextEvent({
+      role: "assistant",
+      text: "这里是最终回答",
+      final: true,
+      topic: "realtime_server_events",
+      responseId: "resp_canonical_1",
+      source: "response.audio_transcript.done",
+    })
+    await (
+      controller as unknown as {
+        emitTextEvent: (event: {
+          role: "assistant"
+          text: string
+          final: boolean
+          topic: string
+          responseId: string
+          source: string
+        }) => Promise<void>
+      }
+    ).emitTextEvent({
+      role: "assistant",
+      text: "这里是最终回答",
+      final: true,
+      topic: "realtime_server_events",
+      responseId: "resp_noncanonical_1",
+      source: "response.human_assist_turn.commit",
+    })
+
+    expect(onTextEvent.mock.calls.length).toBe(1)
+    const emittedEvent = onTextEvent.mock.calls[0]?.[1] as {
+      responseId?: string
+      text?: string
+    }
+    expect(emittedEvent?.responseId).toBe("resp_canonical_1")
+    expect(emittedEvent?.text).toBe("这里是最终回答")
+
+    const anchorEvents = sessionEvents.filter((item) => item.eventType === "anchor_updated")
+    expect(anchorEvents).toHaveLength(1)
+    expect(anchorEvents[0]?.responseId).toBe("resp_canonical_1")
+  })
+
   it("samples local microphone levels while voice mode is active", async () => {
     const room = new FakeRoom()
     const localAudioTrack = {

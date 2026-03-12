@@ -115,6 +115,9 @@ export function getLastPendingUserMessage(messages: DomainChatMessage[]): Domain
       return null
     }
     if (message.role === "user") {
+      if ((message.voiceEventKey || "").trim()) {
+        return null
+      }
       return message
     }
   }
