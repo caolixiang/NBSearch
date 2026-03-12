@@ -1,5 +1,9 @@
 import { describe, expect, it } from "bun:test"
-import { resolveVoicePersonalityPayload, shouldShowCustomPromptEditor } from "./voice-settings-personality"
+import {
+  resolveVoicePersonalityPayload,
+  resolveVoiceTransportPersonalityId,
+  shouldShowCustomPromptEditor,
+} from "./voice-settings-personality"
 
 describe("voice-settings-personality", () => {
   it("shows the custom prompt editor only for the custom personality", () => {
@@ -19,6 +23,21 @@ describe("voice-settings-personality", () => {
   it("maps preset personality to a plain personality payload", () => {
     expect(resolveVoicePersonalityPayload("assistant", "ignored")).toEqual({
       personality: "assistant",
+      instructions: "",
+      isRawInstructions: false,
+    })
+  })
+
+  it("maps kids personalities to the observed realtime transport strings", () => {
+    expect(resolveVoiceTransportPersonalityId("kids_story")).toBe("kids-stories")
+    expect(resolveVoiceTransportPersonalityId("kids_trivia")).toBe("kids-trivia")
+    expect(resolveVoicePersonalityPayload("kids_story", "")).toEqual({
+      personality: "kids-stories",
+      instructions: "",
+      isRawInstructions: false,
+    })
+    expect(resolveVoicePersonalityPayload("kids_trivia", "")).toEqual({
+      personality: "kids-trivia",
       instructions: "",
       isRawInstructions: false,
     })

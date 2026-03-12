@@ -33,6 +33,26 @@ const VOICE_OPTIONS = [
   { id: "gork", label: "Gork", subtitle: "Lazy Male" },
 ] as const
 
+const VOICE_TRANSPORT_ID_ALIASES: Record<string, string> = {
+  ara: "ara",
+  eve: "eve",
+  leo: "leo",
+  rex: "xai_rex",
+  xai_rex: "xai_rex",
+  sal: "xai_sal",
+  xai_sal: "xai_sal",
+  gork: "Gork",
+  Gork: "Gork",
+  xai_gork: "xai_gork",
+}
+
+const VOICE_LABEL_ID_ALIASES: Record<string, string> = {
+  xai_rex: "rex",
+  xai_sal: "sal",
+  Gork: "gork",
+  xai_gork: "gork",
+}
+
 interface PersonalityOption {
   id: string
   label: string
@@ -63,8 +83,20 @@ const PERSONALITY_OPTIONS: readonly PersonalityOption[] = [
 export type VoiceOptionId = (typeof VOICE_OPTIONS)[number]["id"]
 export type VoicePersonalityId = (typeof PERSONALITY_OPTIONS)[number]["id"]
 
+export function resolveVoiceTransportId(voiceId: string): string {
+  const trimmedVoiceId = voiceId.trim()
+  if (!trimmedVoiceId) {
+    return DEFAULT_VOICE_OPTION_ID
+  }
+
+  return VOICE_TRANSPORT_ID_ALIASES[trimmedVoiceId] ?? VOICE_TRANSPORT_ID_ALIASES[trimmedVoiceId.toLowerCase()] ?? trimmedVoiceId
+}
+
 export function getVoiceOptionLabel(voiceId: string): string {
-  return VOICE_OPTIONS.find((option) => option.id === voiceId)?.label || "Ara"
+  const trimmedVoiceId = voiceId.trim()
+  const optionId =
+    VOICE_LABEL_ID_ALIASES[trimmedVoiceId] ?? VOICE_LABEL_ID_ALIASES[trimmedVoiceId.toLowerCase()] ?? trimmedVoiceId
+  return VOICE_OPTIONS.find((option) => option.id === optionId)?.label || "Ara"
 }
 
 interface VoiceSettingsSheetProps {

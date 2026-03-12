@@ -21,6 +21,7 @@ import {
   DEFAULT_VOICE_PERSONALITY_ID,
   VoiceSettingsSheet,
   getVoiceOptionLabel,
+  resolveVoiceTransportId,
   type VoiceOptionId,
   type VoicePersonalityId,
 } from "@/components/voice-settings-sheet"
@@ -389,7 +390,7 @@ export function ChatInput({
   const resolvedVoiceSettings = useMemo(() => {
     const personalityPayload = resolveVoicePersonalityPayload(selectedVoicePersonalityId, savedVoicePrompt)
     return {
-      voice: selectedVoiceId,
+      voice: resolveVoiceTransportId(selectedVoiceId),
       speed: voiceSpeed,
       ...personalityPayload,
     }
