@@ -44,6 +44,8 @@ import {
   newConversationId,
   resolveVoiceResumeConversationId,
   resolveSendAnchors,
+  shouldDeferPendingRecovery,
+  shouldShowPendingRecoveryWarmup,
 } from "./chat-shell-helpers"
 import { useChatShellModels } from "./use-chat-shell-models"
 import { useChatShellAppUpdate } from "./use-chat-shell-app-update"
@@ -103,6 +105,9 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [pendingRecoverySyncingByConversationId, setPendingRecoverySyncingByConversationId] = useState<
+    Record<string, boolean>
+  >({})
+  const [completedTurnHydratingByConversationId, setCompletedTurnHydratingByConversationId] = useState<
     Record<string, boolean>
   >({})
   const [pendingRecoveryPreviewByConversationId, setPendingRecoveryPreviewByConversationId] = useState<
@@ -178,6 +183,32 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     []
   )
 
+  const setCompletedTurnHydratingForConversation = useCallback(
+    (conversationId: string, hydrating: boolean) => {
+      if (!conversationId) {
+        return
+      }
+      setCompletedTurnHydratingByConversationId((previous) => {
+        if (hydrating) {
+          if (previous[conversationId]) {
+            return previous
+          }
+          return {
+            ...previous,
+            [conversationId]: true,
+          }
+        }
+        if (!previous[conversationId]) {
+          return previous
+        }
+        const next = { ...previous }
+        delete next[conversationId]
+        return next
+      })
+    },
+    []
+  )
+
   const setPendingRecoveryPreviewForConversation = useCallback(
     (conversationId: string, previewContent: string) => {
       if (!conversationId) {
@@ -230,17 +261,28 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     if (!activeConversationId || activeConversationId === DRAFT_CONVERSATION_ID) {
       return null
     }
-    if (isConversationStreaming(streamingStateByConversationId, activeConversationId)) {
+    if (
+      shouldDeferPendingRecovery({
+        isConversationStreaming: isConversationStreaming(streamingStateByConversationId, activeConversationId),
+        isHydratingCompletedTurn: Boolean(completedTurnHydratingByConversationId[activeConversationId]),
+      })
+    ) {
       return null
     }
     return getLastPendingUserMessage(activeMessages)
-  }, [activeConversationId, activeMessages, streamingStateByConversationId])
+  }, [activeConversationId, activeMessages, completedTurnHydratingByConversationId, streamingStateByConversationId])
   const isActivePendingRecoverySyncing = useMemo(() => {
     if (!activeConversationId) {
       return false
     }
     return Boolean(pendingRecoverySyncingByConversationId[activeConversationId])
   }, [activeConversationId, pendingRecoverySyncingByConversationId])
+  const isActiveCompletedTurnHydrating = useMemo(() => {
+    if (!activeConversationId) {
+      return false
+    }
+    return Boolean(completedTurnHydratingByConversationId[activeConversationId])
+  }, [activeConversationId, completedTurnHydratingByConversationId])
   const activePendingRecoveryPreview = useMemo(() => {
     if (!activeConversationId) {
       return ""
@@ -328,8 +370,12 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     () => buildStreamingReasoningViewModel(activeStreamingState, isActiveConversationStreaming),
     [activeStreamingState, isActiveConversationStreaming]
   )
-  const shouldShowPendingRecoveryWarmup =
-    Boolean(activePendingUserMessage) && !isActiveConversationStreaming && isActivePendingRecoverySyncing
+  const shouldShowPendingRecoveryWarmupIndicator = shouldShowPendingRecoveryWarmup({
+    pendingUserMessage: activePendingUserMessage,
+    isConversationStreaming: isActiveConversationStreaming,
+    isPendingRecoverySyncing: isActivePendingRecoverySyncing,
+    isHydratingCompletedTurn: isActiveCompletedTurnHydrating,
+  })
   const messageBottomSpacerPx = useMemo(
     () => computeMessageBottomSpacerPx(chatInputHeight, isThinkingStreaming),
     [chatInputHeight, isThinkingStreaming]
@@ -381,6 +427,38 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       }
     },
     [loadMessages, refreshConversations]
+  )
+
+  const hydrateCompletedTurnConversation = useCallback(
+    async (conversationId: string, loadFailureMessage: string): Promise<void> => {
+      setCompletedTurnHydratingForConversation(conversationId, true)
+      setPendingRecoverySyncingForConversation(conversationId, false)
+      setPendingRecoveryPreviewForConversation(conversationId, "")
+      try {
+        await refreshConversations()
+        await loadMessages(conversationId)
+        if (activeConversationIdRef.current === conversationId) {
+          const node = messagesScrollRef.current
+          if (node) {
+            setProgrammaticScrollTop(node, node.scrollHeight)
+          }
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : loadFailureMessage
+        setLastErrorForConversation(conversationId, message)
+      } finally {
+        setCompletedTurnHydratingForConversation(conversationId, false)
+      }
+    },
+    [
+      loadMessages,
+      refreshConversations,
+      setCompletedTurnHydratingForConversation,
+      setLastErrorForConversation,
+      setPendingRecoveryPreviewForConversation,
+      setPendingRecoverySyncingForConversation,
+      setProgrammaticScrollTop,
+    ]
   )
 
   const clearVoiceAssistantStreamingState = useCallback(
@@ -702,7 +780,12 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     if (!activeConversationId || activeConversationId === DRAFT_CONVERSATION_ID) {
       return
     }
-    if (isConversationStreaming(streamingStateByConversationId, activeConversationId)) {
+    if (
+      shouldDeferPendingRecovery({
+        isConversationStreaming: isConversationStreaming(streamingStateByConversationId, activeConversationId),
+        isHydratingCompletedTurn: isActiveCompletedTurnHydrating,
+      })
+    ) {
       return
     }
     const pendingUserMessage = getLastPendingUserMessage(activeMessages)
@@ -741,6 +824,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     attemptRecoverPendingAssistant,
     setPendingRecoveryPreviewForConversation,
     setPendingRecoverySyncingForConversation,
+    isActiveCompletedTurnHydrating,
     streamingStateByConversationId,
   ])
 
@@ -751,7 +835,12 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     if (!isActivePendingRecoverySyncing) {
       return
     }
-    if (isConversationStreaming(streamingStateByConversationId, activeConversationId)) {
+    if (
+      shouldDeferPendingRecovery({
+        isConversationStreaming: isConversationStreaming(streamingStateByConversationId, activeConversationId),
+        isHydratingCompletedTurn: isActiveCompletedTurnHydrating,
+      })
+    ) {
       return
     }
 
@@ -789,6 +878,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
   }, [
     activeConversationId,
     attemptRecoverPendingAssistant,
+    isActiveCompletedTurnHydrating,
     isActivePendingRecoverySyncing,
     setPendingRecoveryPreviewForConversation,
     setPendingRecoverySyncingForConversation,
@@ -939,6 +1029,9 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
             }
 
             if (event.type === "completed") {
+              setCompletedTurnHydratingForConversation(conversationId, true)
+              setPendingRecoverySyncingForConversation(conversationId, false)
+              setPendingRecoveryPreviewForConversation(conversationId, "")
               setConversations((previous) => {
                 const now = Date.now()
                 const targetIndex = previous.findIndex((item) => item.id === conversationId)
@@ -982,15 +1075,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
               if (scrollNode) {
                 setProgrammaticScrollTop(scrollNode, scrollNode.scrollHeight)
               }
-              void refreshConversations().then(async () => {
-                await loadMessages(conversationId)
-                if (activeConversationIdRef.current === conversationId) {
-                  const node = messagesScrollRef.current
-                  if (node) {
-                    setProgrammaticScrollTop(node, node.scrollHeight)
-                  }
-                }
-              })
+              void hydrateCompletedTurnConversation(conversationId, "完成后刷新消息失败")
               return
             }
 
@@ -1306,6 +1391,9 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
             }
 
             if (event.type === "completed") {
+              setCompletedTurnHydratingForConversation(conversationId, true)
+              setPendingRecoverySyncingForConversation(conversationId, false)
+              setPendingRecoveryPreviewForConversation(conversationId, "")
               const completedAssistantMessage = event.result.assistantMessage
               const completion = streamRuntime.finalize(completedAssistantMessage)
               persistCompletedReasoning({
@@ -1318,21 +1406,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
                 upsertPersistedReasoningDurationEntry,
               })
               shouldAutoScrollRef.current = true
-              void (async () => {
-                try {
-                  await refreshConversations()
-                  await loadMessages(conversationId)
-                  if (activeConversationIdRef.current === conversationId) {
-                    const node = messagesScrollRef.current
-                    if (node) {
-                      setProgrammaticScrollTop(node, node.scrollHeight)
-                    }
-                  }
-                } catch (error) {
-                  const message = error instanceof Error ? error.message : "重生成刷新失败"
-                  setLastErrorForConversation(conversationId, message)
-                }
-              })()
+              void hydrateCompletedTurnConversation(conversationId, "重生成刷新失败")
               return
             }
 
@@ -1634,7 +1708,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
                   </div>
                 </div>
               ) : null}
-              {shouldShowPendingRecoveryWarmup ? (
+              {shouldShowPendingRecoveryWarmupIndicator ? (
                 <TypingIndicator label="同步中" />
               ) : null}
               {shouldShowThinkingWarmup ? (

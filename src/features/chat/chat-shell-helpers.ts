@@ -124,6 +124,27 @@ export function getLastPendingUserMessage(messages: DomainChatMessage[]): Domain
   return null
 }
 
+export function shouldDeferPendingRecovery(input: {
+  isConversationStreaming: boolean
+  isHydratingCompletedTurn: boolean
+}): boolean {
+  return input.isConversationStreaming || input.isHydratingCompletedTurn
+}
+
+export function shouldShowPendingRecoveryWarmup(input: {
+  pendingUserMessage: DomainChatMessage | null
+  isConversationStreaming: boolean
+  isPendingRecoverySyncing: boolean
+  isHydratingCompletedTurn: boolean
+}): boolean {
+  return (
+    Boolean(input.pendingUserMessage) &&
+    !input.isConversationStreaming &&
+    !input.isHydratingCompletedTurn &&
+    input.isPendingRecoverySyncing
+  )
+}
+
 export function buildReasoningCaches(list: DomainChatMessage[]): {
   reasoningByMessageId: Record<string, ChatReasoningEventDetail[]>
   reasoningDurationByMessageId: Record<string, number>

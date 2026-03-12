@@ -1,5 +1,11 @@
 import { describe, expect, it } from "bun:test"
-import { clearStaleSessionAnchors, getLastPendingUserMessage, resolveVoiceResumeConversationId } from "./chat-shell-helpers"
+import {
+  clearStaleSessionAnchors,
+  getLastPendingUserMessage,
+  resolveVoiceResumeConversationId,
+  shouldDeferPendingRecovery,
+  shouldShowPendingRecoveryWarmup,
+} from "./chat-shell-helpers"
 
 describe("chat-shell voice resume helpers", () => {
   it("skips voice resume when the conversation has no upstream session", () => {
@@ -54,5 +60,30 @@ describe("chat-shell voice resume helpers", () => {
         },
       ])
     ).toBeNull()
+  })
+
+  it("defers pending recovery while a completed turn is still hydrating local messages", () => {
+    expect(
+      shouldDeferPendingRecovery({
+        isConversationStreaming: false,
+        isHydratingCompletedTurn: true,
+      })
+    ).toBe(true)
+  })
+
+  it("does not show pending recovery warmup while completed turn hydration is in progress", () => {
+    expect(
+      shouldShowPendingRecoveryWarmup({
+        pendingUserMessage: {
+          id: "user_1",
+          role: "user",
+          content: "给我一张图",
+          createdAt: 100,
+        },
+        isConversationStreaming: false,
+        isPendingRecoverySyncing: true,
+        isHydratingCompletedTurn: true,
+      })
+    ).toBe(false)
   })
 })
