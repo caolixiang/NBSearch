@@ -53,6 +53,7 @@ import { useChatShellAppUpdate } from "./use-chat-shell-app-update"
 import { useChatShellScroll } from "./use-chat-shell-scroll"
 import { commitVoiceMessage } from "./voice-message-commit"
 import {
+  backfillVoiceAssistantMessageCards,
   buildVoiceAssistantMessageContent,
   buildVoiceAssistantReasoningEvents,
   mergeVoiceAssistantCards,
@@ -497,6 +498,33 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     delete voiceAssistantCardResponseIdByConversationRef.current[conversationId]
     return cards
   }, [])
+
+  const backfillPersistedVoiceAssistantCards = useCallback(
+    async (conversationId: string, responseId: string, cards: ChatCardAttachmentPayload[]): Promise<boolean> => {
+      const normalizedConversationId = conversationId.trim()
+      const normalizedResponseId = responseId.trim()
+      if (!normalizedConversationId || !normalizedResponseId || cards.length === 0) {
+        return false
+      }
+
+      const persistedMessages = await repository.listMessages(normalizedConversationId).catch(() => [])
+      const persistedAssistant = persistedMessages.find(
+        (message) => message.role === "assistant" && (message.responseId || "").trim() === normalizedResponseId
+      )
+      if (!persistedAssistant) {
+        return false
+      }
+
+      const nextMessage = backfillVoiceAssistantMessageCards(persistedAssistant, cards)
+      if (!nextMessage) {
+        return false
+      }
+
+      await repository.updateMessage(normalizedConversationId, nextMessage)
+      return true
+    },
+    [repository]
+  )
 
   const appendVoiceAssistantDelta = useCallback(
     (conversationId: string, textDelta: string) => {
@@ -1220,6 +1248,21 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       }
 
       if (event.event.role === "assistant" && Array.isArray(event.event.cards) && event.event.cards.length > 0) {
+        const currentStreamingState = getConversationStreamingState(
+          streamingStateByConversationIdRef.current,
+          conversationId
+        )
+        if (!currentStreamingState) {
+          const backfilled = await backfillPersistedVoiceAssistantCards(
+            conversationId,
+            event.event.responseId || "",
+            event.event.cards
+          )
+          if (backfilled && !event.event.text.trim()) {
+            await refreshConversationCaches(conversationId)
+            return
+          }
+        }
         appendVoiceAssistantCards(conversationId, event.event.responseId || "", event.event.cards)
         if (!event.event.text.trim()) {
           return
@@ -1320,6 +1363,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       conversations,
       appendVoiceAssistantDelta,
       appendVoiceAssistantCards,
+      backfillPersistedVoiceAssistantCards,
       flushActiveVoiceAssistantStream,
       takeVoiceAssistantCards,
       refreshConversationCaches,

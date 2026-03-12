@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test"
 import {
+  backfillVoiceAssistantMessageCards,
   buildVoiceAssistantMessageContent,
   buildVoiceAssistantReasoningEvents,
   mergeVoiceAssistantCards,
@@ -89,5 +90,93 @@ describe("voice-assistant-media", () => {
         },
       },
     ])
+  })
+
+  it("backfills late-arriving cards into an already persisted assistant message", () => {
+    const nextMessage = backfillVoiceAssistantMessageCards(
+      {
+        id: "voice_asst_late_1",
+        role: "assistant",
+        content:
+          '北京的晴空长城照：\n\n<render_searched_image image_id="0" size="LARGE" />\n\n上海的江景：\n\n<render_searched_image image_id="1" size="LARGE" />',
+        responseId: "resp_voice_late_1",
+        createdAt: 100,
+      },
+      [
+        {
+          id: "card_beijing",
+          cardType: "image_card",
+          type: "render_searched_image",
+          image: { original: "https://img.test/beijing.jpg" },
+        },
+        {
+          id: "card_shanghai",
+          cardType: "image_card",
+          type: "render_searched_image",
+          image: { original: "https://img.test/shanghai.jpg" },
+        },
+      ]
+    )
+
+    expect(nextMessage).not.toBeNull()
+    expect(nextMessage?.content).toContain("<tool-meta>")
+    expect(nextMessage?.content).toContain("\"card_beijing\"")
+    expect(nextMessage?.reasoningEvents).toEqual([
+      {
+        kind: "card_attachment",
+        card: {
+          id: "card_beijing",
+          cardType: "image_card",
+          type: "render_searched_image",
+          image: { original: "https://img.test/beijing.jpg" },
+        },
+      },
+      {
+        kind: "card_attachment",
+        card: {
+          id: "card_shanghai",
+          cardType: "image_card",
+          type: "render_searched_image",
+          image: { original: "https://img.test/shanghai.jpg" },
+        },
+      },
+    ])
+  })
+
+  it("merges late-arriving cards with existing assistant tool-meta cards", () => {
+    const nextMessage = backfillVoiceAssistantMessageCards(
+      {
+        id: "voice_asst_late_2",
+        role: "assistant",
+        content:
+          '这里有图。\n<tool-meta>{"webSearch":[],"cards":[{"id":"card_existing","cardType":"image_card","type":"render_searched_image","image":{"original":"https://img.test/existing.jpg"}}]}</tool-meta>',
+        reasoningEvents: [
+          {
+            kind: "card_attachment",
+            card: {
+              id: "card_existing",
+              cardType: "image_card",
+              type: "render_searched_image",
+              image: { original: "https://img.test/existing.jpg" },
+            },
+          },
+        ],
+        responseId: "resp_voice_late_2",
+        createdAt: 200,
+      },
+      [
+        {
+          id: "card_new",
+          cardType: "image_card",
+          type: "render_searched_image",
+          image: { original: "https://img.test/new.jpg" },
+        },
+      ]
+    )
+
+    expect(nextMessage).not.toBeNull()
+    expect(nextMessage?.content).toContain("\"card_existing\"")
+    expect(nextMessage?.content).toContain("\"card_new\"")
+    expect(nextMessage?.reasoningEvents).toHaveLength(2)
   })
 })
