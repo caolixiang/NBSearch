@@ -15,7 +15,8 @@ interface CommitVoiceMessageInput {
   responseId?: string
   previousResponseId?: string
   upstreamTitle?: string
-  allowDerivedTitle?: boolean
+  defaultTitle?: string
+  messageCreatedAt?: number
   now?: number
 }
 
@@ -23,17 +24,6 @@ export interface CommitVoiceMessageResult {
   skipped: boolean
   message: ChatMessage | null
   conversation: ConversationRecord
-}
-
-function fallbackConversationTitleFromText(text: string): string {
-  const firstLine = text
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .find((line) => line.length > 0)
-  if (!firstLine) {
-    return ""
-  }
-  return firstLine.length <= 48 ? firstLine : `${firstLine.slice(0, 48).trim()}...`
 }
 
 function normalizeText(value: string): string {
@@ -52,7 +42,8 @@ export async function commitVoiceMessage({
   responseId,
   previousResponseId,
   upstreamTitle,
-  allowDerivedTitle = false,
+  defaultTitle,
+  messageCreatedAt,
   now,
 }: CommitVoiceMessageInput): Promise<CommitVoiceMessageResult> {
   const normalizedText = text.trim()
@@ -92,26 +83,20 @@ export async function commitVoiceMessage({
         : true
     return sameText && samePreviousResponseId ? lastMessage : null
   })()
+  const normalizedMessageCreatedAt =
+    typeof messageCreatedAt === "number" && Number.isFinite(messageCreatedAt) && messageCreatedAt > 0
+      ? Math.round(messageCreatedAt)
+      : existingMessage?.createdAt || commitTime
 
   const nextTitle = (() => {
     const currentTitle = latestConversation?.title || fallbackConversation?.title || ""
     const normalizedUpstreamTitle = upstreamTitle?.trim() || ""
+    const normalizedDefaultTitle = defaultTitle?.trim() || ""
     if (normalizedUpstreamTitle) {
       return normalizedUpstreamTitle
     }
-    if (role !== "user") {
-      return currentTitle
-    }
-    if (!allowDerivedTitle) {
-      return currentTitle
-    }
-    const candidateTitle = fallbackConversationTitleFromText(normalizedText)
-    if (!existingMessage) {
-      return currentTitle || candidateTitle
-    }
-    const previousDerivedTitle = fallbackConversationTitleFromText(existingMessage.content)
-    if (!currentTitle || currentTitle === previousDerivedTitle) {
-      return candidateTitle
+    if (role === "assistant" && !currentTitle.trim() && normalizedDefaultTitle) {
+      return normalizedDefaultTitle
     }
     return currentTitle
   })()
@@ -137,6 +122,7 @@ export async function commitVoiceMessage({
     const nextMessage: ChatMessage = {
       ...existingMessage,
       content: normalizedText,
+      createdAt: normalizedMessageCreatedAt,
       ...(normalizedVoiceEventKey ? { voiceEventKey: normalizedVoiceEventKey } : {}),
       ...(Array.isArray(reasoningEvents) && reasoningEvents.length > 0 ? { reasoningEvents } : {}),
       ...(role === "assistant" && (responseId || "").trim() ? { responseId: responseId!.trim() } : {}),
@@ -146,6 +132,7 @@ export async function commitVoiceMessage({
     }
     const isUnchanged =
       normalizeText(existingMessage.content) === normalizeText(normalizedText) &&
+      existingMessage.createdAt === normalizedMessageCreatedAt &&
       (existingMessage.voiceEventKey || "").trim() === normalizedVoiceEventKey &&
       JSON.stringify(existingMessage.reasoningEvents || []) === JSON.stringify(reasoningEvents || [])
     if (!isUnchanged) {
@@ -174,7 +161,7 @@ export async function commitVoiceMessage({
       ? { previousResponseId: previousResponseId!.trim() }
       : {}),
     status: "completed",
-    createdAt: commitTime,
+    createdAt: normalizedMessageCreatedAt,
   }
 
   await repository.appendMessage(conversationId, message)

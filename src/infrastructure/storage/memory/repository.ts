@@ -57,7 +57,7 @@ export class MemoryAppRepository implements AppRepository {
   }
 
   async listMessages(conversationId: string): Promise<ChatMessage[]> {
-    return [...(this.messages.get(conversationId) || [])]
+    return [...(this.messages.get(conversationId) || [])].sort((left, right) => left.createdAt - right.createdAt)
   }
 
   async truncateMessagesAfter(

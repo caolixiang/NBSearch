@@ -10,8 +10,40 @@ import type { ConversationStreamingState } from "./conversation-streaming-state"
 import { buildConversationPdfFileName } from "./export-message-pdf"
 import { hasAnyThinkTag, hasOpenThinkTag } from "./chat-stream-runtime"
 
+const DEFAULT_VOICE_CONVERSATION_TITLE_TIMEZONE = "Asia/Shanghai"
+
 export function newConversationId(): string {
   return `conv_${crypto.randomUUID()}`
+}
+
+function getDateTimePart(parts: Intl.DateTimeFormatPart[], type: Intl.DateTimeFormatPartTypes): string {
+  return parts.find((part) => part.type === type)?.value || ""
+}
+
+export function buildVoiceConversationTitle(now: Date, timezone?: string): string {
+  const normalizedTimezone = typeof timezone === "string" && timezone.trim() ? timezone.trim() : DEFAULT_VOICE_CONVERSATION_TITLE_TIMEZONE
+  const formatParts = (timeZone: string) =>
+    new Intl.DateTimeFormat("en-CA", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).formatToParts(now)
+  let parts: Intl.DateTimeFormatPart[]
+  try {
+    parts = formatParts(normalizedTimezone)
+  } catch {
+    parts = formatParts(DEFAULT_VOICE_CONVERSATION_TITLE_TIMEZONE)
+  }
+  const year = getDateTimePart(parts, "year")
+  const month = getDateTimePart(parts, "month")
+  const day = getDateTimePart(parts, "day")
+  const hour = getDateTimePart(parts, "hour")
+  const minute = getDateTimePart(parts, "minute")
+  return `语音通话${year}${month}${day}${hour}${minute}`
 }
 
 export function resolveVoiceResumeConversationId(
@@ -282,6 +314,7 @@ export function buildVisibleMessages(input: {
       id: "streaming_assistant",
       role: "assistant",
       content: activeStreamingAssistantText,
+      createdAt: activeStreamingState.startedAt,
       reasoningEvents: activeStreamingReasoningEvents,
       reasoningActive: effectiveStreamingReasoningActive,
       reasoningDurationSeconds: activeStreamingReasoningDurationSeconds,
@@ -298,7 +331,22 @@ export function buildVisibleMessages(input: {
         visible = [...visible, streamingMessage]
       }
     } else {
-      visible = [...visible, streamingMessage]
+      const insertIndex = visible.findIndex((message) => {
+        const createdAt =
+          typeof message.createdAt === "number" && Number.isFinite(message.createdAt)
+            ? message.createdAt
+            : Number.POSITIVE_INFINITY
+        return createdAt > activeStreamingState.startedAt
+      })
+      if (insertIndex >= 0) {
+        visible = [
+          ...visible.slice(0, insertIndex),
+          streamingMessage,
+          ...visible.slice(insertIndex),
+        ]
+      } else {
+        visible = [...visible, streamingMessage]
+      }
     }
   }
 

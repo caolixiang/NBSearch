@@ -36,6 +36,7 @@ import {
   buildStreamingReasoningViewModel,
   clearStaleSessionAnchors,
   computeMessageBottomSpacerPx,
+  buildVoiceConversationTitle,
   buildUserMessageContent,
   buildVisibleMessages,
   extractRetryableUserText,
@@ -530,6 +531,58 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     [patchStreamingStateForConversation, setStreamingStateForConversation]
   )
 
+  const flushActiveVoiceAssistantStream = useCallback(
+    async (conversationId: string, fallbackConversation?: ConversationRecord | null): Promise<boolean> => {
+      const currentStreamingState = getConversationStreamingState(
+        streamingStateByConversationIdRef.current,
+        conversationId
+      )
+      if (!currentStreamingState) {
+        return false
+      }
+
+      const currentTracker = voiceAssistantDeltaTrackerByConversationRef.current[conversationId] || null
+      const assistantCards = takeVoiceAssistantCards(conversationId)
+      const hasAssistantText = currentStreamingState.assistantText.trim().length > 0
+      if (!hasAssistantText && assistantCards.length === 0) {
+        clearVoiceAssistantStreamingState(conversationId)
+        return false
+      }
+
+      const previousResponseId =
+        fallbackConversation?.anchors.lastResponseId?.trim() ||
+        resolveSendAnchors(
+          conversationId,
+          fallbackConversation || undefined,
+          messagesByConversationIdRef.current[conversationId] || []
+        ).lastResponseId ||
+        ""
+
+      clearVoiceAssistantStreamingState(conversationId)
+      await commitVoiceMessage({
+        repository,
+        conversationId,
+        fallbackConversation: fallbackConversation || null,
+        role: "assistant",
+        text: buildVoiceAssistantMessageContent(currentStreamingState.assistantText, assistantCards),
+        reasoningEvents: buildVoiceAssistantReasoningEvents(assistantCards),
+        sessionId: fallbackConversation?.anchors.sessionId || "",
+        responseId: currentTracker?.responseId || "",
+        previousResponseId,
+        defaultTitle: buildVoiceConversationTitle(new Date(), runtime.config.timezone),
+        messageCreatedAt: currentStreamingState.startedAt,
+      })
+      return true
+    },
+    [
+      clearVoiceAssistantStreamingState,
+      conversations,
+      repository,
+      runtime.config.timezone,
+      takeVoiceAssistantCards,
+    ]
+  )
+
   const upsertConversationAnchors = useCallback(
     async (
       conversationId: string,
@@ -719,7 +772,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     sessionId?: string
     upstreamConversationId?: string
   }> => {
-    const conversationId = await ensureConversation()
+    const conversationId = await ensureConversation("")
     const latestConversations = await repository.listConversations()
     const latestConversation =
       latestConversations.find((item) => item.id === conversationId) ||
@@ -746,7 +799,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
         latestConversation?.anchors
       ),
     }
-  }, [chatService, conversations, ensureConversation, refreshConversations, repository])
+  }, [chatService, conversations, ensureConversation, refreshConversations, repository, runtime.config.timezone])
 
   useEffect(() => {
     let mounted = true
@@ -1180,6 +1233,19 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
           responseId: event.event.responseId,
           source: event.event.source,
         })
+        const currentResponseId = currentTracker?.responseId.trim() || ""
+        const nextResponseId = trackerDecision.next.responseId.trim()
+        if (currentResponseId && nextResponseId && currentResponseId !== nextResponseId) {
+          const latestConversations = await repository.listConversations()
+          const fallbackConversation =
+            latestConversations.find((item) => item.id === conversationId) ||
+            conversations.find((item) => item.id === conversationId) ||
+            null
+          const flushed = await flushActiveVoiceAssistantStream(conversationId, fallbackConversation)
+          if (flushed) {
+            await refreshConversationCaches(conversationId)
+          }
+        }
         voiceAssistantDeltaTrackerByConversationRef.current[conversationId] = trackerDecision.next
         if (!trackerDecision.accept) {
           return
@@ -1200,6 +1266,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
         null
 
       if (event.event.role === "user") {
+        await flushActiveVoiceAssistantStream(conversationId, fallbackConversation)
         await commitVoiceMessage({
           repository,
           conversationId,
@@ -1207,10 +1274,13 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
           role: "user",
           text: event.event.text,
           voiceEventKey: event.event.voiceEventKey || "",
-          allowDerivedTitle: true,
           sessionId: event.snapshot.sessionId || fallbackConversation?.anchors.sessionId || "",
         })
       } else {
+        const currentStreamingState = getConversationStreamingState(
+          streamingStateByConversationIdRef.current,
+          conversationId
+        )
         const assistantCards = takeVoiceAssistantCards(conversationId)
         clearVoiceAssistantStreamingState(conversationId)
         const previousResponseId =
@@ -1231,6 +1301,8 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
           sessionId: event.snapshot.sessionId || fallbackConversation?.anchors.sessionId || "",
           responseId: event.event.responseId || "",
           previousResponseId,
+          defaultTitle: buildVoiceConversationTitle(new Date(), runtime.config.timezone),
+          messageCreatedAt: currentStreamingState?.startedAt || Date.now(),
         })
         const shouldMarkBound = Boolean(
           event.snapshot.conversationId.trim() || event.event.conversationId?.trim()
@@ -1248,6 +1320,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       conversations,
       appendVoiceAssistantDelta,
       appendVoiceAssistantCards,
+      flushActiveVoiceAssistantStream,
       takeVoiceAssistantCards,
       refreshConversationCaches,
       refreshConversations,
@@ -1255,6 +1328,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       setLastErrorForConversation,
       upsertConversationAnchors,
       upsertVoiceSessionRecord,
+      runtime.config.timezone,
     ]
   )
 
