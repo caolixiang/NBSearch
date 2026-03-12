@@ -304,6 +304,51 @@ describe("expandGrokRenderTags", () => {
     expect(expanded).toContain("![sample](https://img.test/a.jpg)")
   })
 
+  it("replaces legacy render_searched_image tags by image index", () => {
+    const expanded = expandGrokRenderTags(
+      [
+        "北京的晴空长城照：",
+        '<render_searched_image image_id="0" size="LARGE" />',
+        "",
+        "上海的江景：",
+        '<render_searched_image image_id="2" size="LARGE" />',
+      ].join("\n"),
+      {
+        c1: {
+          id: "c1",
+          cardType: "image_card",
+          type: "render_searched_image",
+          image: {
+            original: "https://img.test/beijing.jpg",
+            title: "beijing",
+          },
+        },
+        c2: {
+          id: "c2",
+          cardType: "image_card",
+          type: "render_searched_image",
+          image: {
+            original: "https://img.test/skip.jpg",
+            title: "skip",
+          },
+        },
+        c3: {
+          id: "c3",
+          cardType: "image_card",
+          type: "render_searched_image",
+          image: {
+            original: "https://img.test/shanghai.jpg",
+            title: "shanghai",
+          },
+        },
+      }
+    )
+
+    expect(expanded).toContain("![beijing](https://img.test/beijing.jpg)")
+    expect(expanded).toContain("![shanghai](https://img.test/shanghai.jpg)")
+    expect(expanded).not.toContain("<render_searched_image")
+  })
+
   it("expands citation cards into inline domain links", () => {
     const expanded = expandGrokRenderTags(
       "正文<grok:render card_id=\"c1\" card_type=\"citation_card\"></grok:render>结束",
@@ -510,6 +555,20 @@ describe("expandGrokRenderTags", () => {
 
     expect(expanded).toContain("</think>")
     expect(expanded).toContain("![fallback-e](https://img.test/fallback-e.jpg)")
+  })
+})
+
+describe("normalizeAssistantMarkdown legacy searched image tags", () => {
+  it("drops unresolved render_searched_image tags", () => {
+    const normalized = normalizeAssistantMarkdown([
+      "北京的晴空长城照：",
+      '<render_searched_image image_id="0" size="LARGE" />',
+      "上海的江景：",
+    ].join("\n"))
+
+    expect(normalized).toContain("北京的晴空长城照：")
+    expect(normalized).toContain("上海的江景：")
+    expect(normalized).not.toContain("<render_searched_image")
   })
 })
 

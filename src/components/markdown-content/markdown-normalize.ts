@@ -408,6 +408,8 @@ export function normalizeAssistantMarkdown(content: string): string {
   normalized = normalized.replace(/<tool-meta>[\s\S]*?<\/tool-meta>/gi, "")
   normalized = normalized.replace(/<grok:render\b[\s\S]*?<\/grok:render>/gi, "")
   normalized = normalized.replace(/<grok:render\b[^>]*\/>/gi, "")
+  normalized = normalized.replace(/<render_searched_image\b[\s\S]*?<\/render_searched_image>/gi, "")
+  normalized = normalized.replace(/<render_searched_image\b[^>]*\/>/gi, "")
   normalized = normalized.replace(/<argument\b[\s\S]*?<\/argument>/gi, "")
   normalized = normalized.replace(/<\/think>/gi, "")
   normalized = rewriteImageTags(normalized)

@@ -137,6 +137,17 @@ export function expandGrokRenderTags(content: string, cards: Record<string, Imag
     return targetUrl ? `[${imageMarkdown}](${wrapMarkdownUrl(targetUrl)})` : imageMarkdown
   }
 
+  const renderableImageCards = Object.values(cards).filter((card) => isRenderableImageCard(card))
+
+  const resolveLegacySearchedImageCard = (rawAttrs: string): ImageCardMeta | undefined => {
+    const rawImageId = extractAttrValue(rawAttrs, "image_id") || extractAttrValue(rawAttrs, "imageId")
+    const imageIndex = Number.parseInt(rawImageId, 10)
+    if (!Number.isInteger(imageIndex) || imageIndex < 0) {
+      return undefined
+    }
+    return renderableImageCards[imageIndex]
+  }
+
   let previousCitationUrl = ""
   let previousCitationEnd = -1
   let previousRenderedCitation = false
@@ -178,7 +189,12 @@ export function expandGrokRenderTags(content: string, cards: Record<string, Imag
     return toMarkdownImageFromCard(card)
   }
 
-  const expanded = source.replace(
+  const expandedLegacy = source.replace(
+    /<render_searched_image\b([^>]*?)(?:>[\s\S]*?<\/render_searched_image>|\/>)/gi,
+    (_raw, rawAttrs) => toMarkdownImageFromCard(resolveLegacySearchedImageCard(rawAttrs || ""))
+  )
+
+  const expanded = expandedLegacy.replace(
     /<grok:render\b([^>]*?)(?:>[\s\S]*?<\/grok:render>|\/>)/gi,
     (raw, rawAttrs, offset, fullSource) => replaceRenderTag(raw, rawAttrs || "", offset, fullSource)
   )
