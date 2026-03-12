@@ -71,6 +71,7 @@ function normalizeMessageContent(message: ChatMessage): string {
 function parseMessageContent(contentJson: string): {
   text: string
   attachments?: ChatAttachment[]
+  voiceEventKey?: string
   reasoningEvents?: ChatReasoningEventDetail[]
   reasoningDurationSeconds?: number
   research?: ChatDeepSearchResearch
@@ -145,6 +146,53 @@ function parseMessageContent(contentJson: string): {
   } catch {
     return { text: trimmed }
   }
+}
+
+export type SqliteMessageRow = {
+  id: string
+  role: ChatMessage["role"]
+  content_json: string
+  response_id: string
+  previous_response_id: string
+  status: "streaming" | "completed" | "failed"
+  created_at: number
+}
+
+export function hydrateChatMessagesFromSqliteRows(rows: SqliteMessageRow[]): ChatMessage[] {
+  const messages: ChatMessage[] = []
+  const voiceMessageIndexByEventKey = new Map<string, number>()
+
+  for (const row of rows) {
+    const parsedContent = parseMessageContent(row.content_json)
+    const message: ChatMessage = {
+      id: row.id,
+      role: row.role,
+      content: parsedContent.text,
+      attachments: parsedContent.attachments,
+      voiceEventKey: parsedContent.voiceEventKey,
+      reasoningEvents: parsedContent.reasoningEvents,
+      reasoningDurationSeconds: parsedContent.reasoningDurationSeconds,
+      research: parsedContent.research,
+      responseId: row.response_id || undefined,
+      previousResponseId: row.previous_response_id || undefined,
+      status: row.status,
+      createdAt: row.created_at,
+    }
+
+    const voiceEventKey = message.role === "user" ? (message.voiceEventKey || "").trim() : ""
+    if (voiceEventKey) {
+      const existingIndex = voiceMessageIndexByEventKey.get(voiceEventKey)
+      if (typeof existingIndex === "number") {
+        messages[existingIndex] = message
+        continue
+      }
+      voiceMessageIndexByEventKey.set(voiceEventKey, messages.length)
+    }
+
+    messages.push(message)
+  }
+
+  return messages
 }
 
 export class SqliteAppRepository implements AppRepository {
@@ -263,17 +311,7 @@ export class SqliteAppRepository implements AppRepository {
 
   async listMessages(conversationId: string): Promise<ChatMessage[]> {
     const db = await getDatabase()
-    const rows = await db.select<
-      Array<{
-        id: string
-        role: ChatMessage["role"]
-        content_json: string
-        response_id: string
-        previous_response_id: string
-        status: "streaming" | "completed" | "failed"
-        created_at: number
-      }>
-    >(
+    const rows = await db.select<SqliteMessageRow[]>(
       `SELECT id, role, content_json, response_id, previous_response_id, status, created_at
        FROM messages
        WHERE conversation_id = $1
@@ -281,22 +319,7 @@ export class SqliteAppRepository implements AppRepository {
       [conversationId]
     )
 
-    return rows.map((row) => {
-      const parsedContent = parseMessageContent(row.content_json)
-      return {
-        id: row.id,
-        role: row.role,
-        content: parsedContent.text,
-        attachments: parsedContent.attachments,
-        reasoningEvents: parsedContent.reasoningEvents,
-        reasoningDurationSeconds: parsedContent.reasoningDurationSeconds,
-        research: parsedContent.research,
-        responseId: row.response_id || undefined,
-        previousResponseId: row.previous_response_id || undefined,
-        status: row.status,
-        createdAt: row.created_at,
-      }
-    })
+    return hydrateChatMessagesFromSqliteRows(rows)
   }
 
   async truncateMessagesAfter(
