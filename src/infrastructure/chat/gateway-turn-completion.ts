@@ -315,9 +315,7 @@ export async function buildCompletedGatewayTurn(input: {
     conversationId: input.conversationId,
     lastResponseId: input.gatewayResponseId || input.previousResponseId || "",
   }
-  const resolvedTitle =
-    resolveConversationTitle(input.state.upstreamConversationTitle, input.currentTitle) ||
-    input.fallbackTitle
+  const resolvedTitle = resolveConversationTitle(input.state.upstreamConversationTitle, input.currentTitle)
 
   return {
     result: {

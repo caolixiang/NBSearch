@@ -49,7 +49,7 @@ export async function bootstrapGatewayTurn(input: {
   await input.upsertConversation(
     input.createConversationRecord(
       conversationId,
-      currentTitle || fallbackTitle,
+      currentTitle,
       {
         sessionId,
         conversationId,

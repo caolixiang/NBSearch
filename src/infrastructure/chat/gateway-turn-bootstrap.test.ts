@@ -51,7 +51,7 @@ describe("bootstrapGatewayTurn", () => {
     expect(upserted).toEqual([
       {
         id: "conv_1",
-        title: "title:hello world",
+        title: "",
         anchors: {
           sessionId: "sess_generated_1",
           conversationId: "conv_1",

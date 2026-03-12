@@ -141,7 +141,7 @@ describe("buildCompletedGatewayTurn", () => {
       commitTime: 4000,
     })
 
-    expect(completion.resolvedTitle).toBe("图片标题")
+    expect(completion.resolvedTitle).toBe("")
     expect(completion.result.assistantMessage.content).toContain("![Generated Image]")
     expect(completion.result.assistantMessage.content).toContain("内容已管理。请尝试一个不同的想法。")
     expect(completion.result.assistantMessage.content).not.toContain("这段文字不应保留")
@@ -179,5 +179,35 @@ describe("buildCompletedGatewayTurn", () => {
     expect(completion.resolvedTitle).toBe("现有标题")
     expect(completion.result.assistantMessage.content).toContain("最终答案正文")
     expect(completion.result.assistantMessage.reasoningDurationSeconds).toBeUndefined()
+  })
+
+  it("keeps the title empty for a new conversation when upstream title is missing", async () => {
+    const completion = await buildCompletedGatewayTurn({
+      state: {
+        upstreamConversationTitle: "",
+        assistantText: "",
+        gatewayFinalMessage: "最终答案正文",
+        collectedWebSearchMeta: [],
+        collectedCards: [],
+        collectedReasoningEvents: [],
+        collectedResearch: undefined,
+        hasStructuredGeneratedImages: false,
+        hasModeratedGeneratedImages: false,
+        reasoningStartedAtMs: null,
+        reasoningEndedAtMs: null,
+      },
+      apiUrl: "http://127.0.0.1:8787/v1/responses",
+      hydrateGeneratedImageCards: async () => {},
+      gatewayResponseId: "resp_completed_4",
+      sessionId: "sess_4",
+      conversationId: "conv_4",
+      previousResponseId: "",
+      currentTitle: "",
+      fallbackTitle: "不应再使用的首句兜底标题",
+      streamStartedAt: 1000,
+      commitTime: 3000,
+    })
+
+    expect(completion.resolvedTitle).toBe("")
   })
 })
