@@ -12,6 +12,7 @@ export interface ChatMessage {
   role: ChatMessageRole
   content: string
   attachments?: ChatAttachment[]
+  voiceEventKey?: string
   reasoningEvents?: ChatReasoningEventDetail[]
   reasoningDurationSeconds?: number
   research?: ChatDeepSearchResearch

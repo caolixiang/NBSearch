@@ -53,6 +53,9 @@ export interface VoiceTextEvent {
   responseId?: string
   conversationId?: string
   source?: string
+  itemId?: string
+  eventId?: string
+  voiceEventKey?: string
 }
 
 export interface VoiceSessionEventInput {

@@ -60,6 +60,7 @@ describe("livekit-protocol", () => {
         responseId: "resp_voice_1",
         conversationId: "conv_upstream_1",
         source: "response.audio_transcript.done",
+        voiceEventKey: "assistant:resp:resp_voice_1",
       },
     ])
   })
@@ -82,6 +83,7 @@ describe("livekit-protocol", () => {
         topic: LIVEKIT_TOPIC_REALTIME_SERVER_EVENTS,
         responseId: "resp_user_voice_1",
         source: "conversation.item.input_audio_transcription.completed",
+        voiceEventKey: "user:resp:resp_user_voice_1",
       },
     ])
   })

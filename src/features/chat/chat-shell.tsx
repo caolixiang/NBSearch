@@ -1075,6 +1075,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
           fallbackConversation,
           role: "user",
           text: event.event.text,
+          voiceEventKey: event.event.voiceEventKey || "",
           sessionId: event.snapshot.sessionId || fallbackConversation?.anchors.sessionId || "",
         })
       } else {

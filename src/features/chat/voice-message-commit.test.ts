@@ -87,4 +87,52 @@ describe("commitVoiceMessage", () => {
     expect(updatedConversation?.anchors.lastResponseId).toBe("resp_voice_2")
     expect(updatedConversation?.updatedAt).toBe(220)
   })
+
+  it("replaces refined user transcript when the same voice turn emits another final transcript", async () => {
+    const repository = new MemoryAppRepository()
+    const conversation: ConversationRecord = {
+      id: "conv_voice_3",
+      title: "",
+      anchors: {
+        conversationId: "conv_voice_3",
+        sessionId: "sess_voice_3",
+      },
+      createdAt: 100,
+      updatedAt: 100,
+    }
+    await repository.upsertConversation(conversation)
+
+    const first = await commitVoiceMessage({
+      repository,
+      conversationId: conversation.id,
+      fallbackConversation: conversation,
+      role: "user",
+      text: "给我看两个",
+      voiceEventKey: "user:resp:resp_voice_turn_1",
+      sessionId: "sess_voice_3",
+      now: 210,
+    })
+    const second = await commitVoiceMessage({
+      repository,
+      conversationId: conversation.id,
+      fallbackConversation: conversation,
+      role: "user",
+      text: "给我看两个埃隆马斯克的照片。",
+      voiceEventKey: "user:resp:resp_voice_turn_1",
+      sessionId: "sess_voice_3",
+      now: 220,
+    })
+
+    expect(first.skipped).toBe(false)
+    expect(second.skipped).toBe(false)
+
+    const messages = await repository.listMessages(conversation.id)
+    expect(messages).toHaveLength(1)
+    expect(messages[0]?.content).toBe("给我看两个埃隆马斯克的照片。")
+    expect(messages[0]?.voiceEventKey).toBe("user:resp:resp_voice_turn_1")
+
+    const updatedConversation = (await repository.listConversations()).find((item) => item.id === conversation.id)
+    expect(updatedConversation?.title).toBe("给我看两个埃隆马斯克的照片。")
+    expect(updatedConversation?.updatedAt).toBe(220)
+  })
 })

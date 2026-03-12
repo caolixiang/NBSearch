@@ -60,6 +60,38 @@ function extractConversationId(payload: Record<string, unknown>): string {
   return ""
 }
 
+function extractItemId(payload: Record<string, unknown>): string {
+  const direct = readTrimmedString(payload["item_id"]) || readTrimmedString(payload["itemId"])
+  if (direct) {
+    return direct
+  }
+  const item = payload["item"]
+  if (item && typeof item === "object" && !Array.isArray(item)) {
+    return readTrimmedString((item as Record<string, unknown>)["id"])
+  }
+  return ""
+}
+
+function extractEventId(payload: Record<string, unknown>): string {
+  return readTrimmedString(payload["event_id"]) || readTrimmedString(payload["eventId"])
+}
+
+function buildVoiceEventKey(role: VoiceTextEventRole, payload: Record<string, unknown>): string {
+  const responseId = readTrimmedString(payload["response_id"]) || readTrimmedString(payload["responseId"])
+  if (responseId) {
+    return `${role}:resp:${responseId}`
+  }
+  const itemId = extractItemId(payload)
+  if (itemId) {
+    return `${role}:item:${itemId}`
+  }
+  const eventId = extractEventId(payload)
+  if (eventId) {
+    return `${role}:evt:${eventId}`
+  }
+  return ""
+}
+
 function buildTextEvent(
   role: VoiceTextEventRole,
   text: string,
@@ -74,6 +106,9 @@ function buildTextEvent(
   }
   const responseId = readTrimmedString(payload["response_id"]) || readTrimmedString(payload["responseId"])
   const conversationId = extractConversationId(payload)
+  const itemId = extractItemId(payload)
+  const eventId = extractEventId(payload)
+  const voiceEventKey = buildVoiceEventKey(role, payload)
   return {
     role,
     text: normalizedText,
@@ -82,6 +117,9 @@ function buildTextEvent(
     ...(responseId ? { responseId } : {}),
     ...(conversationId ? { conversationId } : {}),
     ...(sourceType ? { source: sourceType } : {}),
+    ...(itemId ? { itemId } : {}),
+    ...(eventId ? { eventId } : {}),
+    ...(voiceEventKey ? { voiceEventKey } : {}),
   }
 }
 

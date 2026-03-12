@@ -9,6 +9,7 @@ interface CommitVoiceMessageInput {
   fallbackConversation: ConversationRecord | null
   role: VoiceMessageRole
   text: string
+  voiceEventKey?: string
   sessionId?: string
   responseId?: string
   previousResponseId?: string
@@ -42,6 +43,7 @@ export async function commitVoiceMessage({
   fallbackConversation,
   role,
   text,
+  voiceEventKey,
   sessionId,
   responseId,
   previousResponseId,
@@ -60,10 +62,17 @@ export async function commitVoiceMessage({
   const latestConversation =
     latestConversations.find((item) => item.id === conversationId) || fallbackConversation
 
+  const normalizedVoiceEventKey = voiceEventKey?.trim() || ""
+
   const existingMessage = (() => {
     if (role === "assistant" && responseId?.trim()) {
       return existingMessages.find(
         (item) => item.role === "assistant" && (item.responseId || "").trim() === responseId.trim()
+      )
+    }
+    if (role === "user" && normalizedVoiceEventKey) {
+      return existingMessages.find(
+        (item) => item.role === "user" && (item.voiceEventKey || "").trim() === normalizedVoiceEventKey
       )
     }
     const lastMessage = existingMessages[existingMessages.length - 1]
@@ -78,12 +87,25 @@ export async function commitVoiceMessage({
     return sameText && samePreviousResponseId ? lastMessage : null
   })()
 
+  const nextTitle = (() => {
+    const currentTitle = latestConversation?.title || fallbackConversation?.title || ""
+    if (role !== "user") {
+      return currentTitle
+    }
+    const candidateTitle = fallbackConversationTitleFromText(normalizedText)
+    if (!existingMessage) {
+      return currentTitle || candidateTitle
+    }
+    const previousDerivedTitle = fallbackConversationTitleFromText(existingMessage.content)
+    if (!currentTitle || currentTitle === previousDerivedTitle) {
+      return candidateTitle
+    }
+    return currentTitle
+  })()
+
   const nextConversation: ConversationRecord = {
     id: conversationId,
-    title:
-      latestConversation?.title ||
-      fallbackConversation?.title ||
-      (role === "user" ? fallbackConversationTitleFromText(normalizedText) : ""),
+    title: nextTitle,
     anchors: {
       ...(latestConversation?.anchors || fallbackConversation?.anchors || {}),
       conversationId,
@@ -99,6 +121,26 @@ export async function commitVoiceMessage({
   await repository.upsertConversation(nextConversation)
 
   if (existingMessage) {
+    const nextMessage: ChatMessage = {
+      ...existingMessage,
+      content: normalizedText,
+      ...(normalizedVoiceEventKey ? { voiceEventKey: normalizedVoiceEventKey } : {}),
+      ...(role === "assistant" && (responseId || "").trim() ? { responseId: responseId!.trim() } : {}),
+      ...(role === "assistant" && (previousResponseId || "").trim()
+        ? { previousResponseId: previousResponseId!.trim() }
+        : {}),
+    }
+    const isUnchanged =
+      normalizeText(existingMessage.content) === normalizeText(normalizedText) &&
+      (existingMessage.voiceEventKey || "").trim() === normalizedVoiceEventKey
+    if (!isUnchanged) {
+      await repository.updateMessage(conversationId, nextMessage)
+      return {
+        skipped: false,
+        message: nextMessage,
+        conversation: nextConversation,
+      }
+    }
     return {
       skipped: true,
       message: existingMessage,
@@ -110,6 +152,7 @@ export async function commitVoiceMessage({
     id: `${role === "user" ? "voice_usr" : "voice_asst"}_${crypto.randomUUID()}`,
     role,
     content: normalizedText,
+    ...(normalizedVoiceEventKey ? { voiceEventKey: normalizedVoiceEventKey } : {}),
     ...(role === "assistant" && (responseId || "").trim() ? { responseId: responseId!.trim() } : {}),
     ...(role === "assistant" && (previousResponseId || "").trim()
       ? { previousResponseId: previousResponseId!.trim() }

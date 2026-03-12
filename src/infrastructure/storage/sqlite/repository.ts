@@ -9,6 +9,7 @@ import { getDatabase } from "./database"
 type PersistedMessageContent = {
   text: string
   attachments?: ChatAttachment[]
+  voiceEventKey?: string
   reasoningEvents?: ChatReasoningEventDetail[]
   reasoningDurationSeconds?: number
   research?: ChatDeepSearchResearch
@@ -42,6 +43,10 @@ function normalizeMessageContent(message: ChatMessage): string {
 
   if (Array.isArray(message.attachments) && message.attachments.length > 0) {
     payload.attachments = message.attachments
+  }
+
+  if (typeof message.voiceEventKey === "string" && message.voiceEventKey.trim()) {
+    payload.voiceEventKey = message.voiceEventKey.trim()
   }
 
   if (Array.isArray(message.reasoningEvents) && message.reasoningEvents.length > 0) {
@@ -79,6 +84,7 @@ function parseMessageContent(contentJson: string): {
     const value = JSON.parse(trimmed) as {
       text?: unknown
       attachments?: unknown
+      voiceEventKey?: unknown
       reasoningEvents?: unknown
       reasoningDurationSeconds?: unknown
       research?: unknown
@@ -87,6 +93,7 @@ function parseMessageContent(contentJson: string): {
     const result: {
       text: string
       attachments?: ChatAttachment[]
+      voiceEventKey?: string
       reasoningEvents?: ChatReasoningEventDetail[]
       reasoningDurationSeconds?: number
       research?: ChatDeepSearchResearch
@@ -117,6 +124,9 @@ function parseMessageContent(contentJson: string): {
       if (attachments.length > 0) {
         result.attachments = attachments
       }
+    }
+    if (typeof value?.voiceEventKey === "string" && value.voiceEventKey.trim()) {
+      result.voiceEventKey = value.voiceEventKey.trim()
     }
     if (Array.isArray(value?.reasoningEvents)) {
       result.reasoningEvents = value.reasoningEvents as ChatReasoningEventDetail[]
