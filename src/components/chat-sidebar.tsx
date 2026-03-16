@@ -256,7 +256,7 @@ export function ChatSidebar({
                       beginRename(convo)
                     }}
                     disabled={disableConversationActions}
-                    className="flex size-7 items-center justify-center rounded-lg text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                    className="flex size-7 items-center justify-center rounded-lg border border-transparent text-sidebar-foreground/75 transition-[background-color,border-color,color,box-shadow] duration-150 hover:border-sidebar-border/80 hover:bg-card/90 hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sidebar-ring disabled:cursor-not-allowed disabled:opacity-40"
                     aria-label="重命名对话"
                   >
                     <PenLine className="size-3.5" />
@@ -269,7 +269,7 @@ export function ChatSidebar({
                       beginDeleteConfirm(convo)
                     }}
                     disabled={disableConversationActions}
-                    className="flex size-7 items-center justify-center rounded-lg text-sidebar-foreground/80 transition-colors hover:bg-destructive/10 hover:text-destructive disabled:cursor-not-allowed disabled:opacity-40"
+                    className="flex size-7 items-center justify-center rounded-lg border border-transparent text-sidebar-foreground/75 transition-[background-color,border-color,color,box-shadow] duration-150 hover:border-destructive/15 hover:bg-destructive/10 hover:text-destructive focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-destructive/30 disabled:cursor-not-allowed disabled:opacity-40"
                     aria-label="删除对话"
                   >
                     <Trash2 className="size-3.5" />
