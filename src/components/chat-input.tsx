@@ -184,7 +184,6 @@ export function ChatInput({
   onVoiceRuntimeEvent,
 }: ChatInputProps) {
   const [input, setInput] = useState("")
-  const [isRecording, setIsRecording] = useState(false)
   const [voiceEntryState, setVoiceEntryState] = useState<VoiceEntryState>("idle")
   const [isVoiceMicMuted, setIsVoiceMicMuted] = useState(false)
   const [isVoiceSpeakerMuted, setIsVoiceSpeakerMuted] = useState(false)
@@ -628,23 +627,11 @@ export function ChatInput({
     })
   }
 
-  const toggleRecording = () => {
-    if (isVoiceMode) {
-      return
-    }
-    if (isRecording) {
-      setIsRecording(false)
-    } else {
-      setIsRecording(true)
-    }
-  }
-
   const handleStartVoiceMode = useCallback(async () => {
     if (!voiceEnabled || isLoading || isVoiceConnecting || isVoiceMode || !voiceService || !onPrepareVoiceSession) {
       return
     }
     clearVoiceConnectTimeout()
-    setIsRecording(false)
     setVoiceEntryState("connecting")
     let didStartControllerConnect = false
 
@@ -935,32 +922,14 @@ export function ChatInput({
               onCompositionEnd={() => {
                 isComposingRef.current = false
               }}
-              placeholder={isVoiceConnecting ? "连接中……" : isRecording ? "正在录音..." : "你想知道什么？"}
+              placeholder={isVoiceConnecting ? "连接中……" : "你想知道什么？"}
               rows={1}
-              className={cn(
-                "min-h-10 flex-1 resize-none bg-transparent py-2 text-[16px] leading-7 text-foreground outline-none placeholder:text-muted-foreground sm:text-[17px]",
-                isRecording && "placeholder:text-red-400"
-              )}
+              className="min-h-10 flex-1 resize-none bg-transparent py-2 text-[16px] leading-7 text-foreground outline-none placeholder:text-muted-foreground sm:text-[17px]"
               style={{ maxHeight: "200px" }}
               disabled={isLoading || isVoiceConnecting}
             />
 
             <div className="flex shrink-0 items-center gap-1.5">
-              <button
-                type="button"
-                onClick={toggleRecording}
-                className={cn(
-                  "flex size-10 items-center justify-center rounded-full transition-colors",
-                  isRecording
-                    ? "bg-red-500/10 text-red-500"
-                    : "text-muted-foreground hover:text-foreground hover:bg-secondary"
-                )}
-                aria-label={isRecording ? "停止录音" : "语音输入"}
-                disabled={isVoiceConnecting}
-              >
-                {isRecording ? <MicOff className="size-4" /> : <Mic className="size-4" />}
-              </button>
-
               {voiceEnabled ? (
                 <button
                   type="button"
