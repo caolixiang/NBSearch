@@ -207,6 +207,7 @@ export class GrokChatService implements ChatService {
   }): Promise<void> {
     return persistGatewayAssistantTurn({
       ...input,
+      listConversations: () => this.repository.listConversations(),
       listMessages: (conversationId) => this.repository.listMessages(conversationId),
       truncateMessagesAfter: (conversationId, messageId, includeMessage) =>
         this.repository.truncateMessagesAfter(conversationId, messageId, includeMessage),

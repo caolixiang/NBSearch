@@ -21,6 +21,7 @@ describe("commitRegeneratedAssistantMessage", () => {
     const conversation: ConversationRecord = {
       id: "conv_regen_1",
       title: "测试重生成",
+      starred: true,
       anchors: {
         sessionId: "sess_regen_1",
         conversationId: "conv_regen_1",
@@ -68,5 +69,6 @@ describe("commitRegeneratedAssistantMessage", () => {
     expect(updatedConversation?.title).toBe("测试重生成")
     expect(updatedConversation?.anchors.lastResponseId).toBe("resp_new_1")
     expect(updatedConversation?.updatedAt).toBe(300)
+    expect(updatedConversation?.starred).toBe(true)
   })
 })

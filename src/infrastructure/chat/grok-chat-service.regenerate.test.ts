@@ -16,6 +16,7 @@ describe("streamTurn heartbeats and timeout", () => {
       },
       createdAt: 1,
       updatedAt: 1,
+      starred: false,
     })
     await repository.appendMessage("conv_regen_sync_1", {
       id: "usr_regen_sync_1",

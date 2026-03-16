@@ -35,6 +35,7 @@ describe("syncGatewayRegenerateTarget", () => {
       },
       createdAt: 1,
       updatedAt: 1,
+      starred: false,
     })
     await repository.appendMessage("conv_regen_sync_1", {
       id: "usr_regen_sync_1",
@@ -87,6 +88,7 @@ describe("syncGatewayRegenerateTarget", () => {
         inProgress: false,
         activeClientTurnId: "",
         updatedAt: 3,
+        starred: false,
       }),
       now: () => 10,
     })
@@ -111,6 +113,7 @@ describe("syncGatewayRegenerateTarget", () => {
       },
       createdAt: 1,
       updatedAt: 10,
+      starred: false,
     })
   })
 })

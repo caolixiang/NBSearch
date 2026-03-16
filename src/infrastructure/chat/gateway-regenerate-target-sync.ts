@@ -68,6 +68,7 @@ export async function syncGatewayRegenerateTarget(input: {
     await input.upsertConversation({
       id: conversationId,
       title: currentConversation?.title || fallbackConversationTitleFromPrompt(targetMessage.content),
+      starred: currentConversation?.starred === true,
       anchors: {
         sessionId,
         conversationId,

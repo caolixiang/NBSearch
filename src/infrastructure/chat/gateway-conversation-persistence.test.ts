@@ -66,6 +66,7 @@ describe("gateway conversation persistence", () => {
       resolvedTitle: "Greeting",
       commitTime: 6,
       regenerateTargetResponseId: "resp_old_1",
+      listConversations: () => repository.listConversations(),
       listMessages: (conversationId) => repository.listMessages(conversationId),
       truncateMessagesAfter: (conversationId, messageId, includeMessage) =>
         repository.truncateMessagesAfter(conversationId, messageId, includeMessage),
@@ -90,7 +91,7 @@ describe("gateway conversation persistence", () => {
     )
   })
 
-  it("preserves the existing title when only anchors are refreshed", async () => {
+  it("preserves the existing title and star when only anchors are refreshed", async () => {
     const repository = new MemoryAppRepository()
     await repository.upsertConversation({
       id: "conv_anchor_1",
@@ -101,6 +102,7 @@ describe("gateway conversation persistence", () => {
       },
       createdAt: 1,
       updatedAt: 2,
+      starred: true,
     })
 
     await upsertGatewayConversationAnchors({
@@ -125,6 +127,52 @@ describe("gateway conversation persistence", () => {
       },
       createdAt: 10,
       updatedAt: 10,
+      starred: true,
     })
+  })
+
+  it("preserves the existing star when assistant turns update the conversation", async () => {
+    const repository = new MemoryAppRepository()
+    await repository.upsertConversation({
+      id: "conv_star_1",
+      title: "已星标会话",
+      anchors: {
+        conversationId: "conv_star_1",
+        sessionId: "sess_star_1",
+        lastResponseId: "resp_old_1",
+      },
+      createdAt: 1,
+      updatedAt: 2,
+      starred: true,
+    })
+
+    await persistGatewayAssistantTurn({
+      conversationId: "conv_star_1",
+      assistantMessage: {
+        id: "asst_star_1",
+        role: "assistant",
+        content: "新的回复",
+        responseId: "resp_new_1",
+        createdAt: 3,
+        status: "completed",
+      },
+      anchors: {
+        conversationId: "conv_star_1",
+        sessionId: "sess_star_1",
+        lastResponseId: "resp_new_1",
+      },
+      resolvedTitle: "已星标会话",
+      commitTime: 4,
+      listConversations: () => repository.listConversations(),
+      listMessages: (conversationId) => repository.listMessages(conversationId),
+      truncateMessagesAfter: (conversationId, messageId, includeMessage) =>
+        repository.truncateMessagesAfter(conversationId, messageId, includeMessage),
+      appendMessage: (conversationId, message) => repository.appendMessage(conversationId, message),
+      upsertConversation: (record) => repository.upsertConversation(record),
+    })
+
+    const conversation = (await repository.listConversations()).find((item) => item.id === "conv_star_1")
+    expect(conversation?.starred).toBe(true)
+    expect(conversation?.anchors.lastResponseId).toBe("resp_new_1")
   })
 })

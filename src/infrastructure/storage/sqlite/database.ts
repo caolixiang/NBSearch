@@ -59,10 +59,9 @@ async function ensureMigrations(db: Database): Promise<void> {
 
 export async function getDatabase(): Promise<Database> {
   if (!dbPromise) {
-    dbPromise = resolveDbUrl().then((dbUrl) => Database.load(dbUrl)).then(async (db) => {
-      await ensureMigrations(db)
-      return db
-    })
+    dbPromise = resolveDbUrl().then((dbUrl) => Database.load(dbUrl))
   }
-  return dbPromise
+  const db = await dbPromise
+  await ensureMigrations(db)
+  return db
 }

@@ -625,6 +625,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       const nextConversation: ConversationRecord = {
         id: conversationId,
         title: fallbackConversation?.title || "",
+        starred: fallbackConversation?.starred === true,
         anchors: {
           ...(fallbackConversation?.anchors || {}),
           conversationId,
@@ -769,6 +770,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       await repository.upsertConversation({
         id,
         title,
+        starred: false,
         anchors: {
           conversationId: id,
         },
@@ -1133,6 +1135,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
                   {
                     id: conversationId,
                     title: "",
+                    starred: false,
                     anchors: event.result.anchors,
                     createdAt: now,
                     updatedAt: now,
@@ -1639,6 +1642,18 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     [conversations, refreshConversations, repository]
   )
 
+  const handleToggleConversationStar = useCallback(
+    async (conversationId: string, starred: boolean): Promise<void> => {
+      const current = conversations.find((item) => item.id === conversationId)
+      if (!current || current.starred === starred) {
+        return
+      }
+      await repository.updateConversationStarred(conversationId, starred)
+      await refreshConversations()
+    },
+    [conversations, refreshConversations, repository]
+  )
+
   const handleDeleteConversation = useCallback(
     async (conversationId: string): Promise<void> => {
       if (isConversationStreaming(streamingStateByConversationId, conversationId)) {
@@ -1711,6 +1726,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
           onSelect={(id) => void handleSelectConversation(id)}
           onNew={() => void handleNewConversation()}
           onRename={(id, title) => void handleRenameConversation(id, title)}
+          onToggleStar={(id, starred) => void handleToggleConversationStar(id, starred)}
           onDelete={(id) => void handleDeleteConversation(id)}
           onOpenSettings={() => setSettingsOpen(true)}
           disableConversationActions={false}

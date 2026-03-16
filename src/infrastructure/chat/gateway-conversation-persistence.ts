@@ -5,11 +5,13 @@ export function createConversationRecord(
   conversationId: string,
   title: string,
   anchors: Partial<ChatAnchors>,
-  now: number
+  now: number,
+  starred = false
 ): ConversationRecord {
   return {
     id: conversationId,
     title,
+    starred,
     anchors,
     createdAt: now,
     updatedAt: now,
@@ -38,6 +40,7 @@ export async function persistGatewayAssistantTurn(input: {
   resolvedTitle: string
   commitTime: number
   regenerateTargetResponseId?: string
+  listConversations: () => Promise<ConversationRecord[]>
   listMessages: (conversationId: string) => Promise<ChatMessage[]>
   truncateMessagesAfter: (
     conversationId: string,
@@ -48,6 +51,8 @@ export async function persistGatewayAssistantTurn(input: {
   upsertConversation: (record: ConversationRecord) => Promise<void>
 }): Promise<void> {
   const regenerateTargetResponseId = input.regenerateTargetResponseId?.trim() || ""
+  const existingConversations = await input.listConversations().catch(() => [])
+  const currentConversation = existingConversations.find((item) => item.id === input.conversationId)
   if (regenerateTargetResponseId) {
     const existingMessages = await input.listMessages(input.conversationId).catch(() => [])
     const targetAssistant = existingMessages.find(
@@ -67,7 +72,8 @@ export async function persistGatewayAssistantTurn(input: {
       input.conversationId,
       input.resolvedTitle,
       input.anchors,
-      input.commitTime
+      input.commitTime,
+      currentConversation?.starred === true
     )
   )
 }
@@ -90,6 +96,7 @@ export async function upsertGatewayConversationAnchors(input: {
   await input.upsertConversation({
     id: conversationId,
     title: currentTitle,
+    starred: currentConversation?.starred === true,
     anchors: input.anchors,
     createdAt: now(),
     updatedAt: now(),

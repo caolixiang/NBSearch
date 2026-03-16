@@ -30,6 +30,7 @@ describe("bootstrapGatewayTurn", () => {
         anchors,
         createdAt: now,
         updatedAt: now,
+        starred: false,
       }),
       fallbackConversationTitleFromPrompt: (prompt) => `title:${prompt}`,
       createSessionId: () => "sess_generated_1",
@@ -59,6 +60,7 @@ describe("bootstrapGatewayTurn", () => {
         },
         createdAt: 100,
         updatedAt: 100,
+        starred: false,
       },
     ])
     expect(appended).toHaveLength(1)
@@ -91,6 +93,7 @@ describe("bootstrapGatewayTurn", () => {
           anchors: {},
           createdAt: 1,
           updatedAt: 2,
+          starred: false,
         },
       ],
       upsertConversation: async (record) => {
@@ -105,6 +108,7 @@ describe("bootstrapGatewayTurn", () => {
         anchors,
         createdAt: now,
         updatedAt: now,
+        starred: false,
       }),
       fallbackConversationTitleFromPrompt: (prompt) => `fallback:${prompt}`,
       now: () => 200,

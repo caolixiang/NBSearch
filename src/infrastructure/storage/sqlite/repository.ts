@@ -202,6 +202,7 @@ export class SqliteAppRepository implements AppRepository {
       Array<{
         id: string
         title: string
+        starred: number
         session_id: string
         conversation_id: string
         last_response_id: string
@@ -209,7 +210,7 @@ export class SqliteAppRepository implements AppRepository {
         updated_at: number
       }>
     >(
-      `SELECT id, title, session_id, conversation_id, last_response_id, created_at, updated_at
+      `SELECT id, title, starred, session_id, conversation_id, last_response_id, created_at, updated_at
        FROM conversations
        ORDER BY updated_at DESC`
     )
@@ -217,6 +218,7 @@ export class SqliteAppRepository implements AppRepository {
     return rows.map((row) => ({
       id: row.id,
       title: row.title,
+      starred: Boolean(row.starred),
       anchors: {
         sessionId: row.session_id,
         conversationId: row.conversation_id,
@@ -230,10 +232,11 @@ export class SqliteAppRepository implements AppRepository {
   async upsertConversation(record: ConversationRecord): Promise<void> {
     const db = await getDatabase()
     await db.execute(
-      `INSERT INTO conversations(id, title, session_id, conversation_id, last_response_id, created_at, updated_at)
-       VALUES($1, $2, $3, $4, $5, $6, $7)
+      `INSERT INTO conversations(id, title, starred, session_id, conversation_id, last_response_id, created_at, updated_at)
+       VALUES($1, $2, $3, $4, $5, $6, $7, $8)
        ON CONFLICT(id) DO UPDATE SET
          title=excluded.title,
+         starred=excluded.starred,
          session_id=excluded.session_id,
          conversation_id=excluded.conversation_id,
          last_response_id=excluded.last_response_id,
@@ -241,6 +244,7 @@ export class SqliteAppRepository implements AppRepository {
       [
         record.id,
         record.title,
+        record.starred ? 1 : 0,
         record.anchors.sessionId || "",
         record.anchors.conversationId || "",
         record.anchors.lastResponseId || "",
@@ -257,6 +261,16 @@ export class SqliteAppRepository implements AppRepository {
        SET title = $1, updated_at = $2
        WHERE id = $3`,
       [title, Date.now(), conversationId]
+    )
+  }
+
+  async updateConversationStarred(conversationId: string, starred: boolean): Promise<void> {
+    const db = await getDatabase()
+    await db.execute(
+      `UPDATE conversations
+       SET starred = $1
+       WHERE id = $2`,
+      [starred ? 1 : 0, conversationId]
     )
   }
 

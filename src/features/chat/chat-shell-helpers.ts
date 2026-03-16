@@ -222,16 +222,29 @@ export function buildSidebarConversationItems(
   hasDraftConversation: boolean,
   draftConversationId: string,
   draftConversationUpdatedAt: number
-): Array<{ id: string; title: string; updatedAt: Date }> {
-  const mapped = conversations.map((item) => ({
-    id: item.id,
-    title: item.title,
-    updatedAt: new Date(item.updatedAt),
-  }))
+): Array<{ id: string; title: string; starred: boolean; updatedAt: Date }> {
+  const starred = conversations
+    .filter((item) => item.starred)
+    .map((item) => ({
+      id: item.id,
+      title: item.title,
+      starred: true,
+      updatedAt: new Date(item.updatedAt),
+    }))
+  const unstarred = conversations
+    .filter((item) => !item.starred)
+    .map((item) => ({
+      id: item.id,
+      title: item.title,
+      starred: false,
+      updatedAt: new Date(item.updatedAt),
+    }))
+  const mapped = [...starred, ...unstarred]
   if (hasDraftConversation) {
     mapped.unshift({
       id: draftConversationId,
       title: "",
+      starred: false,
       updatedAt: new Date(draftConversationUpdatedAt || Date.now()),
     })
   }

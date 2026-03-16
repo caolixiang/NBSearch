@@ -50,6 +50,7 @@ function conversationRecord(title = ""): ConversationRecord {
     anchors: {},
     createdAt: 1,
     updatedAt: 1,
+    starred: false,
   }
 }
 
@@ -73,6 +74,7 @@ describe("persistRecoveredCompletedTurnFromGateway", () => {
         anchors,
         createdAt: now,
         updatedAt: now,
+        starred: false,
       }),
       fallbackConversationTitleFromPrompt: (prompt) => prompt.slice(0, 12),
     })
@@ -111,6 +113,7 @@ describe("persistRecoveredCompletedTurnFromGateway", () => {
         anchors,
         createdAt: now,
         updatedAt: now,
+        starred: false,
       }),
       fallbackConversationTitleFromPrompt: (prompt) => `title:${prompt}`,
       now: () => 99,
@@ -133,6 +136,7 @@ describe("persistRecoveredCompletedTurnFromGateway", () => {
         },
         createdAt: 99,
         updatedAt: 99,
+        starred: false,
       },
     ])
     expect(result?.assistantMessage.responseId).toBe("resp_done_1")
@@ -184,6 +188,7 @@ describe("persistRecoveredCompletedTurnFromGateway", () => {
         anchors,
         createdAt: now,
         updatedAt: now,
+        starred: false,
       }),
       fallbackConversationTitleFromPrompt: (prompt) => prompt,
       now: () => 100,
@@ -226,6 +231,7 @@ describe("persistRecoveredCompletedTurnFromGateway", () => {
         anchors,
         createdAt: now,
         updatedAt: now,
+        starred: false,
       }),
       fallbackConversationTitleFromPrompt: (prompt) => prompt,
       now: () => 101,
@@ -256,6 +262,7 @@ describe("persistRecoveredCompletedTurnFromGateway", () => {
         anchors,
         createdAt: now,
         updatedAt: now,
+        starred: false,
       }),
       fallbackConversationTitleFromPrompt: (prompt) => prompt,
     })

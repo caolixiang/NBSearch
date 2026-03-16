@@ -3,6 +3,7 @@ import type { ChatAnchors, ChatMessage } from "../chat/types"
 export interface ConversationRecord {
   id: string
   title: string
+  starred: boolean
   anchors: Partial<ChatAnchors>
   createdAt: number
   updatedAt: number
@@ -24,6 +25,8 @@ export interface AppRepository {
   upsertConversation(record: ConversationRecord): Promise<void>
 
   updateConversationTitle(conversationId: string, title: string): Promise<void>
+
+  updateConversationStarred(conversationId: string, starred: boolean): Promise<void>
 
   deleteConversation(conversationId: string): Promise<void>
 

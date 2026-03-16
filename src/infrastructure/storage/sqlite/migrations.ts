@@ -43,4 +43,12 @@ export const SQLITE_MIGRATIONS: SqlMigration[] = [
        ON voice_sessions(conversation_id, started_at)`,
     ],
   },
+  {
+    version: 2,
+    name: "add_conversation_starred",
+    statements: [
+      `ALTER TABLE conversations
+       ADD COLUMN starred INTEGER NOT NULL DEFAULT 0`,
+    ],
+  },
 ]

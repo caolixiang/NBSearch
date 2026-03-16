@@ -46,18 +46,20 @@ export async function bootstrapGatewayTurn(input: {
   const currentTitle = currentConversation?.title || ""
   const fallbackTitle = input.fallbackConversationTitleFromPrompt(input.turnInput.text)
 
-  await input.upsertConversation(
-    input.createConversationRecord(
+  const nextConversation = input.createConversationRecord(
+    conversationId,
+    currentTitle,
+    {
+      sessionId,
       conversationId,
-      currentTitle,
-      {
-        sessionId,
-        conversationId,
-        lastResponseId: fallbackPreviousResponseId,
-      },
-      now()
-    )
+      lastResponseId: fallbackPreviousResponseId,
+    },
+    now()
   )
+  await input.upsertConversation({
+    ...nextConversation,
+    starred: currentConversation?.starred === true || nextConversation.starred === true,
+  })
 
   if (!isRegenerate && !input.turnInput.retryExistingUserMessage) {
     await input.appendMessage(

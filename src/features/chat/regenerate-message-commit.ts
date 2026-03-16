@@ -31,6 +31,7 @@ export async function commitRegeneratedAssistantMessage({
   await repository.upsertConversation({
     id: conversationId,
     title: latestConversation?.title || fallbackConversation?.title || "",
+    starred: latestConversation?.starred === true || fallbackConversation?.starred === true,
     anchors,
     createdAt: latestConversation?.createdAt || fallbackConversation?.createdAt || commitTime,
     updatedAt: commitTime,

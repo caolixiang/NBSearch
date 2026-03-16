@@ -30,6 +30,17 @@ export class MemoryAppRepository implements AppRepository {
     })
   }
 
+  async updateConversationStarred(conversationId: string, starred: boolean): Promise<void> {
+    const current = this.conversations.get(conversationId)
+    if (!current) {
+      return
+    }
+    this.conversations.set(conversationId, {
+      ...current,
+      starred,
+    })
+  }
+
   async deleteConversation(conversationId: string): Promise<void> {
     this.conversations.delete(conversationId)
     this.messages.delete(conversationId)

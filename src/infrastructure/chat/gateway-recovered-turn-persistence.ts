@@ -112,13 +112,15 @@ export async function persistRecoveredCompletedTurnFromGateway(
     lastResponseId: sessionState?.lastResponseId.trim() || targetResponseId || fallbackPreviousResponseId,
   }
   const now = input.now || (() => Date.now())
-  await input.upsertConversation(
-    input.createConversationRecord(
-      currentTitle || input.fallbackConversationTitleFromPrompt(nextAssistant.content),
-      anchors,
-      now()
-    )
+  const nextConversation = input.createConversationRecord(
+    currentTitle || input.fallbackConversationTitleFromPrompt(nextAssistant.content),
+    anchors,
+    now()
   )
+  await input.upsertConversation({
+    ...nextConversation,
+    starred: currentConversation?.starred === true || nextConversation.starred === true,
+  })
 
   return {
     assistantMessage: nextAssistant,

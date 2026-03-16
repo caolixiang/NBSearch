@@ -104,6 +104,7 @@ export async function commitVoiceMessage({
   const nextConversation: ConversationRecord = {
     id: conversationId,
     title: nextTitle,
+    starred: latestConversation?.starred === true || fallbackConversation?.starred === true,
     anchors: {
       ...(latestConversation?.anchors || fallbackConversation?.anchors || {}),
       conversationId,

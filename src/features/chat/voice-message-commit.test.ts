@@ -14,6 +14,7 @@ describe("commitVoiceMessage", () => {
       },
       createdAt: 100,
       updatedAt: 100,
+      starred: false,
     }
     await repository.upsertConversation(conversation)
 
@@ -42,6 +43,7 @@ describe("commitVoiceMessage", () => {
     const conversation: ConversationRecord = {
       id: "conv_voice_2",
       title: "语音测试",
+      starred: true,
       anchors: {
         conversationId: "conv_voice_2",
         sessionId: "sess_voice_2",
@@ -86,6 +88,7 @@ describe("commitVoiceMessage", () => {
     const updatedConversation = (await repository.listConversations()).find((item) => item.id === conversation.id)
     expect(updatedConversation?.anchors.lastResponseId).toBe("resp_voice_2")
     expect(updatedConversation?.updatedAt).toBe(220)
+    expect(updatedConversation?.starred).toBe(true)
   })
 
   it("replaces refined user transcript when the same voice turn emits another final transcript", async () => {
@@ -99,6 +102,7 @@ describe("commitVoiceMessage", () => {
       },
       createdAt: 100,
       updatedAt: 100,
+      starred: false,
     }
     await repository.upsertConversation(conversation)
 
@@ -147,6 +151,7 @@ describe("commitVoiceMessage", () => {
       },
       createdAt: 100,
       updatedAt: 100,
+      starred: false,
     }
     await repository.upsertConversation(conversation)
 
@@ -175,6 +180,7 @@ describe("commitVoiceMessage", () => {
       },
       createdAt: 100,
       updatedAt: 100,
+      starred: false,
     }
     await repository.upsertConversation(conversation)
 
@@ -205,6 +211,7 @@ describe("commitVoiceMessage", () => {
       },
       createdAt: 100,
       updatedAt: 100,
+      starred: false,
     }
     await repository.upsertConversation(conversation)
 
@@ -248,6 +255,7 @@ describe("commitVoiceMessage", () => {
       },
       createdAt: 100,
       updatedAt: 100,
+      starred: false,
     }
     await repository.upsertConversation(conversation)
 
@@ -292,6 +300,7 @@ describe("commitVoiceMessage", () => {
       },
       createdAt: 100,
       updatedAt: 100,
+      starred: false,
     }
     await repository.upsertConversation(conversation)
 
@@ -340,6 +349,7 @@ describe("commitVoiceMessage", () => {
       },
       createdAt: 100,
       updatedAt: 100,
+      starred: false,
     }
     await repository.upsertConversation(conversation)
 

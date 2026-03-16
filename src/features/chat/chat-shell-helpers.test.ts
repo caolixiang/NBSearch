@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test"
 import {
+  buildSidebarConversationItems,
   buildVisibleMessages,
   buildVoiceConversationTitle,
   clearStaleSessionAnchors,
@@ -135,6 +136,38 @@ describe("chat-shell voice resume helpers", () => {
       "assistant_old_1",
       "streaming_assistant",
       "voice_user_new_1",
+    ])
+  })
+
+  it("orders starred conversations ahead of time groups while keeping draft unstarred", () => {
+    const items = buildSidebarConversationItems(
+      [
+        {
+          id: "conv_today_1",
+          title: "今天未星标",
+          starred: false,
+          anchors: {},
+          createdAt: 1,
+          updatedAt: new Date("2026-03-16T08:00:00.000Z").getTime(),
+        },
+        {
+          id: "conv_star_1",
+          title: "星标会话",
+          starred: true,
+          anchors: {},
+          createdAt: 2,
+          updatedAt: new Date("2026-03-15T08:00:00.000Z").getTime(),
+        },
+      ],
+      true,
+      "draft_conversation",
+      new Date("2026-03-16T09:00:00.000Z").getTime()
+    )
+
+    expect(items.map((item) => [item.id, item.starred])).toEqual([
+      ["draft_conversation", false],
+      ["conv_star_1", true],
+      ["conv_today_1", false],
     ])
   })
 })
