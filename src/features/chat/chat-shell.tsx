@@ -1861,6 +1861,11 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
             }}
             isLoading={isActiveConversationStreaming}
             voiceEnabled={runtime.config.voiceEnabled}
+            modelOptions={modelOptions}
+            selectedModel={selectedModel}
+            onModelChange={(modelId) => {
+              setSelectedModel(modelId)
+            }}
             activeConversationId={activeConversationId}
             voiceService={runtime.services.voice}
             onPrepareVoiceSession={handlePrepareVoiceSession}

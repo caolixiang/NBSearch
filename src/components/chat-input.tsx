@@ -2,6 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect, useMemo, type CSSProperties } from "react"
 import type { VoiceService, VoiceSessionEndReason, VoiceTextEvent } from "@/domain/voice/service"
+import type { ModelOption } from "@/domain/models/types"
 import { Button } from "@/components/ui/button"
 import {
   ArrowUp,
@@ -25,6 +26,7 @@ import {
   type VoiceOptionId,
   type VoicePersonalityId,
 } from "@/components/voice-settings-sheet"
+import { ChatInputQuickModelSwitch } from "@/components/chat-input-quick-model-switch"
 import {
   getVoiceEntryAriaLabel,
   getVoiceEntryBarHeights,
@@ -133,6 +135,9 @@ interface ChatInputProps {
   onStop?: () => void
   onHeightChange?: (height: number) => void
   voiceEnabled?: boolean
+  modelOptions?: ModelOption[]
+  selectedModel?: string
+  onModelChange?: (modelId: string) => void
   activeConversationId?: string | null
   voiceService?: VoiceService
   onPrepareVoiceSession?: () => Promise<{
@@ -178,6 +183,9 @@ export function ChatInput({
   onStop,
   onHeightChange,
   voiceEnabled = true,
+  modelOptions = [],
+  selectedModel = "",
+  onModelChange,
   activeConversationId,
   voiceService,
   onPrepareVoiceSession,
@@ -930,6 +938,17 @@ export function ChatInput({
             />
 
             <div className="flex shrink-0 items-center gap-1.5">
+              <ChatInputQuickModelSwitch
+                models={modelOptions}
+                selectedModel={selectedModel}
+                onModelChange={(modelId) => {
+                  onModelChange?.(modelId)
+                }}
+                inputValue={input}
+                attachmentCount={attachments.length}
+                disabled={isLoading || isVoiceConnecting}
+              />
+
               {voiceEnabled ? (
                 <button
                   type="button"
