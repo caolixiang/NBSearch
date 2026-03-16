@@ -729,7 +729,7 @@ export function ChatInput({
     >
       <div
         className={cn(
-          "relative overflow-hidden border border-border bg-card shadow-sm transition-[border-radius,box-shadow,background,border-color] focus-within:border-ring/30 focus-within:shadow-sm",
+          "relative overflow-visible border border-border bg-card shadow-sm transition-[border-radius,box-shadow,background,border-color] focus-within:border-ring/30 focus-within:shadow-sm",
           isVoiceMode
             ? "rounded-[1.75rem] bg-card shadow-[0_10px_24px_-22px_rgba(15,23,42,0.38)]"
             : "rounded-[1.75rem]"

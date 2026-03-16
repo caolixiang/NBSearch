@@ -108,7 +108,7 @@ export function ChatInputQuickModelSwitch({
       {isOpen ? (
         <div
           role="menu"
-          className="absolute right-0 bottom-full z-30 mb-2 min-w-[220px] overflow-hidden rounded-2xl border border-border bg-popover p-1 text-popover-foreground shadow-lg shadow-black/5"
+          className="absolute right-0 bottom-full z-50 mb-2 min-w-[220px] overflow-hidden rounded-2xl border border-border bg-popover p-1 text-popover-foreground shadow-lg shadow-black/5"
         >
           {presets.map((preset) => {
             const selected = preset.id === activePreset.id
