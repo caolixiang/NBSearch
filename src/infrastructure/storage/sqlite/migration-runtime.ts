@@ -5,6 +5,10 @@ export interface SqliteMigrationDatabase {
   select<T>(query: string, bindValues?: unknown[]): Promise<T>
 }
 
+const LEGACY_DEEPSEARCH_MIGRATION_NAME = "add_conversation_has_deep_search_flag"
+const STARRED_REPAIR_MIGRATION_VERSION = 3
+const STARRED_REPAIR_MIGRATION_NAME = "repair_conversation_starred_after_version_conflict"
+
 export async function ensureSqliteMigrations(
   db: SqliteMigrationDatabase,
   input: {
@@ -23,10 +27,12 @@ export async function ensureSqliteMigrations(
     )
   `)
 
-  const rows = await db.select<Array<{ version: number }>>(
-    "SELECT version FROM schema_migrations ORDER BY version ASC"
+  const rows = await db.select<Array<{ version: number; name: string }>>(
+    "SELECT version, name FROM schema_migrations ORDER BY version ASC"
   )
   const applied = new Set(rows.map((row) => row.version))
+
+  await repairLegacyStarredMigrationConflict(db, rows, applied, now)
 
   for (const migration of migrations) {
     if (applied.has(migration.version)) {
@@ -34,6 +40,56 @@ export async function ensureSqliteMigrations(
     }
     await applySqliteMigration(db, migration, now())
   }
+}
+
+async function repairLegacyStarredMigrationConflict(
+  db: SqliteMigrationDatabase,
+  rows: Array<{ version: number; name: string }>,
+  applied: Set<number>,
+  now: () => number
+): Promise<void> {
+  if (applied.has(STARRED_REPAIR_MIGRATION_VERSION)) {
+    return
+  }
+
+  const hasLegacyDeepsearchMigration = rows.some(
+    (row) => row.version === 2 && row.name === LEGACY_DEEPSEARCH_MIGRATION_NAME
+  )
+  if (!hasLegacyDeepsearchMigration) {
+    return
+  }
+
+  const hasStarredColumn = await sqliteColumnExists(db, "conversations", "starred")
+  const repairMigration: SqlMigration = {
+    version: STARRED_REPAIR_MIGRATION_VERSION,
+    name: STARRED_REPAIR_MIGRATION_NAME,
+    statements: hasStarredColumn
+      ? []
+      : [
+          `ALTER TABLE conversations
+           ADD COLUMN starred INTEGER NOT NULL DEFAULT 0`,
+        ],
+  }
+
+  await applySqliteMigration(db, repairMigration, now())
+  applied.add(STARRED_REPAIR_MIGRATION_VERSION)
+}
+
+async function sqliteColumnExists(
+  db: SqliteMigrationDatabase,
+  tableName: string,
+  columnName: string
+): Promise<boolean> {
+  const normalizedTableName = quoteSqliteIdentifier(tableName)
+  const rows = await db.select<Array<{ name?: string }>>(`PRAGMA table_info(${normalizedTableName})`)
+  return rows.some((row) => row.name === columnName)
+}
+
+function quoteSqliteIdentifier(value: string): string {
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(value)) {
+    throw new Error(`Invalid SQLite identifier: ${value}`)
+  }
+  return `"${value}"`
 }
 
 async function applySqliteMigration(

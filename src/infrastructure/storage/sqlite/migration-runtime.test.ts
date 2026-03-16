@@ -10,6 +10,10 @@ const LEGACY_FIXTURE_SQL = readFileSync(
   new URL("./fixtures/legacy-v1.sql", import.meta.url),
   "utf8"
 )
+const LEGACY_V2_DEEPSEARCH_FIXTURE_SQL = readFileSync(
+  new URL("./fixtures/legacy-v2-deepsearch.sql", import.meta.url),
+  "utf8"
+)
 
 const tempDirs: string[] = []
 
@@ -126,6 +130,44 @@ describe("ensureSqliteMigrations", () => {
 
     const rows = db.query("SELECT * FROM demo").all() as unknown[]
     expect(rows).toHaveLength(0)
+
+    db.close()
+  })
+
+  it("repairs legacy v2 deepsearch databases that collide with the reused migration version", async () => {
+    const db = createTempDb()
+    db.exec(LEGACY_V2_DEEPSEARCH_FIXTURE_SQL)
+
+    const adapter = new BunSqliteMigrationAdapter(db)
+    await ensureSqliteMigrations(adapter, {
+      now: () => 1777000000000,
+    })
+    await ensureSqliteMigrations(adapter, {
+      now: () => 1778000000000,
+    })
+
+    const columns = db.query("PRAGMA table_info(conversations)").all() as Array<{ name: string }>
+    expect(columns.map((column) => column.name)).toContain("starred")
+
+    const conversations = db
+      .query("SELECT id, title, starred FROM conversations ORDER BY updated_at DESC")
+      .all() as Array<{ id: string; title: string; starred: number }>
+    expect(conversations).toEqual([
+      {
+        id: "conv_fixture_upgrade",
+        title: "旧版本升级对话",
+        starred: 0,
+      },
+    ])
+
+    const versions = db
+      .query("SELECT version, name FROM schema_migrations ORDER BY version ASC")
+      .all() as Array<{ version: number; name: string }>
+    expect(versions).toEqual([
+      { version: 1, name: "init_chat_schema" },
+      { version: 2, name: "add_conversation_has_deep_search_flag" },
+      { version: 3, name: "repair_conversation_starred_after_version_conflict" },
+    ])
 
     db.close()
   })
