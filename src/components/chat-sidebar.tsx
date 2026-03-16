@@ -158,7 +158,7 @@ export function ChatSidebar({
   const renderConvoItem = (convo: Conversation) => {
     const canToggleStar = Boolean(onToggleStar && !isEmptyConversation(convo))
     const shouldShowFullActions = hoveredId === convo.id
-    const shouldShowStarButton = canToggleStar && shouldShowFullActions
+    const shouldShowStarButton = canToggleStar && (shouldShowFullActions || convo.starred)
     const canShowTrailingActions = canToggleStar || Boolean(onDelete || (onRename && !isEmptyConversation(convo)))
 
     return (
@@ -251,25 +251,6 @@ export function ChatSidebar({
             </button>
             {canShowTrailingActions ? (
               <div className="absolute inset-y-0 right-1 flex items-center justify-end gap-0.5">
-                {canToggleStar ? (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      onToggleStar?.(convo.id, !convo.starred)
-                    }}
-                    disabled={disableConversationActions}
-                    className={cn(
-                      "flex size-[26px] items-center justify-center rounded-lg border transition-[background-color,border-color,color,box-shadow,transform,opacity] duration-150 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sidebar-ring disabled:cursor-not-allowed disabled:opacity-40",
-                      convo.starred
-                        ? "border-sidebar-border/70 bg-sidebar/90 text-yellow-500 opacity-100 hover:text-yellow-500 dark:text-yellow-400 dark:hover:text-yellow-400"
-                        : "border-transparent text-sidebar-foreground/65 hover:border-sidebar-border/70 hover:bg-sidebar/90 hover:text-yellow-500 dark:hover:text-yellow-400",
-                      shouldShowStarButton ? "opacity-100" : "pointer-events-none opacity-0"
-                    )}
-                    aria-label={convo.starred ? "取消星标" : "星标对话"}
-                  >
-                    <Star className={cn("size-3.5", convo.starred ? "fill-current" : "")} />
-                  </button>
-                ) : null}
                 <div
                   className={cn(
                     "flex items-center justify-end gap-0.5 transition-opacity duration-150",
@@ -303,6 +284,25 @@ export function ChatSidebar({
                     </button>
                   ) : null}
                 </div>
+                {canToggleStar ? (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onToggleStar?.(convo.id, !convo.starred)
+                    }}
+                    disabled={disableConversationActions}
+                    className={cn(
+                      "flex size-[26px] items-center justify-center rounded-lg border transition-[background-color,border-color,color,box-shadow,transform,opacity] duration-150 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sidebar-ring disabled:cursor-not-allowed disabled:opacity-40",
+                      convo.starred
+                        ? "border-sidebar-border/70 bg-sidebar/90 text-yellow-500 opacity-100 hover:text-yellow-500 dark:text-yellow-400 dark:hover:text-yellow-400"
+                        : "border-transparent text-sidebar-foreground/65 hover:border-sidebar-border/70 hover:bg-sidebar/90 hover:text-yellow-500 dark:hover:text-yellow-400",
+                      shouldShowStarButton ? "opacity-100" : "pointer-events-none opacity-0"
+                    )}
+                    aria-label={convo.starred ? "取消星标" : "星标对话"}
+                  >
+                    <Star className={cn("size-3.5", convo.starred ? "fill-current" : "")} />
+                  </button>
+                ) : null}
               </div>
             ) : null}
           </div>
