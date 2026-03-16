@@ -242,7 +242,7 @@ export function ChatSidebar({
               }}
               className={cn(
                 "h-full w-full min-w-0 text-left text-sm transition-[padding-right] duration-150",
-                shouldShowFullActions ? "px-2 pr-[7rem]" : shouldShowStarButton ? "px-2 pr-[3rem]" : "px-2 pr-2"
+                shouldShowFullActions ? "px-2 pr-[6.25rem]" : shouldShowStarButton ? "px-2 pr-[2.5rem]" : "px-2 pr-2"
               )}
             >
               <span className="flex min-w-0 items-center gap-1.5">
@@ -250,7 +250,7 @@ export function ChatSidebar({
               </span>
             </button>
             {canShowTrailingActions ? (
-              <div className="absolute inset-y-0 right-1 flex items-center justify-end gap-1">
+              <div className="absolute inset-y-0 right-1 flex items-center justify-end gap-0.5">
                 {canToggleStar ? (
                   <button
                     onClick={(e) => {
@@ -259,10 +259,10 @@ export function ChatSidebar({
                     }}
                     disabled={disableConversationActions}
                     className={cn(
-                      "flex size-7 items-center justify-center rounded-lg border transition-[background-color,border-color,color,box-shadow,transform,opacity] duration-150 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sidebar-ring disabled:cursor-not-allowed disabled:opacity-40",
+                      "flex size-[26px] items-center justify-center rounded-lg border transition-[background-color,border-color,color,box-shadow,transform,opacity] duration-150 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sidebar-ring disabled:cursor-not-allowed disabled:opacity-40",
                       convo.starred
-                        ? "border-sidebar-border/70 bg-sidebar/90 text-sidebar-primary opacity-100"
-                        : "border-transparent text-sidebar-foreground/65 hover:border-sidebar-border/70 hover:bg-sidebar/90 hover:text-sidebar-primary",
+                        ? "border-sidebar-border/70 bg-sidebar/90 text-yellow-500 opacity-100 hover:text-yellow-500 dark:text-yellow-400 dark:hover:text-yellow-400"
+                        : "border-transparent text-sidebar-foreground/65 hover:border-sidebar-border/70 hover:bg-sidebar/90 hover:text-yellow-500 dark:hover:text-yellow-400",
                       shouldShowStarButton ? "opacity-100" : "pointer-events-none opacity-0"
                     )}
                     aria-label={convo.starred ? "取消星标" : "星标对话"}
@@ -272,7 +272,7 @@ export function ChatSidebar({
                 ) : null}
                 <div
                   className={cn(
-                    "flex items-center justify-end gap-1 transition-opacity duration-150",
+                    "flex items-center justify-end gap-0.5 transition-opacity duration-150",
                     shouldShowFullActions ? "opacity-100" : "pointer-events-none opacity-0"
                   )}
                 >
@@ -283,7 +283,7 @@ export function ChatSidebar({
                         beginRename(convo)
                       }}
                       disabled={disableConversationActions}
-                      className="flex size-7 items-center justify-center rounded-lg border border-transparent text-sidebar-foreground/75 transition-[background-color,border-color,color,box-shadow,transform] duration-150 hover:border-sidebar-border/70 hover:bg-sidebar/90 hover:text-sidebar-foreground active:scale-[0.98] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sidebar-ring disabled:cursor-not-allowed disabled:opacity-40"
+                      className="flex size-[26px] items-center justify-center rounded-lg border border-transparent text-sidebar-foreground/75 transition-[background-color,border-color,color,box-shadow,transform] duration-150 hover:border-sidebar-border/70 hover:bg-sidebar/90 hover:text-sidebar-foreground active:scale-[0.98] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sidebar-ring disabled:cursor-not-allowed disabled:opacity-40"
                       aria-label="重命名对话"
                     >
                       <PenLine className="size-3.5" />
@@ -296,7 +296,7 @@ export function ChatSidebar({
                         beginDeleteConfirm(convo)
                       }}
                       disabled={disableConversationActions}
-                      className="flex size-7 items-center justify-center rounded-lg border border-transparent text-sidebar-foreground/75 transition-[background-color,border-color,color,box-shadow] duration-150 hover:border-destructive/15 hover:bg-destructive/10 hover:text-destructive focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-destructive/30 disabled:cursor-not-allowed disabled:opacity-40"
+                      className="flex size-[26px] items-center justify-center rounded-lg border border-transparent text-sidebar-foreground/75 transition-[background-color,border-color,color,box-shadow] duration-150 hover:border-destructive/15 hover:bg-destructive/10 hover:text-destructive focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-destructive/30 disabled:cursor-not-allowed disabled:opacity-40"
                       aria-label="删除对话"
                     >
                       <Trash2 className="size-3.5" />
