@@ -121,6 +121,18 @@ export function resolveQuickModelPresetId(models: ModelOption[], selectedModelId
   return "max"
 }
 
+export function resolveActiveQuickModelPresetId(
+  presets: QuickModelPreset[],
+  models: ModelOption[],
+  selectedModelId: string
+): QuickModelPresetId {
+  const exactPreset = presets.find((item) => item.modelId === selectedModelId)
+  if (exactPreset) {
+    return exactPreset.id
+  }
+  return resolveQuickModelPresetId(models, selectedModelId)
+}
+
 export function buildQuickModelPresets(models: ModelOption[], fallbackModelId: string): QuickModelPreset[] {
   const fallback = fallbackModelId || models[0]?.id || ""
   if (!fallback) {

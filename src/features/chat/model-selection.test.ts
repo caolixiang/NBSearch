@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test"
 import type { ModelOption } from "@/domain/models/types"
 import {
+  resolveActiveQuickModelPresetId,
   buildQuickModelPresets,
   resolveFastModelId,
   resolveQuickModelPresetId,
@@ -90,6 +91,40 @@ describe("resolveQuickModelPresetId", () => {
     expect(resolveQuickModelPresetId(models, "claude-sonnet")).toBe("fast")
     expect(resolveQuickModelPresetId(models, "claude-opus")).toBe("thinker")
     expect(resolveQuickModelPresetId(models, "gpt-5")).toBe("max")
+  })
+})
+
+describe("resolveActiveQuickModelPresetId", () => {
+  it("prefers exact preset model mapping before keyword inference", () => {
+    const models: ModelOption[] = [
+      model({ id: "claude-sonnet", visualKind: "speed" }),
+      model({ id: "claude-opus", visualKind: "reasoning" }),
+      model({ id: "grok-4.1-expert", visualKind: "spark", description: "Best quality" }),
+    ]
+
+    const presets = [
+      {
+        id: "fast" as const,
+        label: "Fast",
+        description: "Quick responses",
+        modelId: "claude-sonnet",
+      },
+      {
+        id: "thinker" as const,
+        label: "Thinker",
+        description: "Deeper reasoning",
+        modelId: "claude-opus",
+      },
+      {
+        id: "max" as const,
+        label: "Max",
+        description: "Best quality",
+        modelId: "grok-4.1-expert",
+      },
+    ]
+
+    expect(resolveQuickModelPresetId(models, "grok-4.1-expert")).toBe("thinker")
+    expect(resolveActiveQuickModelPresetId(presets, models, "grok-4.1-expert")).toBe("max")
   })
 })
 

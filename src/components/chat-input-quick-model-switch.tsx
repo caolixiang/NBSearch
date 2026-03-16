@@ -5,7 +5,7 @@ import { Brain, Check, ChevronDown, Sparkles, Zap } from "lucide-react"
 import type { ModelOption } from "@/domain/models/types"
 import {
   buildQuickModelPresets,
-  resolveQuickModelPresetId,
+  resolveActiveQuickModelPresetId,
   shouldCollapseQuickModelSwitch,
   type QuickModelPresetId,
 } from "@/features/chat/model-selection"
@@ -44,13 +44,11 @@ export function ChatInputQuickModelSwitch({
 
   const presets = useMemo(() => buildQuickModelPresets(models, selectedModel), [models, selectedModel])
   const activePresetId = useMemo(
-    () => resolveQuickModelPresetId(models, selectedModel),
-    [models, selectedModel]
+    () => resolveActiveQuickModelPresetId(presets, models, selectedModel),
+    [models, presets, selectedModel]
   )
   const activePreset =
-    presets.find((preset) => preset.id === activePresetId) ||
-    presets.find((preset) => preset.modelId === selectedModel) ||
-    presets[0]
+    presets.find((preset) => preset.id === activePresetId) || presets[0]
   const collapsed = shouldCollapseQuickModelSwitch(inputValue, attachmentCount)
 
   useEffect(() => {
