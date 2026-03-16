@@ -146,20 +146,20 @@ export function buildQuickModelPresets(models: ModelOption[], fallbackModelId: s
   const presets: QuickModelPreset[] = [
     {
       id: "fast" as const,
-      label: "Fast",
-      description: "Quick responses",
+      label: "极速",
+      description: "快速响应",
       modelId: fastId,
     },
     {
       id: "thinker" as const,
-      label: "Thinker",
-      description: "Deeper reasoning",
+      label: "专家",
+      description: "深度思考",
       modelId: thinkerId,
     },
     {
       id: "max" as const,
-      label: "Max",
-      description: "Best quality",
+      label: "实验性",
+      description: "最佳效果",
       modelId: maxId,
     },
   ].filter((item) => item.modelId)

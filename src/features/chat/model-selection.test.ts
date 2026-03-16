@@ -60,20 +60,20 @@ describe("buildQuickModelPresets", () => {
     expect(buildQuickModelPresets(models, "claude-sonnet")).toEqual([
       {
         id: "fast",
-        label: "Fast",
-        description: "Quick responses",
+        label: "极速",
+        description: "快速响应",
         modelId: "claude-sonnet",
       },
       {
         id: "thinker",
-        label: "Thinker",
-        description: "Deeper reasoning",
+        label: "专家",
+        description: "深度思考",
         modelId: "claude-opus",
       },
       {
         id: "max",
-        label: "Max",
-        description: "Best quality",
+        label: "实验性",
+        description: "最佳效果",
         modelId: "grok-4.20-latest",
       },
     ])
@@ -105,20 +105,20 @@ describe("resolveActiveQuickModelPresetId", () => {
     const presets = [
       {
         id: "fast" as const,
-        label: "Fast",
-        description: "Quick responses",
+        label: "极速",
+        description: "快速响应",
         modelId: "claude-sonnet",
       },
       {
         id: "thinker" as const,
-        label: "Thinker",
-        description: "Deeper reasoning",
+        label: "专家",
+        description: "深度思考",
         modelId: "claude-opus",
       },
       {
         id: "max" as const,
-        label: "Max",
-        description: "Best quality",
+        label: "实验性",
+        description: "最佳效果",
         modelId: "grok-4.1-expert",
       },
     ]
