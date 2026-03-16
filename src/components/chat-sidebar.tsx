@@ -158,7 +158,7 @@ export function ChatSidebar({
   const renderConvoItem = (convo: Conversation) => {
     const canToggleStar = Boolean(onToggleStar && !isEmptyConversation(convo))
     const shouldShowFullActions = hoveredId === convo.id
-    const shouldShowStarButton = canToggleStar && (shouldShowFullActions || convo.starred)
+    const shouldShowStarButton = canToggleStar && shouldShowFullActions
     const canShowTrailingActions = canToggleStar || Boolean(onDelete || (onRename && !isEmptyConversation(convo)))
 
     return (
