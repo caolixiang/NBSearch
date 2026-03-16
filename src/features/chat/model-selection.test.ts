@@ -73,7 +73,7 @@ describe("buildQuickModelPresets", () => {
       {
         id: "max",
         label: "实验性",
-        description: "最佳效果",
+        description: "多代理",
         modelId: "grok-4.20-latest",
       },
     ])
@@ -118,7 +118,7 @@ describe("resolveActiveQuickModelPresetId", () => {
       {
         id: "max" as const,
         label: "实验性",
-        description: "最佳效果",
+        description: "多代理",
         modelId: "grok-4.1-expert",
       },
     ]

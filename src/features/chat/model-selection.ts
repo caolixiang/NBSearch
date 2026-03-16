@@ -159,7 +159,7 @@ export function buildQuickModelPresets(models: ModelOption[], fallbackModelId: s
     {
       id: "max" as const,
       label: "实验性",
-      description: "最佳效果",
+      description: "多代理",
       modelId: maxId,
     },
   ].filter((item) => item.modelId)
