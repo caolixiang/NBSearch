@@ -198,11 +198,33 @@ describe("polymarket feed to chat helpers", () => {
   it("builds deep research prompts from original feed content instead of translated text", () => {
     expect(buildPolymarketResearchPrompt(item)).toBe(
       [
-        "标题：",
+        "原文：",
         "Original headline",
         "",
-        "内容：",
         "Original body",
+        "",
+        "原帖链接：",
+        "https://x.com/polymarket/status/1",
+        "",
+        "图片链接：",
+        "https://example.com/one.png",
+        "https://example.com/two.jpg",
+        "",
+        "继续深入调研",
+      ].join("\n")
+    )
+  })
+
+  it("deduplicates identical title and content into a single original block", () => {
+    expect(
+      buildPolymarketResearchPrompt({
+        ...item,
+        contentMarkdown: "Original headline",
+      })
+    ).toBe(
+      [
+        "原文：",
+        "Original headline",
         "",
         "原帖链接：",
         "https://x.com/polymarket/status/1",
