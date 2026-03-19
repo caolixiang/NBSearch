@@ -106,12 +106,16 @@ export function buildPolymarketResearchPrompt(item: FeedItemRecord): string {
   const canonicalUrl = item.canonicalUrl.trim()
   const mediaUrls = item.mediaUrls.map((url) => url.trim()).filter((url) => url.length > 0)
   const sections: string[] = []
+  const originalSegments: string[] = []
 
   if (title) {
-    sections.push(`标题：\n${title}`)
+    originalSegments.push(title)
   }
-  if (content) {
-    sections.push(`内容：\n${content}`)
+  if (content && content !== title) {
+    originalSegments.push(content)
+  }
+  if (originalSegments.length > 0) {
+    sections.push(`原文：\n${originalSegments.join("\n\n")}`)
   }
   if (canonicalUrl) {
     sections.push(`原帖链接：\n${canonicalUrl}`)
