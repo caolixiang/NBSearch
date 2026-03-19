@@ -588,6 +588,73 @@ export class SqliteAppRepository implements AppRepository {
     return rows.map((row) => row.content_hash)
   }
 
+  async listFeedItemsNeedingTranslation(input: {
+    source: FeedSource
+    limit: number
+    excludeContentHashes?: string[]
+  }): Promise<FeedItemRecord[]> {
+    const db = await getDatabase()
+    const limit = Math.max(1, Math.floor(input.limit))
+    const excluded = Array.from(
+      new Set((input.excludeContentHashes || []).map((item) => item.trim()).filter((item) => item.length > 0))
+    )
+    const exclusionSql =
+      excluded.length > 0
+        ? `AND content_hash NOT IN (${excluded.map((_, index) => `$${index + 3}`).join(", ")})`
+        : ""
+    const rows = await db.select<SqliteFeedItemRow[]>(
+      `SELECT id, subscription_id, source, content_hash, title, content_markdown, title_zh, content_markdown_zh, translation_status, translation_model, translated_at, media_json, canonical_url, published_at, discovered_at, fetched_at
+       FROM feed_items
+       WHERE source = $1
+         AND (
+           translation_status != $2
+           OR TRIM(title_zh) = ''
+           OR TRIM(content_markdown_zh) = ''
+         )
+         ${exclusionSql}
+       ORDER BY discovered_at DESC, id DESC
+       LIMIT $${excluded.length + 3}`,
+      [input.source, "translated", ...excluded, limit]
+    )
+    return rows.map(hydrateFeedItem)
+  }
+
+  async updateFeedItemTranslations(input: Array<{
+    id: string
+    titleZh: string
+    contentMarkdownZh: string
+    translationStatus: FeedItemTranslationStatus
+    translationModel: string
+    translatedAt: number | null
+  }>): Promise<number> {
+    if (input.length === 0) {
+      return 0
+    }
+    const db = await getDatabase()
+    let updated = 0
+    for (const item of input) {
+      const result = await db.execute(
+        `UPDATE feed_items
+         SET title_zh = $1,
+             content_markdown_zh = $2,
+             translation_status = $3,
+             translation_model = $4,
+             translated_at = $5
+         WHERE id = $6`,
+        [
+          item.titleZh,
+          item.contentMarkdownZh,
+          item.translationStatus,
+          item.translationModel,
+          item.translatedAt,
+          item.id,
+        ]
+      )
+      updated += result.rowsAffected
+    }
+    return updated
+  }
+
   async insertFeedItems(items: FeedItemRecord[]): Promise<number> {
     if (items.length === 0) {
       return 0

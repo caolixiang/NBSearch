@@ -1,6 +1,7 @@
 import type { ChatAnchors, ChatMessage } from "../chat/types"
 import type {
   FeedItemRecord,
+  FeedItemTranslationStatus,
   FeedPage,
   FeedPageCursor,
   FeedSource,
@@ -65,6 +66,21 @@ export interface AppRepository {
     subscriptionId: string
     contentHashes: string[]
   }): Promise<string[]>
+
+  listFeedItemsNeedingTranslation(input: {
+    source: FeedSource
+    limit: number
+    excludeContentHashes?: string[]
+  }): Promise<FeedItemRecord[]>
+
+  updateFeedItemTranslations(input: Array<{
+    id: string
+    titleZh: string
+    contentMarkdownZh: string
+    translationStatus: FeedItemTranslationStatus
+    translationModel: string
+    translatedAt: number | null
+  }>): Promise<number>
 
   insertFeedItems(items: FeedItemRecord[]): Promise<number>
 }

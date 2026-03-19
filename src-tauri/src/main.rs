@@ -445,7 +445,7 @@ fn normalize_llm_api_base_url(value: &str) -> String {
 fn normalize_llm_translation_model(value: &str) -> String {
     let trimmed = value.trim();
     if trimmed.is_empty() {
-        "gpt-5.4".to_string()
+        "gpt-5.4-mini".to_string()
     } else {
         trimmed.to_string()
     }

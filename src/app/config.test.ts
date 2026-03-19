@@ -6,7 +6,7 @@ describe("loadAppConfig env defaults", () => {
     const config = await loadAppConfig()
 
     expect(config.llmApiBaseUrl).toBe("https://cpabak.zeabur.app/v1")
-    expect(config.llmTranslationModel).toBe("gpt-5.4")
+    expect(config.llmTranslationModel).toBe("gpt-5.4-mini")
     expect(config.llmApiKey).toBe("")
   })
 })

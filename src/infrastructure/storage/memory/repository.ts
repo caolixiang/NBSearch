@@ -6,6 +6,7 @@ import type {
 } from "../../../domain/storage/repository"
 import type {
   FeedItemRecord,
+  FeedItemTranslationStatus,
   FeedPage,
   FeedPageCursor,
   FeedSource,
@@ -160,6 +161,70 @@ export class MemoryAppRepository implements AppRepository {
           candidates.has(item.contentHash)
       )
       .map((item) => item.contentHash)
+  }
+
+  async listFeedItemsNeedingTranslation(input: {
+    source: FeedSource
+    limit: number
+    excludeContentHashes?: string[]
+  }): Promise<FeedItemRecord[]> {
+    const excluded = new Set(
+      (input.excludeContentHashes || []).map((item) => item.trim()).filter((item) => item.length > 0)
+    )
+    return [...(this.feedItems.get(input.source) || [])]
+      .filter((item) => {
+        if (excluded.has(item.contentHash)) {
+          return false
+        }
+        return item.translationStatus !== "translated" || !item.titleZh.trim() || !item.contentMarkdownZh.trim()
+      })
+      .sort((left, right) => {
+        if (right.discoveredAt !== left.discoveredAt) {
+          return right.discoveredAt - left.discoveredAt
+        }
+        return right.id.localeCompare(left.id)
+      })
+      .slice(0, Math.max(1, input.limit))
+  }
+
+  async updateFeedItemTranslations(input: Array<{
+    id: string
+    titleZh: string
+    contentMarkdownZh: string
+    translationStatus: FeedItemTranslationStatus
+    translationModel: string
+    translatedAt: number | null
+  }>): Promise<number> {
+    if (input.length === 0) {
+      return 0
+    }
+    const updatesById = new Map(input.map((item) => [item.id, item]))
+    let updated = 0
+
+    for (const [source, items] of this.feedItems.entries()) {
+      let changed = false
+      const nextItems = items.map((item) => {
+        const update = updatesById.get(item.id)
+        if (!update) {
+          return item
+        }
+        changed = true
+        updated += 1
+        return {
+          ...item,
+          titleZh: update.titleZh,
+          contentMarkdownZh: update.contentMarkdownZh,
+          translationStatus: update.translationStatus,
+          translationModel: update.translationModel,
+          translatedAt: update.translatedAt,
+        }
+      })
+      if (changed) {
+        this.feedItems.set(source, nextItems)
+      }
+    }
+
+    return updated
   }
 
   async insertFeedItems(items: FeedItemRecord[]): Promise<number> {

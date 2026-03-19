@@ -22,6 +22,8 @@ import { getRuntimeInfo, hasTauriRuntime } from "@/app/runtime-info"
 import { checkForAppUpdate, installAppUpdate } from "@/app/updater"
 import { cn } from "@/lib/utils"
 import { getGatewaySaveButtonState } from "./settings-dialog-gateway-save"
+import { OpenAILogo } from "./openai-logo"
+import { testOpenAICompatibleConnection } from "@/infrastructure/llm/openai-compatible-client"
 import { Bell, Clock3, Database, Eye, EyeOff, Globe, Key, Palette, RadioTower, Shield, SlidersHorizontal } from "lucide-react"
 
 interface SettingsDialogProps {
@@ -44,6 +46,7 @@ interface SettingsDialogProps {
 
 const tabs = [
   { id: "gateway", label: "网关", icon: Globe },
+  { id: "openai", label: "OpenAI", icon: OpenAILogo },
   { id: "appearance", label: "外观", icon: Palette },
   { id: "notifications", label: "通知", icon: Bell },
   { id: "privacy", label: "隐私与安全", icon: Shield },
@@ -109,6 +112,8 @@ export function SettingsDialog({
   const [gatewayMessage, setGatewayMessage] = useState("")
   const [llmBusy, setLlmBusy] = useState(false)
   const [llmMessage, setLlmMessage] = useState("")
+  const [llmTestBusy, setLlmTestBusy] = useState(false)
+  const [llmTestMessage, setLlmTestMessage] = useState("")
   const [appearanceMessage, setAppearanceMessage] = useState("")
   const [personalizationBusy, setPersonalizationBusy] = useState(false)
   const [personalizationMessage, setPersonalizationMessage] = useState("")
@@ -197,6 +202,7 @@ export function SettingsDialog({
     setShowLlmApiKey(false)
     setGatewayMessage("")
     setLlmMessage("")
+    setLlmTestMessage("")
     setAppearanceMessage("")
     setPersonalizationMessage("")
     setSubscriptionsMessage("")
@@ -373,6 +379,27 @@ export function SettingsDialog({
       setLlmMessage("保存失败，请重试")
     } finally {
       setLlmBusy(false)
+    }
+  }
+
+  const testLlmConnection = async () => {
+    if (llmTestBusy || llmBusy) {
+      return
+    }
+    setLlmTestBusy(true)
+    setLlmTestMessage("")
+    try {
+      const text = await testOpenAICompatibleConnection({
+        baseUrl: llmBaseUrl.trim(),
+        apiKey: llmApiKey.trim(),
+        model: llmTranslationModel.trim(),
+      })
+      setLlmTestMessage(text ? `联通成功：${text}` : "联通成功，但返回内容为空")
+    } catch (error) {
+      const message = error instanceof Error && error.message.trim() ? error.message.trim() : "联通测试失败"
+      setLlmTestMessage(`联通失败：${message}`)
+    } finally {
+      setLlmTestBusy(false)
     }
   }
 
@@ -580,204 +607,222 @@ export function SettingsDialog({
                 <div>
                   <h3 className="text-sm font-medium text-foreground">网关配置</h3>
                   <p className="mt-0.5 text-xs text-muted-foreground">
-                    聊天主链继续走现有网关，Polymarket 翻译走独立的 LLM 网关
+                    当前聊天、模型列表和语音会话继续使用这一组配置
                   </p>
                 </div>
 
-                <div className="space-y-5">
-                  <section className="rounded-2xl border border-border p-4">
-                    <div>
-                      <h4 className="text-sm font-medium text-foreground">聊天网关</h4>
-                      <p className="mt-0.5 text-xs text-muted-foreground">
-                        当前聊天、模型列表和语音会话继续使用这一组配置
-                      </p>
-                    </div>
+                <div className="space-y-4">
+                  <div className="space-y-1.5">
+                    <label className="flex items-center gap-1.5 text-sm font-medium text-foreground">
+                      <Globe className="size-3.5 text-muted-foreground" />
+                      Base URL
+                    </label>
+                    <input
+                      type="url"
+                      value={baseUrl}
+                      onChange={(event) => {
+                        setBaseUrl(event.target.value)
+                        if (gatewayMessage) {
+                          setGatewayMessage("")
+                        }
+                      }}
+                      placeholder="https://api.openai.com/v1"
+                      className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:border-ring focus:ring-1 focus:ring-ring transition-colors"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      自定义 API 端点地址，留空使用默认聊天网关
+                    </p>
+                  </div>
 
-                    <div className="mt-4 space-y-4">
-                      <div className="space-y-1.5">
-                        <label className="flex items-center gap-1.5 text-sm font-medium text-foreground">
-                          <Globe className="size-3.5 text-muted-foreground" />
-                          Base URL
-                        </label>
-                        <input
-                          type="url"
-                          value={baseUrl}
-                          onChange={(event) => {
-                            setBaseUrl(event.target.value)
-                            if (gatewayMessage) {
-                              setGatewayMessage("")
-                            }
-                          }}
-                          placeholder="https://api.openai.com/v1"
-                          className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:border-ring focus:ring-1 focus:ring-ring transition-colors"
-                        />
-                        <p className="text-xs text-muted-foreground">
-                          自定义 API 端点地址，留空使用默认聊天网关
-                        </p>
-                      </div>
-
-                      <div className="space-y-1.5">
-                        <label className="flex items-center gap-1.5 text-sm font-medium text-foreground">
-                          <Key className="size-3.5 text-muted-foreground" />
-                          API Key
-                        </label>
-                        <div className="relative">
-                          <input
-                            type={showApiKey ? "text" : "password"}
-                            value={apiKey}
-                            onChange={(event) => {
-                              setApiKey(event.target.value)
-                              if (gatewayMessage) {
-                                setGatewayMessage("")
-                              }
-                            }}
-                            placeholder="gw-..."
-                            className="w-full rounded-lg border border-input bg-background px-3 py-2 pr-10 text-sm font-mono text-foreground placeholder:text-muted-foreground outline-none focus:border-ring focus:ring-1 focus:ring-ring transition-colors"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => setShowApiKey((prev) => !prev)}
-                            aria-label={showApiKey ? "隐藏 API Key" : "显示 API Key"}
-                            className="absolute inset-y-0 right-2 inline-flex items-center text-muted-foreground transition-colors hover:text-foreground"
-                          >
-                            {showApiKey ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-                          </button>
-                        </div>
-                        <p className="text-xs text-muted-foreground">
-                          你的聊天网关密钥将安全存储在本地
-                        </p>
-                      </div>
-
-                      {gatewayMessage ? (
-                        <p className="text-xs text-muted-foreground">{gatewayMessage}</p>
-                      ) : null}
-                    </div>
-
-                    <div className="mt-4 flex justify-end">
-                      <Button
-                        size="sm"
-                        className={cn(
-                          gatewaySaveButtonState.hasChanges
-                            ? "bg-foreground text-background hover:opacity-80 disabled:opacity-100"
-                            : "bg-muted text-muted-foreground hover:bg-muted disabled:opacity-100"
-                        )}
-                        onClick={() => {
-                          void saveGatewayConfig()
+                  <div className="space-y-1.5">
+                    <label className="flex items-center gap-1.5 text-sm font-medium text-foreground">
+                      <Key className="size-3.5 text-muted-foreground" />
+                      API Key
+                    </label>
+                    <div className="relative">
+                      <input
+                        type={showApiKey ? "text" : "password"}
+                        value={apiKey}
+                        onChange={(event) => {
+                          setApiKey(event.target.value)
+                          if (gatewayMessage) {
+                            setGatewayMessage("")
+                          }
                         }}
-                        disabled={gatewaySaveButtonState.disabled}
+                        placeholder="gw-..."
+                        className="w-full rounded-lg border border-input bg-background px-3 py-2 pr-10 text-sm font-mono text-foreground placeholder:text-muted-foreground outline-none focus:border-ring focus:ring-1 focus:ring-ring transition-colors"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowApiKey((prev) => !prev)}
+                        aria-label={showApiKey ? "隐藏 API Key" : "显示 API Key"}
+                        className="absolute inset-y-0 right-2 inline-flex items-center text-muted-foreground transition-colors hover:text-foreground"
                       >
-                        {gatewaySaveButtonState.label}
-                      </Button>
+                        {showApiKey ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                      </button>
                     </div>
-                  </section>
+                    <p className="text-xs text-muted-foreground">
+                      你的聊天网关密钥将安全存储在本地
+                    </p>
+                  </div>
 
-                  <section className="rounded-2xl border border-border p-4">
-                    <div>
-                      <h4 className="text-sm font-medium text-foreground">LLM 网关</h4>
-                      <p className="mt-0.5 text-xs text-muted-foreground">
-                        仅用于 Polymarket 条目入库前的中文翻译，不影响聊天主链
-                      </p>
-                    </div>
+                  {gatewayMessage ? (
+                    <p className="text-xs text-muted-foreground">{gatewayMessage}</p>
+                  ) : null}
+                </div>
 
-                    <div className="mt-4 space-y-4">
-                      <div className="space-y-1.5">
-                        <label className="flex items-center gap-1.5 text-sm font-medium text-foreground">
-                          <Globe className="size-3.5 text-muted-foreground" />
-                          Base URL
-                        </label>
-                        <input
-                          type="url"
-                          value={llmBaseUrl}
-                          onChange={(event) => {
-                            setLlmBaseUrl(event.target.value)
-                            if (llmMessage) {
-                              setLlmMessage("")
-                            }
-                          }}
-                          placeholder="https://cpabak.zeabur.app/v1"
-                          className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:border-ring focus:ring-1 focus:ring-ring transition-colors"
-                        />
-                        <p className="text-xs text-muted-foreground">
-                          默认使用 OpenAI-compatible LLM 网关地址
-                        </p>
-                      </div>
+                <div className="flex justify-end pt-2">
+                  <Button
+                    size="sm"
+                    className={cn(
+                      gatewaySaveButtonState.hasChanges
+                        ? "bg-foreground text-background hover:opacity-80 disabled:opacity-100"
+                        : "bg-muted text-muted-foreground hover:bg-muted disabled:opacity-100"
+                    )}
+                    onClick={() => {
+                      void saveGatewayConfig()
+                    }}
+                    disabled={gatewaySaveButtonState.disabled}
+                  >
+                    {gatewaySaveButtonState.label}
+                  </Button>
+                </div>
+              </div>
+            )}
 
-                      <div className="space-y-1.5">
-                        <label className="flex items-center gap-1.5 text-sm font-medium text-foreground">
-                          <Key className="size-3.5 text-muted-foreground" />
-                          API Key
-                        </label>
-                        <div className="relative">
-                          <input
-                            type={showLlmApiKey ? "text" : "password"}
-                            value={llmApiKey}
-                            onChange={(event) => {
-                              setLlmApiKey(event.target.value)
-                              if (llmMessage) {
-                                setLlmMessage("")
-                              }
-                            }}
-                            placeholder="sk-..."
-                            className="w-full rounded-lg border border-input bg-background px-3 py-2 pr-10 text-sm font-mono text-foreground placeholder:text-muted-foreground outline-none focus:border-ring focus:ring-1 focus:ring-ring transition-colors"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => setShowLlmApiKey((prev) => !prev)}
-                            aria-label={showLlmApiKey ? "隐藏 LLM API Key" : "显示 LLM API Key"}
-                            className="absolute inset-y-0 right-2 inline-flex items-center text-muted-foreground transition-colors hover:text-foreground"
-                          >
-                            {showLlmApiKey ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-                          </button>
-                        </div>
-                        <p className="text-xs text-muted-foreground">
-                          未配置时，订阅仍会入库，但会保留原文并跳过翻译
-                        </p>
-                      </div>
+            {activeTab === "openai" && (
+              <div className="space-y-5">
+                <div className="flex items-center gap-3">
+                  <span className="inline-flex size-9 items-center justify-center rounded-full border border-border bg-secondary/40 text-foreground">
+                    <OpenAILogo className="size-[18px]" />
+                  </span>
+                  <div>
+                    <h3 className="text-sm font-medium text-foreground">OpenAI</h3>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      独立用于 Polymarket 条目入库前的中文翻译，不影响聊天主链
+                    </p>
+                  </div>
+                </div>
 
-                      <div className="space-y-1.5">
-                        <label className="flex items-center gap-1.5 text-sm font-medium text-foreground">
-                          <Globe className="size-3.5 text-muted-foreground" />
-                          翻译模型
-                        </label>
-                        <input
-                          type="text"
-                          value={llmTranslationModel}
-                          onChange={(event) => {
-                            setLlmTranslationModel(event.target.value)
-                            if (llmMessage) {
-                              setLlmMessage("")
-                            }
-                          }}
-                          placeholder="gpt-5.4"
-                          className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm font-mono text-foreground placeholder:text-muted-foreground outline-none focus:border-ring focus:ring-1 focus:ring-ring transition-colors"
-                        />
-                        <p className="text-xs text-muted-foreground">
-                          用于订阅流中文翻译的模型 ID，默认 `gpt-5.4`
-                        </p>
-                      </div>
+                <div className="space-y-4">
+                  <div className="space-y-1.5">
+                    <label className="flex items-center gap-1.5 text-sm font-medium text-foreground">
+                      <Globe className="size-3.5 text-muted-foreground" />
+                      Base URL
+                    </label>
+                    <input
+                      type="url"
+                      value={llmBaseUrl}
+                      onChange={(event) => {
+                        setLlmBaseUrl(event.target.value)
+                        if (llmMessage) {
+                          setLlmMessage("")
+                        }
+                        if (llmTestMessage) {
+                          setLlmTestMessage("")
+                        }
+                      }}
+                      placeholder="https://cpabak.zeabur.app/v1"
+                      className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:border-ring focus:ring-1 focus:ring-ring transition-colors"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      默认使用 OpenAI-compatible 网关地址
+                    </p>
+                  </div>
 
-                      {llmMessage ? (
-                        <p className="text-xs text-muted-foreground">{llmMessage}</p>
-                      ) : null}
-                    </div>
-
-                    <div className="mt-4 flex justify-end">
-                      <Button
-                        size="sm"
-                        className={cn(
-                          llmHasChanges
-                            ? "bg-foreground text-background hover:opacity-80 disabled:opacity-100"
-                            : "bg-muted text-muted-foreground hover:bg-muted disabled:opacity-100"
-                        )}
-                        onClick={() => {
-                          void saveLlmConfig()
+                  <div className="space-y-1.5">
+                    <label className="flex items-center gap-1.5 text-sm font-medium text-foreground">
+                      <Key className="size-3.5 text-muted-foreground" />
+                      API Key
+                    </label>
+                    <div className="relative">
+                      <input
+                        type={showLlmApiKey ? "text" : "password"}
+                        value={llmApiKey}
+                        onChange={(event) => {
+                          setLlmApiKey(event.target.value)
+                          if (llmMessage) {
+                            setLlmMessage("")
+                          }
+                          if (llmTestMessage) {
+                            setLlmTestMessage("")
+                          }
                         }}
-                        disabled={llmBusy || !llmHasChanges}
+                        placeholder="sk-..."
+                        className="w-full rounded-lg border border-input bg-background px-3 py-2 pr-10 text-sm font-mono text-foreground placeholder:text-muted-foreground outline-none focus:border-ring focus:ring-1 focus:ring-ring transition-colors"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowLlmApiKey((prev) => !prev)}
+                        aria-label={showLlmApiKey ? "隐藏 OpenAI API Key" : "显示 OpenAI API Key"}
+                        className="absolute inset-y-0 right-2 inline-flex items-center text-muted-foreground transition-colors hover:text-foreground"
                       >
-                        {llmButtonLabel}
-                      </Button>
+                        {showLlmApiKey ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                      </button>
                     </div>
-                  </section>
+                    <p className="text-xs text-muted-foreground">
+                      未配置时，订阅仍会入库，但会保留原文并在后续同步时继续尝试回填翻译
+                    </p>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="flex items-center gap-1.5 text-sm font-medium text-foreground">
+                      <Globe className="size-3.5 text-muted-foreground" />
+                      翻译模型
+                    </label>
+                    <input
+                      type="text"
+                      value={llmTranslationModel}
+                      onChange={(event) => {
+                        setLlmTranslationModel(event.target.value)
+                        if (llmMessage) {
+                          setLlmMessage("")
+                        }
+                        if (llmTestMessage) {
+                          setLlmTestMessage("")
+                        }
+                      }}
+                      placeholder="gpt-5.4-mini"
+                      className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm font-mono text-foreground placeholder:text-muted-foreground outline-none focus:border-ring focus:ring-1 focus:ring-ring transition-colors"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      用于订阅流中文翻译与联通测试的模型 ID，默认 `gpt-5.4-mini`
+                    </p>
+                  </div>
+
+                  {llmMessage ? (
+                    <p className="text-xs text-muted-foreground">{llmMessage}</p>
+                  ) : null}
+                  {llmTestMessage ? (
+                    <p className="text-xs text-muted-foreground">{llmTestMessage}</p>
+                  ) : null}
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      void testLlmConnection()
+                    }}
+                    disabled={llmTestBusy || llmBusy}
+                  >
+                    {llmTestBusy ? "测试中..." : "联通测试"}
+                  </Button>
+                  <Button
+                    size="sm"
+                    className={cn(
+                      llmHasChanges
+                        ? "bg-foreground text-background hover:opacity-80 disabled:opacity-100"
+                        : "bg-muted text-muted-foreground hover:bg-muted disabled:opacity-100"
+                    )}
+                    onClick={() => {
+                      void saveLlmConfig()
+                    }}
+                    disabled={llmBusy || !llmHasChanges}
+                  >
+                    {llmButtonLabel}
+                  </Button>
                 </div>
               </div>
             )}

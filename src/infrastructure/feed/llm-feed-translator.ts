@@ -1,13 +1,13 @@
 import { generateText } from "ai"
-import { createOpenAI } from "@ai-sdk/openai"
 import { z } from "zod"
 import type { AppConfig } from "@/app/contracts"
 import { appendClientLog, logClientError } from "@/app/client-log"
 import type { FeedItemTranslationStatus } from "@/domain/feed/types"
-import { runtimeFetch } from "@/infrastructure/http/runtime-fetch"
-
-const DEFAULT_LLM_API_BASE_URL = "https://cpabak.zeabur.app/v1"
-const DEFAULT_LLM_TRANSLATION_MODEL = "gpt-5.4"
+import {
+  createOpenAICompatibleProvider,
+  DEFAULT_OPENAI_COMPATIBLE_BASE_URL,
+  DEFAULT_OPENAI_COMPATIBLE_MODEL,
+} from "@/infrastructure/llm/openai-compatible-client"
 const FEED_TRANSLATOR_SCOPE = "feed-llm-translator"
 
 const TRANSLATION_RESPONSE_SCHEMA = z.array(
@@ -88,23 +88,20 @@ export class LlmFeedTranslator implements FeedTranslator {
     }
 
     const apiKey = this.config.llmApiKey.trim()
-    const baseURL = this.config.llmApiBaseUrl.trim() || DEFAULT_LLM_API_BASE_URL
-    const model = this.config.llmTranslationModel.trim() || DEFAULT_LLM_TRANSLATION_MODEL
+    const baseURL = this.config.llmApiBaseUrl.trim() || DEFAULT_OPENAI_COMPATIBLE_BASE_URL
+    const model = this.config.llmTranslationModel.trim() || DEFAULT_OPENAI_COMPATIBLE_MODEL
     if (!apiKey) {
       return buildSkippedResults(items)
     }
 
-    const provider = createOpenAI({
-      name: "llm-gateway",
-      baseURL,
+    const provider = createOpenAICompatibleProvider({
+      baseUrl: baseURL,
       apiKey,
-      fetch: runtimeFetch,
     })
 
     try {
       const { text } = await generateText({
         model: provider.chat(model),
-        temperature: 0,
         maxOutputTokens: Math.max(800, items.length * 320),
         system: [
           "You translate social/news feed posts into Simplified Chinese for local storage.",

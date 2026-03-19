@@ -1,6 +1,10 @@
 import type { AppConfig, AppFontSizeMode, AppThemeMode } from "./contracts"
 import { DEFAULT_APP_TIMEZONE, normalizeAppTimezone } from "./personalization"
 import { hasTauriRuntime } from "./runtime-info"
+import {
+  DEFAULT_OPENAI_COMPATIBLE_BASE_URL,
+  DEFAULT_OPENAI_COMPATIBLE_MODEL,
+} from "@/infrastructure/llm/openai-compatible-client"
 
 function parseBool(input: string | undefined, fallback: boolean): boolean {
   if (!input) {
@@ -93,8 +97,8 @@ function normalizeIntegerInRange(value: unknown, fallback: number, min: number, 
 const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 20_000
 const DEFAULT_STREAM_IDLE_RETRY_MAX_ATTEMPTS = 1
 const DEFAULT_STREAM_IDLE_RETRY_DELAY_MS = 450
-const DEFAULT_LLM_API_BASE_URL = "https://cpabak.zeabur.app/v1"
-const DEFAULT_LLM_TRANSLATION_MODEL = "gpt-5.4"
+const DEFAULT_LLM_API_BASE_URL = DEFAULT_OPENAI_COMPATIBLE_BASE_URL
+const DEFAULT_LLM_TRANSLATION_MODEL = DEFAULT_OPENAI_COMPATIBLE_MODEL
 const DEFAULT_TURN_RECOVERY_MESSAGES_LIMIT = 100
 const DEFAULT_TURN_RECOVERY_NOT_FOUND_RETRY_MAX_ATTEMPTS = 1
 const DEFAULT_TURN_RECOVERY_POLL_IN_PROGRESS_MAX_ATTEMPTS = 2

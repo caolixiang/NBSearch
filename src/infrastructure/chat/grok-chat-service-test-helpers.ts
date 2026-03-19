@@ -68,7 +68,7 @@ const DEFAULT_TEST_GROK_CHAT_CONFIG: AppConfig = {
   defaultModel: "grok-4.1-fast",
       llmApiBaseUrl: "https://cpabak.zeabur.app/v1",
       llmApiKey: "",
-      llmTranslationModel: "gpt-5.4",
+      llmTranslationModel: "gpt-5.4-mini",
   voiceEnabled: false,
   themeMode: "light",
   fontSizeMode: "default",

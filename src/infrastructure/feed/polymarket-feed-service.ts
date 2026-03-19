@@ -24,6 +24,7 @@ import { parsePolymarketTimeline } from "./polymarket-timeline-parser"
 const POLYMARKET_SOURCE: FeedSource = "polymarket"
 const POLL_INTERVAL_MINUTES = 10
 const STARTUP_SYNC_DELAY_MS = 10_000
+const TRANSLATION_BACKFILL_LIMIT = 20
 
 type FeedSourceState = {
   isSyncing: boolean
@@ -223,6 +224,42 @@ export class PolymarketFeedService implements FeedService {
     }, POLL_INTERVAL_MINUTES * 60 * 1000)
   }
 
+  private async backfillPendingTranslations(excludeContentHashes: string[]): Promise<void> {
+    const pendingItems = await this.repository.listFeedItemsNeedingTranslation({
+      source: POLYMARKET_SOURCE,
+      limit: TRANSLATION_BACKFILL_LIMIT,
+      excludeContentHashes,
+    })
+    if (pendingItems.length === 0) {
+      return
+    }
+    const translations = await this.translator.translateMany(
+      pendingItems.map((item) => ({
+        contentHash: item.contentHash,
+        title: item.title,
+        contentMarkdown: item.contentMarkdown,
+      }))
+    )
+    const translationByHash = new Map(translations.map((item) => [item.contentHash, item]))
+    const updates = pendingItems
+      .map((item) => {
+        const translated = translationByHash.get(item.contentHash)
+        if (!translated) {
+          return null
+        }
+        return {
+          id: item.id,
+          titleZh: translated.titleZh,
+          contentMarkdownZh: translated.contentMarkdownZh,
+          translationStatus: translated.status,
+          translationModel: translated.model,
+          translatedAt: translated.translatedAt,
+        }
+      })
+      .filter((item): item is NonNullable<typeof item> => item !== null)
+    await this.repository.updateFeedItemTranslations(updates)
+  }
+
   private async runPolymarketSync(): Promise<FeedSyncResult> {
     const fetchedAt = Date.now()
     const subscription = await this.ensureSubscription()
@@ -298,6 +335,7 @@ export class PolymarketFeedService implements FeedService {
         } satisfies FeedItemRecord
       })
       const insertedCount = await this.repository.insertFeedItems(translatedItems)
+      await this.backfillPendingTranslations(pendingItems.map((item) => item.contentHash))
       const nextSubscription: FeedSubscriptionRecord = {
         ...subscription,
         enabled: this.resolveEnabled(POLYMARKET_SOURCE),

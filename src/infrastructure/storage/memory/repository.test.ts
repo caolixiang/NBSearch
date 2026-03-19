@@ -23,4 +23,53 @@ describe("MemoryAppRepository", () => {
     expect(conversation?.starred).toBe(true)
     expect(conversation?.updatedAt).toBe(200)
   })
+
+  it("lists pending feed translations and updates them in place", async () => {
+    const repository = new MemoryAppRepository()
+    await repository.insertFeedItems([
+      {
+        id: "feed_1",
+        subscriptionId: "feed_sub_polymarket",
+        source: "polymarket",
+        contentHash: "hash_1",
+        title: "Original title",
+        contentMarkdown: "Original body",
+        titleZh: "",
+        contentMarkdownZh: "",
+        translationStatus: "failed",
+        translationModel: "gpt-5.4-mini",
+        translatedAt: null,
+        mediaUrls: [],
+        canonicalUrl: "https://x.com/Polymarket/status/1",
+        publishedAt: null,
+        discoveredAt: 200,
+        fetchedAt: 200,
+      },
+    ])
+
+    const pending = await repository.listFeedItemsNeedingTranslation({
+      source: "polymarket",
+      limit: 10,
+    })
+    expect(pending).toHaveLength(1)
+    expect(pending[0]?.id).toBe("feed_1")
+
+    const updated = await repository.updateFeedItemTranslations([
+      {
+        id: "feed_1",
+        titleZh: "中文标题",
+        contentMarkdownZh: "中文正文",
+        translationStatus: "translated",
+        translationModel: "gpt-5.4-mini",
+        translatedAt: 300,
+      },
+    ])
+    expect(updated).toBe(1)
+
+    const afterUpdate = await repository.listFeedItemsNeedingTranslation({
+      source: "polymarket",
+      limit: 10,
+    })
+    expect(afterUpdate).toHaveLength(0)
+  })
 })

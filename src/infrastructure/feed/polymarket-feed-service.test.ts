@@ -23,8 +23,25 @@ class FakeFeedTranslator implements FeedTranslator {
       titleZh: `[中文] ${item.title}`,
       contentMarkdownZh: `[中文] ${item.contentMarkdown}`,
       status: "translated",
-      model: "gpt-5.4",
+      model: "gpt-5.4-mini",
       translatedAt: 1779000000000,
+    }))
+  }
+}
+
+class FlakyFeedTranslator implements FeedTranslator {
+  calls: FeedTranslationRequest[][] = []
+
+  async translateMany(items: FeedTranslationRequest[]): Promise<FeedTranslationResult[]> {
+    this.calls.push(items)
+    const callIndex = this.calls.length
+    return items.map((item) => ({
+      contentHash: item.contentHash,
+      titleZh: callIndex === 1 ? "" : `[回填] ${item.title}`,
+      contentMarkdownZh: callIndex === 1 ? "" : `[回填] ${item.contentMarkdown}`,
+      status: callIndex === 1 ? "failed" : "translated",
+      model: "gpt-5.4-mini",
+      translatedAt: callIndex === 1 ? null : 1779000000123,
     }))
   }
 }
@@ -48,7 +65,7 @@ function buildConfig(): AppConfig {
     defaultModel: "grok-4.1-fast",
       llmApiBaseUrl: "https://cpabak.zeabur.app/v1",
       llmApiKey: "",
-      llmTranslationModel: "gpt-5.4",
+      llmTranslationModel: "gpt-5.4-mini",
     voiceEnabled: true,
     polymarketSubscriptionEnabled: true,
     themeMode: "light",
@@ -104,5 +121,37 @@ describe("PolymarketFeedService", () => {
     })
     expect(secondPage.items).toHaveLength(1)
     expect(secondPage.nextCursor).toBeNull()
+  })
+
+  it("backfills older failed translations on the next sync", async () => {
+    const repository = new MemoryAppRepository()
+    const translator = new FlakyFeedTranslator()
+    const service = new PolymarketFeedService(
+      repository,
+      buildConfig(),
+      new FakeJinaReaderClient(SAMPLE_TIMELINE),
+      translator
+    )
+
+    await service.syncNow("polymarket")
+
+    const firstPage = await service.listItems({
+      source: "polymarket",
+      limit: 5,
+    })
+    expect(firstPage.items).toHaveLength(2)
+    expect(firstPage.items.every((item) => item.translationStatus === "failed")).toBe(true)
+
+    await service.syncNow("polymarket")
+
+    const secondPage = await service.listItems({
+      source: "polymarket",
+      limit: 5,
+    })
+    expect(translator.calls).toHaveLength(2)
+    expect(translator.calls[0]).toHaveLength(2)
+    expect(translator.calls[1]).toHaveLength(2)
+    expect(secondPage.items.every((item) => item.translationStatus === "translated")).toBe(true)
+    expect(secondPage.items.every((item) => item.titleZh.startsWith("[回填]"))).toBe(true)
   })
 })
