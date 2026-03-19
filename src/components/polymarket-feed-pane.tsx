@@ -1,11 +1,21 @@
 "use client"
 
-import { useMemo } from "react"
+import { useEffect, useMemo, useRef } from "react"
 import type { FeedItemRecord, FeedSubscriptionRecord } from "@/domain/feed/types"
 import { openExternalUrl } from "@/lib/open-external-url"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { ExternalLink, RefreshCcw } from "lucide-react"
+
+export const POLYMARKET_FEED_AUTOLOAD_ROOT_MARGIN = "0px 0px 160px 0px"
+
+export function shouldAutoLoadPolymarketPage(input: {
+  subscriptionEnabled: boolean
+  hasMore: boolean
+  isLoading: boolean
+}): boolean {
+  return input.subscriptionEnabled && input.hasMore && !input.isLoading
+}
 
 function formatSyncTime(value: number | null): string {
   if (!value) {
@@ -54,6 +64,9 @@ export function PolymarketFeedPane({
   onLoadMore,
   onOpenSettings,
 }: PolymarketFeedPaneProps) {
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null)
+  const autoLoadSentinelRef = useRef<HTMLDivElement | null>(null)
+  const autoLoadRequestedRef = useRef(false)
   const statusLabel = useMemo(() => {
     if (isSyncing) {
       return "同步中..."
@@ -63,6 +76,51 @@ export function PolymarketFeedPane({
     }
     return `上次同步 ${formatSyncTime(subscription?.lastSuccessAt || null)}`
   }, [isSyncing, subscription?.lastError, subscription?.lastSuccessAt])
+
+  useEffect(() => {
+    if (!isLoading) {
+      autoLoadRequestedRef.current = false
+    }
+  }, [isLoading])
+
+  useEffect(() => {
+    if (typeof IntersectionObserver === "undefined") {
+      return
+    }
+    const root = scrollContainerRef.current
+    const target = autoLoadSentinelRef.current
+    if (!root || !target) {
+      return
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visible = entries.some((entry) => entry.isIntersecting)
+        if (!visible || autoLoadRequestedRef.current) {
+          return
+        }
+        if (
+          !shouldAutoLoadPolymarketPage({
+            subscriptionEnabled: subscription?.enabled === true,
+            hasMore,
+            isLoading,
+          })
+        ) {
+          return
+        }
+        autoLoadRequestedRef.current = true
+        onLoadMore()
+      },
+      {
+        root,
+        rootMargin: POLYMARKET_FEED_AUTOLOAD_ROOT_MARGIN,
+        threshold: 0.01,
+      }
+    )
+    observer.observe(target)
+    return () => {
+      observer.disconnect()
+    }
+  }, [hasMore, isLoading, onLoadMore, subscription?.enabled])
 
   return (
     <div className="mx-auto flex h-full w-full max-w-[72rem] flex-col px-6 py-6">
@@ -105,7 +163,7 @@ export function PolymarketFeedPane({
         </div>
       ) : null}
 
-      <div className="mt-6 flex-1 overflow-y-auto">
+      <div ref={scrollContainerRef} className="mt-6 flex-1 overflow-y-auto">
         {items.length === 0 ? (
           <div className="rounded-2xl border border-border bg-card px-6 py-10 text-center">
             <p className="text-sm font-medium text-foreground">
@@ -162,6 +220,7 @@ export function PolymarketFeedPane({
                 ) : null}
               </article>
             ))}
+            <div ref={autoLoadSentinelRef} aria-hidden="true" className="h-1 w-full" />
           </div>
         )}
       </div>
