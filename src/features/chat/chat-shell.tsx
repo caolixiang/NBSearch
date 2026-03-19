@@ -10,8 +10,10 @@ import {
 } from "@/app/runtime"
 import type {
   ChatAnchors,
+  ChatAttachment,
   ChatCardAttachmentPayload,
   ChatMessage as DomainChatMessage,
+  ChatTurnAttachmentInput,
 } from "@/domain/chat/types"
 import type { FeedItemRecord, FeedPageCursor, FeedSubscriptionRecord } from "@/domain/feed/types"
 import type { ConversationRecord } from "@/domain/storage/repository"
@@ -38,6 +40,9 @@ import { resolveFastModelId } from "./model-selection"
 import { createChatStreamRuntime, persistCompletedReasoning } from "./chat-stream-runtime"
 import {
   buildAssistantRoundByMessageId,
+  buildPolymarketResearchImageAttachments,
+  buildPolymarketResearchMessageAttachments,
+  buildPolymarketResearchPrompt,
   buildPdfExportMetaByMessageId,
   buildReasoningCaches,
   buildSidebarConversationItems,
@@ -89,6 +94,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
   const [polymarketHasMore, setPolymarketHasMore] = useState(false)
   const [polymarketListLoading, setPolymarketListLoading] = useState(false)
   const [polymarketLoadedOnce, setPolymarketLoadedOnce] = useState(false)
+  const [polymarketResearchingItemId, setPolymarketResearchingItemId] = useState<string | null>(null)
   const [polymarketRuntimeState, setPolymarketRuntimeState] = useState(
     feedService.getRuntimeState(POLYMARKET_SOURCE)
   )
@@ -163,6 +169,9 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
         attachments?: File[],
         options?: {
           retryExistingUserMessageId?: string
+          conversationId?: string
+          turnAttachments?: ChatTurnAttachmentInput[]
+          messageAttachments?: ChatAttachment[]
         }
       ) => Promise<void>)
     | null
@@ -853,6 +862,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       })
       setHasDraftConversation(false)
       setDraftConversationUpdatedAt(0)
+      activeConversationIdRef.current = id
       setActiveConversationId(id)
       await refreshConversations()
       clearMessagesForConversation(id)
@@ -1122,22 +1132,38 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       attachments?: File[],
       options?: {
         retryExistingUserMessageId?: string
+        conversationId?: string
+        turnAttachments?: ChatTurnAttachmentInput[]
+        messageAttachments?: ChatAttachment[]
       }
     ): Promise<void> => {
       const content = text.trim()
-      const selectedAttachments = Array.isArray(attachments)
+      const selectedFileAttachments = Array.isArray(attachments)
         ? attachments.filter((file) => Boolean(file))
         : []
+      const explicitTurnAttachments = Array.isArray(options?.turnAttachments)
+        ? options.turnAttachments.filter((attachment) => Boolean(attachment))
+        : []
+      const turnAttachments =
+        explicitTurnAttachments.length > 0 ? explicitTurnAttachments : selectedFileAttachments
       const retryExistingUserMessageId = options?.retryExistingUserMessageId?.trim() || ""
-      if (!content && selectedAttachments.length === 0) {
+      const targetConversationId = options?.conversationId?.trim() || ""
+      if (!content && turnAttachments.length === 0) {
         return
       }
-      const conversationId = await ensureConversation()
+      const conversationId = targetConversationId || (await ensureConversation())
       if (isConversationStreaming(streamingStateByConversationId, conversationId)) {
         return
       }
-      const optimisticContent = buildUserMessageContent(content, selectedAttachments)
-      const messageAttachments = await buildChatAttachments(selectedAttachments)
+      const explicitMessageAttachments = Array.isArray(options?.messageAttachments)
+        ? options.messageAttachments.filter((attachment) => Boolean(attachment))
+        : []
+      const messageAttachments =
+        explicitMessageAttachments.length > 0
+          ? explicitMessageAttachments
+          : await buildChatAttachments(selectedFileAttachments)
+      const optimisticContent =
+        selectedFileAttachments.length > 0 ? buildUserMessageContent(content, selectedFileAttachments) : content
       clearLastErrorForConversation(conversationId)
       const current = conversations.find((item) => item.id === conversationId)
       const currentMessages = messagesByConversationId[conversationId] || []
@@ -1184,7 +1210,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
           {
             model: selectedModel,
             text: content,
-            attachments: selectedAttachments,
+            attachments: turnAttachments,
             ...(messageAttachments.length > 0 ? { messageAttachments } : {}),
             anchors,
             clientTurnId,
@@ -1715,6 +1741,37 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     }
   }, [loadPolymarketItems, polymarketItems.length, polymarketLoadedOnce])
 
+  const handleDeepResearchFeedItem = useCallback(
+    async (item: FeedItemRecord): Promise<void> => {
+      if (polymarketResearchingItemId) {
+        return
+      }
+      const prompt = buildPolymarketResearchPrompt(item)
+      const turnAttachments = buildPolymarketResearchImageAttachments(item)
+      const messageAttachments = buildPolymarketResearchMessageAttachments(item)
+
+      setPolymarketResearchingItemId(item.id)
+      try {
+        setActiveMainView("chat")
+        const conversationId = await createConversation("")
+        await handleSendMessage(prompt, [], {
+          conversationId,
+          turnAttachments,
+          messageAttachments,
+        })
+      } finally {
+        setPolymarketResearchingItemId(null)
+      }
+    },
+    [
+      buildPolymarketResearchPrompt,
+      createConversation,
+      handleSendMessage,
+      polymarketResearchingItemId,
+      setActiveMainView,
+    ]
+  )
+
   const handleNewConversation = useCallback(() => {
     setActiveMainView("chat")
     if (activeConversationIdRef.current === DRAFT_CONVERSATION_ID) {
@@ -1947,6 +2004,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
               isLoading={polymarketListLoading}
               isSyncing={polymarketRuntimeState.isSyncing}
               hasMore={polymarketHasMore}
+              researchingItemId={polymarketResearchingItemId}
               onRefresh={() => {
                 void feedService
                   .syncNow(POLYMARKET_SOURCE)
@@ -1963,6 +2021,9 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
                 })
               }}
               onOpenSettings={() => setSettingsOpen(true)}
+              onDeepResearch={(item) => {
+                void handleDeepResearchFeedItem(item)
+              }}
             />
           ) : visibleMessages.length === 0 ? (
             <WelcomeScreen />

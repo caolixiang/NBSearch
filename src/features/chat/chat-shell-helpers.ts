@@ -3,7 +3,9 @@ import type {
   ChatAttachment,
   ChatMessage as DomainChatMessage,
   ChatReasoningEventDetail,
+  RemoteChatAttachmentInput,
 } from "@/domain/chat/types"
+import type { FeedItemRecord } from "@/domain/feed/types"
 import type { ConversationRecord } from "@/domain/storage/repository"
 import type { RenderChatMessage } from "@/components/chat-message"
 import type { ConversationStreamingState } from "./conversation-streaming-state"
@@ -96,6 +98,52 @@ export function buildUserMessageContent(text: string, attachments?: File[]): str
     return attachmentLines.join("\n")
   }
   return `${content}\n\n${attachmentLines.join("\n")}`
+}
+
+export function buildPolymarketResearchPrompt(item: FeedItemRecord): string {
+  const title = item.title.trim()
+  const content = item.contentMarkdown.trim()
+  const canonicalUrl = item.canonicalUrl.trim()
+  const mediaUrls = item.mediaUrls.map((url) => url.trim()).filter((url) => url.length > 0)
+  const sections: string[] = []
+
+  if (title) {
+    sections.push(`标题：\n${title}`)
+  }
+  if (content) {
+    sections.push(`内容：\n${content}`)
+  }
+  if (canonicalUrl) {
+    sections.push(`原帖链接：\n${canonicalUrl}`)
+  }
+  if (mediaUrls.length > 0) {
+    sections.push(`图片链接：\n${mediaUrls.join("\n")}`)
+  }
+
+  sections.push("继续深入调研")
+  return sections.join("\n\n").trim()
+}
+
+export function buildPolymarketResearchImageAttachments(item: FeedItemRecord): RemoteChatAttachmentInput[] {
+  return item.mediaUrls
+    .map((url) => url.trim())
+    .filter((url) => url.length > 0)
+    .map((url, index) => ({
+      kind: "image_url" as const,
+      url,
+      name: `Polymarket image ${index + 1}`,
+    }))
+}
+
+export function buildPolymarketResearchMessageAttachments(item: FeedItemRecord): ChatAttachment[] {
+  return item.mediaUrls
+    .map((url) => url.trim())
+    .filter((url) => url.length > 0)
+    .map((url, index) => ({
+      name: `Polymarket image ${index + 1}`,
+      kind: "image" as const,
+      previewImageUrl: url,
+    }))
 }
 
 export function extractRetryableUserText(messageContent: string): string {

@@ -7,6 +7,14 @@ export interface ChatAttachment {
   previewImageUrl?: string
 }
 
+export interface RemoteChatAttachmentInput {
+  kind: "image_url"
+  url: string
+  name?: string
+}
+
+export type ChatTurnAttachmentInput = File | RemoteChatAttachmentInput
+
 export interface ChatMessage {
   id: string
   role: ChatMessageRole
@@ -31,7 +39,7 @@ export interface ChatAnchors {
 export interface SendChatTurnInput {
   model: string
   text: string
-  attachments?: File[]
+  attachments?: ChatTurnAttachmentInput[]
   messageAttachments?: ChatAttachment[]
   anchors: Partial<ChatAnchors>
   clientTurnId?: string

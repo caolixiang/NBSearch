@@ -1,3 +1,4 @@
+import type { ChatTurnAttachmentInput, RemoteChatAttachmentInput } from "@/domain/chat/types"
 import {
   buildConversationLocaleInstructions,
   buildTurnTimeContextSuffix,
@@ -28,7 +29,7 @@ type BuildGatewayTurnRequestPayloadInput = {
   sessionId: string
   clientTurnId: string
   text: string
-  attachments?: File[]
+  attachments?: ChatTurnAttachmentInput[]
   anchoredSessionId?: string
   fallbackPreviousResponseId?: string
   regenerateTargetResponseId?: string
@@ -36,27 +37,46 @@ type BuildGatewayTurnRequestPayloadInput = {
   now?: () => Date
 }
 
-function normalizeAttachmentFiles(attachments?: File[]): File[] {
+function isRemoteAttachment(input: ChatTurnAttachmentInput): input is RemoteChatAttachmentInput {
+  return typeof input === "object" && input !== null && "kind" in input && input.kind === "image_url"
+}
+
+function normalizeAttachments(attachments?: ChatTurnAttachmentInput[]): ChatTurnAttachmentInput[] {
   if (!Array.isArray(attachments) || attachments.length === 0) {
     return []
   }
-  return attachments.filter((file) => Boolean(file))
+  return attachments.filter((attachment) => Boolean(attachment))
 }
 
-export function buildUserMessageText(text: string, attachments?: File[]): string {
+function getAttachmentLabel(attachment: ChatTurnAttachmentInput, index: number): string {
+  if (attachment instanceof File) {
+    return attachment.name
+  }
+  const explicitName = (attachment.name || "").trim()
+  if (explicitName) {
+    return explicitName
+  }
+  return `图片 ${index + 1}`
+}
+
+export function buildUserMessageText(text: string, attachments?: ChatTurnAttachmentInput[]): string {
   const content = text.trim()
-  const files = normalizeAttachmentFiles(attachments)
-  if (files.length === 0) {
+  const normalizedAttachments = normalizeAttachments(attachments)
+  if (normalizedAttachments.length === 0) {
     return content
   }
-  const attachmentLines = files.map((file) => `[附件] ${file.name}`)
+  const attachmentLines = normalizedAttachments.map((attachment, index) => `[附件] ${getAttachmentLabel(attachment, index)}`)
   if (!content) {
     return attachmentLines.join("\n")
   }
   return `${content}\n\n${attachmentLines.join("\n")}`
 }
 
-function buildGatewayRequestText(text: string, attachments: File[], turnTimeContextSuffix: string): string {
+function buildGatewayRequestText(
+  text: string,
+  attachments: ChatTurnAttachmentInput[],
+  turnTimeContextSuffix: string
+): string {
   const content = text.trim() || (attachments.length > 0 ? "请分析这个附件。" : "")
   if (!turnTimeContextSuffix) {
     return content
@@ -85,7 +105,7 @@ async function fileToDataUri(file: File): Promise<string> {
   return `data:${mimeType};base64,${base64}`
 }
 
-function isImageAttachment(file: File): boolean {
+function isImageFile(file: File): boolean {
   const mimeType = file.type?.trim().toLowerCase() || ""
   if (mimeType.startsWith("image/")) {
     return true
@@ -95,11 +115,11 @@ function isImageAttachment(file: File): boolean {
 
 async function buildResponsesInputContent(
   text: string,
-  attachments?: File[]
+  attachments?: ChatTurnAttachmentInput[]
 ): Promise<ResponsesInputContentBlock[]> {
   const blocks: ResponsesInputContentBlock[] = []
   const content = text.trim()
-  const files = normalizeAttachmentFiles(attachments)
+  const normalizedAttachments = normalizeAttachments(attachments)
 
   if (content) {
     blocks.push({
@@ -108,12 +128,25 @@ async function buildResponsesInputContent(
     })
   }
 
-  for (const file of files) {
-    if (file.size > MAX_ATTACHMENT_BYTES) {
-      throw new Error(`附件过大：${file.name}，当前上限约 50MB`)
+  for (const attachment of normalizedAttachments) {
+    if (isRemoteAttachment(attachment)) {
+      const remoteUrl = attachment.url.trim()
+      if (!remoteUrl) {
+        continue
+      }
+      blocks.push({
+        type: "image_url",
+        image_url: {
+          url: remoteUrl,
+        },
+      })
+      continue
     }
-    const dataUri = await fileToDataUri(file)
-    if (isImageAttachment(file)) {
+    if (attachment.size > MAX_ATTACHMENT_BYTES) {
+      throw new Error(`附件过大：${attachment.name}，当前上限约 50MB`)
+    }
+    const dataUri = await fileToDataUri(attachment)
+    if (isImageFile(attachment)) {
       blocks.push({
         type: "image_url",
         image_url: {
@@ -157,7 +190,7 @@ export async function buildGatewayTurnRequestPayload(
     return requestBodyPayload
   }
 
-  const attachments = normalizeAttachmentFiles(input.attachments)
+  const attachments = normalizeAttachments(input.attachments)
   const timezone = input.timezone?.trim() || ""
   const turnTimeContextSuffix = timezone ? buildTurnTimeContextSuffix(timezone, input.now?.() || new Date()) : ""
   const requestText = buildGatewayRequestText(input.text, attachments, turnTimeContextSuffix)

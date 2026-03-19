@@ -5,7 +5,7 @@ import type { FeedItemRecord, FeedSubscriptionRecord } from "@/domain/feed/types
 import { openExternalUrl } from "@/lib/open-external-url"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
-import { ExternalLink, RefreshCcw } from "lucide-react"
+import { RefreshCcw } from "lucide-react"
 
 export const POLYMARKET_FEED_AUTOLOAD_ROOT_MARGIN = "0px 0px 160px 0px"
 
@@ -49,9 +49,11 @@ interface PolymarketFeedPaneProps {
   isLoading: boolean
   isSyncing: boolean
   hasMore: boolean
+  researchingItemId?: string | null
   onRefresh: () => void
   onLoadMore: () => void
   onOpenSettings: () => void
+  onDeepResearch: (item: FeedItemRecord) => void
 }
 
 export function PolymarketFeedPane({
@@ -60,9 +62,11 @@ export function PolymarketFeedPane({
   isLoading,
   isSyncing,
   hasMore,
+  researchingItemId,
   onRefresh,
   onLoadMore,
   onOpenSettings,
+  onDeepResearch,
 }: PolymarketFeedPaneProps) {
   const scrollContainerRef = useRef<HTMLDivElement | null>(null)
   const autoLoadSentinelRef = useRef<HTMLDivElement | null>(null)
@@ -182,18 +186,6 @@ export function PolymarketFeedPane({
                     <h3 className="line-clamp-2 text-sm font-semibold leading-6 text-foreground">{getItemTitle(item)}</h3>
                     <p className="mt-1 text-xs text-muted-foreground">{formatItemTime(item)}</p>
                   </div>
-                  {item.canonicalUrl ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        void openExternalUrl(item.canonicalUrl)
-                      }}
-                      className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                    >
-                      <ExternalLink className="size-3" />
-                      原帖
-                    </button>
-                  ) : null}
                 </div>
 
                 {getItemContent(item) ? (
@@ -218,6 +210,18 @@ export function PolymarketFeedPane({
                     ))}
                   </div>
                 ) : null}
+
+                <div className="mt-4 flex justify-end">
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      onDeepResearch(item)
+                    }}
+                    disabled={Boolean(researchingItemId)}
+                  >
+                    {researchingItemId === item.id ? "发送中..." : "继续深入调研"}
+                  </Button>
+                </div>
               </article>
             ))}
             <div ref={autoLoadSentinelRef} aria-hidden="true" className="h-1 w-full" />
