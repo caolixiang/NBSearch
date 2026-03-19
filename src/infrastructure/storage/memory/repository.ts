@@ -142,6 +142,26 @@ export class MemoryAppRepository implements AppRepository {
     }
   }
 
+  async listExistingFeedItemContentHashes(input: {
+    subscriptionId: string
+    contentHashes: string[]
+  }): Promise<string[]> {
+    const candidates = new Set(
+      input.contentHashes.map((item) => item.trim()).filter((item) => item.length > 0)
+    )
+    if (candidates.size === 0) {
+      return []
+    }
+    return Array.from(this.feedItems.values())
+      .flat()
+      .filter(
+        (item) =>
+          item.subscriptionId === input.subscriptionId &&
+          candidates.has(item.contentHash)
+      )
+      .map((item) => item.contentHash)
+  }
+
   async insertFeedItems(items: FeedItemRecord[]): Promise<number> {
     let inserted = 0
     for (const item of items) {

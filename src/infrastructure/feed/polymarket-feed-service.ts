@@ -15,6 +15,10 @@ import type {
 import type { AppRepository } from "@/domain/storage/repository"
 import type { JinaReaderClient } from "./jina-reader-client"
 import { RuntimeJinaReaderClient } from "./jina-reader-client"
+import {
+  LlmFeedTranslator,
+  type FeedTranslator,
+} from "./llm-feed-translator"
 import { parsePolymarketTimeline } from "./polymarket-timeline-parser"
 
 const POLYMARKET_SOURCE: FeedSource = "polymarket"
@@ -69,7 +73,8 @@ export class PolymarketFeedService implements FeedService {
   constructor(
     private readonly repository: AppRepository,
     private readonly config: AppConfig,
-    private readonly client: JinaReaderClient = new RuntimeJinaReaderClient()
+    private readonly client: JinaReaderClient = new RuntimeJinaReaderClient(),
+    private readonly translator: FeedTranslator = new LlmFeedTranslator(config)
   ) {}
 
   ensureStarted(): void {
@@ -247,6 +252,11 @@ export class PolymarketFeedService implements FeedService {
             contentHash,
             title: normalizedTitle,
             contentMarkdown: normalizedMarkdown,
+            titleZh: "",
+            contentMarkdownZh: "",
+            translationStatus: "skipped" as const,
+            translationModel: "",
+            translatedAt: null,
             mediaUrls: normalizedMediaUrls,
             canonicalUrl: item.canonicalUrl.trim(),
             publishedAt: item.publishedAt,
@@ -255,7 +265,39 @@ export class PolymarketFeedService implements FeedService {
           } satisfies FeedItemRecord
         })
       )
-      const insertedCount = await this.repository.insertFeedItems(items)
+      const existingContentHashes = new Set(
+        await this.repository.listExistingFeedItemContentHashes({
+          subscriptionId: subscription.id,
+          contentHashes: items.map((item) => item.contentHash),
+        })
+      )
+      const pendingItems = items.filter((item) => !existingContentHashes.has(item.contentHash))
+      const translations =
+        pendingItems.length > 0
+          ? await this.translator.translateMany(
+              pendingItems.map((item) => ({
+                contentHash: item.contentHash,
+                title: item.title,
+                contentMarkdown: item.contentMarkdown,
+              }))
+            )
+          : []
+      const translationByHash = new Map(translations.map((item) => [item.contentHash, item]))
+      const translatedItems = pendingItems.map((item) => {
+        const translated = translationByHash.get(item.contentHash)
+        if (!translated) {
+          return item
+        }
+        return {
+          ...item,
+          titleZh: translated.titleZh,
+          contentMarkdownZh: translated.contentMarkdownZh,
+          translationStatus: translated.status,
+          translationModel: translated.model,
+          translatedAt: translated.translatedAt,
+        } satisfies FeedItemRecord
+      })
+      const insertedCount = await this.repository.insertFeedItems(translatedItems)
       const nextSubscription: FeedSubscriptionRecord = {
         ...subscription,
         enabled: this.resolveEnabled(POLYMARKET_SOURCE),

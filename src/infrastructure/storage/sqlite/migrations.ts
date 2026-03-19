@@ -84,4 +84,20 @@ export const SQLITE_MIGRATIONS: SqlMigration[] = [
        ON feed_items(source, discovered_at DESC, id DESC)`,
     ],
   },
+  {
+    version: 5,
+    name: "add_feed_item_translation_fields",
+    statements: [
+      `ALTER TABLE feed_items
+       ADD COLUMN title_zh TEXT NOT NULL DEFAULT ''`,
+      `ALTER TABLE feed_items
+       ADD COLUMN content_markdown_zh TEXT NOT NULL DEFAULT ''`,
+      `ALTER TABLE feed_items
+       ADD COLUMN translation_status TEXT NOT NULL DEFAULT 'skipped'`,
+      `ALTER TABLE feed_items
+       ADD COLUMN translation_model TEXT NOT NULL DEFAULT ''`,
+      `ALTER TABLE feed_items
+       ADD COLUMN translated_at INTEGER`,
+    ],
+  },
 ]

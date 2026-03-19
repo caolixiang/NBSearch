@@ -4,6 +4,7 @@ import { applyAppearanceSettings } from "@/app/appearance"
 import {
   applyAppearanceConfigToRuntime,
   applyGatewayConfigToRuntime,
+  applyLlmConfigToRuntime,
   applyPersonalizationConfigToRuntime,
   applySubscriptionsConfigToRuntime,
 } from "@/app/runtime"
@@ -416,6 +417,17 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     (next: { themeMode: AppThemeMode; fontSizeMode: AppFontSizeMode }) => {
       applyAppearanceConfigToRuntime(next)
       applyAppearanceSettings(next)
+    },
+    []
+  )
+
+  const handleLlmConfigChange = useCallback(
+    (next: {
+      llmApiBaseUrl: string
+      llmApiKey: string
+      llmTranslationModel: string
+    }) => {
+      applyLlmConfigToRuntime(next)
     },
     []
   )
@@ -2040,6 +2052,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
         onOpenChange={setSettingsOpen}
         runtime={runtime}
         onGatewayConfigChange={handleGatewayConfigChange}
+        onLlmConfigChange={handleLlmConfigChange}
         onAppearanceConfigChange={handleAppearanceConfigChange}
         onPersonalizationConfigChange={handlePersonalizationConfigChange}
         onSubscriptionsConfigChange={handleSubscriptionsConfigChange}

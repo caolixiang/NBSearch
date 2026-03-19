@@ -25,6 +25,14 @@ function formatItemTime(item: FeedItemRecord): string {
   return formatSyncTime(value)
 }
 
+function getItemTitle(item: FeedItemRecord): string {
+  return item.titleZh.trim() || item.title
+}
+
+function getItemContent(item: FeedItemRecord): string {
+  return item.contentMarkdownZh.trim() || item.contentMarkdown
+}
+
 interface PolymarketFeedPaneProps {
   subscription: FeedSubscriptionRecord | null
   items: FeedItemRecord[]
@@ -113,7 +121,7 @@ export function PolymarketFeedPane({
               <article key={item.id} className="rounded-2xl border border-border bg-card p-4 shadow-sm">
                 <div className="flex items-start justify-between gap-4">
                   <div className="min-w-0">
-                    <h3 className="line-clamp-2 text-sm font-semibold leading-6 text-foreground">{item.title}</h3>
+                    <h3 className="line-clamp-2 text-sm font-semibold leading-6 text-foreground">{getItemTitle(item)}</h3>
                     <p className="mt-1 text-xs text-muted-foreground">{formatItemTime(item)}</p>
                   </div>
                   {item.canonicalUrl ? (
@@ -130,9 +138,9 @@ export function PolymarketFeedPane({
                   ) : null}
                 </div>
 
-                {item.contentMarkdown ? (
+                {getItemContent(item) ? (
                   <p className="mt-3 whitespace-pre-wrap text-sm leading-7 text-foreground">
-                    {item.contentMarkdown}
+                    {getItemContent(item)}
                   </p>
                 ) : null}
 

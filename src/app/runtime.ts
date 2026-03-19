@@ -46,6 +46,19 @@ export function applyGatewayConfigToRuntime(next: { apiBaseUrl: string; apiKey: 
   runtimeSingleton.services.voice = new GatewayVoiceService(runtimeSingleton.config)
 }
 
+export function applyLlmConfigToRuntime(next: {
+  llmApiBaseUrl: string
+  llmApiKey: string
+  llmTranslationModel: string
+}): void {
+  if (!runtimeSingleton) {
+    return
+  }
+  runtimeSingleton.config.llmApiBaseUrl = next.llmApiBaseUrl
+  runtimeSingleton.config.llmApiKey = next.llmApiKey
+  runtimeSingleton.config.llmTranslationModel = next.llmTranslationModel
+}
+
 export function applyAppearanceConfigToRuntime(next: {
   themeMode: AppThemeMode
   fontSizeMode: AppFontSizeMode

@@ -1,4 +1,5 @@
 export type FeedSource = "polymarket"
+export type FeedItemTranslationStatus = "translated" | "skipped" | "failed"
 
 export interface FeedSubscriptionRecord {
   id: string
@@ -19,6 +20,11 @@ export interface FeedItemRecord {
   contentHash: string
   title: string
   contentMarkdown: string
+  titleZh: string
+  contentMarkdownZh: string
+  translationStatus: FeedItemTranslationStatus
+  translationModel: string
+  translatedAt: number | null
   mediaUrls: string[]
   canonicalUrl: string
   publishedAt: number | null

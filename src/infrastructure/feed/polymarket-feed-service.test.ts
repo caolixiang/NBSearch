@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test"
 import type { AppConfig } from "@/app/contracts"
 import { MemoryAppRepository } from "@/infrastructure/storage/memory/repository"
 import type { JinaReaderClient } from "./jina-reader-client"
+import type { FeedTranslationRequest, FeedTranslationResult, FeedTranslator } from "./llm-feed-translator"
 import { PolymarketFeedService } from "./polymarket-feed-service"
 
 class FakeJinaReaderClient implements JinaReaderClient {
@@ -9,6 +10,22 @@ class FakeJinaReaderClient implements JinaReaderClient {
 
   async fetchPolymarketTimeline(): Promise<string> {
     return this.payload
+  }
+}
+
+class FakeFeedTranslator implements FeedTranslator {
+  calls: FeedTranslationRequest[][] = []
+
+  async translateMany(items: FeedTranslationRequest[]): Promise<FeedTranslationResult[]> {
+    this.calls.push(items)
+    return items.map((item) => ({
+      contentHash: item.contentHash,
+      titleZh: `[中文] ${item.title}`,
+      contentMarkdownZh: `[中文] ${item.contentMarkdown}`,
+      status: "translated",
+      model: "gpt-5.4",
+      translatedAt: 1779000000000,
+    }))
   }
 }
 
@@ -29,6 +46,9 @@ function buildConfig(): AppConfig {
     apiBaseUrl: "",
     apiKey: "",
     defaultModel: "grok-4.1-fast",
+      llmApiBaseUrl: "https://cpabak.zeabur.app/v1",
+      llmApiKey: "",
+      llmTranslationModel: "gpt-5.4",
     voiceEnabled: true,
     polymarketSubscriptionEnabled: true,
     themeMode: "light",
@@ -47,12 +67,14 @@ function buildConfig(): AppConfig {
 }
 
 describe("PolymarketFeedService", () => {
-  it("syncs, deduplicates and paginates feed items", async () => {
+  it("syncs translated items, deduplicates and paginates feed items", async () => {
     const repository = new MemoryAppRepository()
+    const translator = new FakeFeedTranslator()
     const service = new PolymarketFeedService(
       repository,
       buildConfig(),
-      new FakeJinaReaderClient(SAMPLE_TIMELINE)
+      new FakeJinaReaderClient(SAMPLE_TIMELINE),
+      translator
     )
 
     const subscription = await service.getSubscription("polymarket")
@@ -63,6 +85,8 @@ describe("PolymarketFeedService", () => {
 
     const secondSync = await service.syncNow("polymarket")
     expect(secondSync.insertedCount).toBe(0)
+    expect(translator.calls).toHaveLength(1)
+    expect(translator.calls[0]).toHaveLength(2)
 
     const firstPage = await service.listItems({
       source: "polymarket",
@@ -70,6 +94,8 @@ describe("PolymarketFeedService", () => {
     })
     expect(firstPage.items).toHaveLength(1)
     expect(firstPage.nextCursor).not.toBeNull()
+    expect(firstPage.items[0]?.translationStatus).toBe("translated")
+    expect(firstPage.items[0]?.titleZh.startsWith("[中文]")).toBe(true)
 
     const secondPage = await service.listItems({
       source: "polymarket",

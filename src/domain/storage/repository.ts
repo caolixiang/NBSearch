@@ -61,5 +61,10 @@ export interface AppRepository {
     cursor?: FeedPageCursor | null
   }): Promise<FeedPage<FeedItemRecord>>
 
+  listExistingFeedItemContentHashes(input: {
+    subscriptionId: string
+    contentHashes: string[]
+  }): Promise<string[]>
+
   insertFeedItems(items: FeedItemRecord[]): Promise<number>
 }

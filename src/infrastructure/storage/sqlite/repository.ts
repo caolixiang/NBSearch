@@ -1,6 +1,7 @@
 import type { ChatAttachment, ChatDeepSearchResearch, ChatMessage, ChatReasoningEventDetail } from "../../../domain/chat/types"
 import type {
   FeedItemRecord,
+  FeedItemTranslationStatus,
   FeedPage,
   FeedPageCursor,
   FeedSource,
@@ -184,6 +185,11 @@ type SqliteFeedItemRow = {
   content_hash: string
   title: string
   content_markdown: string
+  title_zh: string
+  content_markdown_zh: string
+  translation_status: FeedItemTranslationStatus
+  translation_model: string
+  translated_at: number | null
   media_json: string
   canonical_url: string
   published_at: number | null
@@ -237,6 +243,11 @@ function hydrateFeedItem(row: SqliteFeedItemRow): FeedItemRecord {
     contentHash: row.content_hash,
     title: row.title,
     contentMarkdown: row.content_markdown,
+    titleZh: row.title_zh || "",
+    contentMarkdownZh: row.content_markdown_zh || "",
+    translationStatus: row.translation_status || "skipped",
+    translationModel: row.translation_model || "",
+    translatedAt: row.translated_at,
     mediaUrls: parseFeedMediaUrls(row.media_json),
     canonicalUrl: row.canonical_url || "",
     publishedAt: row.published_at,
@@ -519,7 +530,7 @@ export class SqliteAppRepository implements AppRepository {
     const limit = Math.max(1, Math.floor(input.limit))
     const rows = input.cursor
       ? await db.select<SqliteFeedItemRow[]>(
-          `SELECT id, subscription_id, source, content_hash, title, content_markdown, media_json, canonical_url, published_at, discovered_at, fetched_at
+          `SELECT id, subscription_id, source, content_hash, title, content_markdown, title_zh, content_markdown_zh, translation_status, translation_model, translated_at, media_json, canonical_url, published_at, discovered_at, fetched_at
            FROM feed_items
            WHERE source = $1
              AND (
@@ -531,7 +542,7 @@ export class SqliteAppRepository implements AppRepository {
           [input.source, input.cursor.discoveredAt, input.cursor.id, limit + 1]
         )
       : await db.select<SqliteFeedItemRow[]>(
-          `SELECT id, subscription_id, source, content_hash, title, content_markdown, media_json, canonical_url, published_at, discovered_at, fetched_at
+          `SELECT id, subscription_id, source, content_hash, title, content_markdown, title_zh, content_markdown_zh, translation_status, translation_model, translated_at, media_json, canonical_url, published_at, discovered_at, fetched_at
            FROM feed_items
            WHERE source = $1
            ORDER BY discovered_at DESC, id DESC
@@ -555,6 +566,28 @@ export class SqliteAppRepository implements AppRepository {
     }
   }
 
+  async listExistingFeedItemContentHashes(input: {
+    subscriptionId: string
+    contentHashes: string[]
+  }): Promise<string[]> {
+    const contentHashes = Array.from(
+      new Set(input.contentHashes.map((item) => item.trim()).filter((item) => item.length > 0))
+    )
+    if (contentHashes.length === 0) {
+      return []
+    }
+    const db = await getDatabase()
+    const placeholders = contentHashes.map((_, index) => `$${index + 2}`).join(", ")
+    const rows = await db.select<Array<{ content_hash: string }>>(
+      `SELECT content_hash
+       FROM feed_items
+       WHERE subscription_id = $1
+         AND content_hash IN (${placeholders})`,
+      [input.subscriptionId, ...contentHashes]
+    )
+    return rows.map((row) => row.content_hash)
+  }
+
   async insertFeedItems(items: FeedItemRecord[]): Promise<number> {
     if (items.length === 0) {
       return 0
@@ -564,9 +597,9 @@ export class SqliteAppRepository implements AppRepository {
     for (const item of items) {
       const result = await db.execute(
         `INSERT OR IGNORE INTO feed_items(
-           id, subscription_id, source, content_hash, title, content_markdown, media_json, canonical_url, published_at, discovered_at, fetched_at
+           id, subscription_id, source, content_hash, title, content_markdown, title_zh, content_markdown_zh, translation_status, translation_model, translated_at, media_json, canonical_url, published_at, discovered_at, fetched_at
          )
-         VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+         VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
         [
           item.id,
           item.subscriptionId,
@@ -574,6 +607,11 @@ export class SqliteAppRepository implements AppRepository {
           item.contentHash,
           item.title,
           item.contentMarkdown,
+          item.titleZh,
+          item.contentMarkdownZh,
+          item.translationStatus,
+          item.translationModel,
+          item.translatedAt,
           serializeFeedMediaUrls(item.mediaUrls),
           item.canonicalUrl || "",
           item.publishedAt,
