@@ -17,6 +17,16 @@ describe("openai-compatible-client", () => {
     expect(DEFAULT_OPENAI_COMPATIBLE_MODEL).toBe("gpt-5.4-mini")
   })
 
+  it("requires an explicit base url", async () => {
+    await expect(
+      testOpenAICompatibleConnection({
+        baseUrl: "",
+        apiKey: "test-key",
+        model: "gpt-5.4-mini",
+      })
+    ).rejects.toThrow("openai_base_url_missing")
+  })
+
   it("sends a hello prompt and returns the text reply", async () => {
     const fetchMock = mock(async (_input: string | URL | Request, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body || "{}")) as Record<string, unknown>

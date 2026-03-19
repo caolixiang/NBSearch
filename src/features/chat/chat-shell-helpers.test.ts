@@ -238,6 +238,31 @@ describe("polymarket feed to chat helpers", () => {
     )
   })
 
+  it("deduplicates a truncated title when the body is the longer original text", () => {
+    expect(
+      buildPolymarketResearchPrompt({
+        ...item,
+        title: "JUST IN: “At least a dozen” military officers were missing from China’s legislative meetings,...",
+        contentMarkdown:
+          "JUST IN: “At least a dozen” military officers were missing from China’s legislative meetings, suspected to have been purged by Xi.",
+      })
+    ).toBe(
+      [
+        "原文：",
+        "JUST IN: “At least a dozen” military officers were missing from China’s legislative meetings, suspected to have been purged by Xi.",
+        "",
+        "原帖链接：",
+        "https://x.com/polymarket/status/1",
+        "",
+        "图片链接：",
+        "https://example.com/one.png",
+        "https://example.com/two.jpg",
+        "",
+        "继续深入调研",
+      ].join("\n")
+    )
+  })
+
   it("builds remote image attachments for request payload and local preview", () => {
     expect(buildPolymarketResearchImageAttachments(item)).toEqual([
       {
