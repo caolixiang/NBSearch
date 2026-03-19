@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test"
 import type { AppConfig } from "@/app/contracts"
 import { MemoryAppRepository } from "@/infrastructure/storage/memory/repository"
 import type { JinaReaderClient } from "./jina-reader-client"
-import type { FeedTranslationRequest, FeedTranslationResult, FeedTranslator } from "./llm-feed-translator"
+import type { FeedTranslationRequest, FeedTranslationResult, FeedTranslator } from "./openai-feed-translator"
 import { PolymarketFeedService } from "./polymarket-feed-service"
 
 class FakeJinaReaderClient implements JinaReaderClient {
@@ -63,9 +63,9 @@ function buildConfig(): AppConfig {
     apiBaseUrl: "",
     apiKey: "",
     defaultModel: "grok-4.1-fast",
-      llmApiBaseUrl: "https://cpabak.zeabur.app/v1",
-      llmApiKey: "",
-      llmTranslationModel: "gpt-5.4-mini",
+      openaiApiBaseUrl: "https://cpabak.zeabur.app/v1",
+      openaiApiKey: "",
+      openaiTranslationModel: "gpt-5.4-mini",
     voiceEnabled: true,
     polymarketSubscriptionEnabled: true,
     themeMode: "light",

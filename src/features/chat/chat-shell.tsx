@@ -4,7 +4,7 @@ import { applyAppearanceSettings } from "@/app/appearance"
 import {
   applyAppearanceConfigToRuntime,
   applyGatewayConfigToRuntime,
-  applyLlmConfigToRuntime,
+  applyOpenAIConfigToRuntime,
   applyPersonalizationConfigToRuntime,
   applySubscriptionsConfigToRuntime,
 } from "@/app/runtime"
@@ -421,13 +421,13 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     []
   )
 
-  const handleLlmConfigChange = useCallback(
+  const handleOpenAIConfigChange = useCallback(
     (next: {
-      llmApiBaseUrl: string
-      llmApiKey: string
-      llmTranslationModel: string
+      openaiApiBaseUrl: string
+      openaiApiKey: string
+      openaiTranslationModel: string
     }) => {
-      applyLlmConfigToRuntime(next)
+      applyOpenAIConfigToRuntime(next)
     },
     []
   )
@@ -2052,7 +2052,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
         onOpenChange={setSettingsOpen}
         runtime={runtime}
         onGatewayConfigChange={handleGatewayConfigChange}
-        onLlmConfigChange={handleLlmConfigChange}
+        onOpenAIConfigChange={handleOpenAIConfigChange}
         onAppearanceConfigChange={handleAppearanceConfigChange}
         onPersonalizationConfigChange={handlePersonalizationConfigChange}
         onSubscriptionsConfigChange={handleSubscriptionsConfigChange}

@@ -16,9 +16,9 @@ import type { AppRepository } from "@/domain/storage/repository"
 import type { JinaReaderClient } from "./jina-reader-client"
 import { RuntimeJinaReaderClient } from "./jina-reader-client"
 import {
-  LlmFeedTranslator,
+  OpenAIFeedTranslator,
   type FeedTranslator,
-} from "./llm-feed-translator"
+} from "./openai-feed-translator"
 import { parsePolymarketTimeline } from "./polymarket-timeline-parser"
 
 const POLYMARKET_SOURCE: FeedSource = "polymarket"
@@ -75,7 +75,7 @@ export class PolymarketFeedService implements FeedService {
     private readonly repository: AppRepository,
     private readonly config: AppConfig,
     private readonly client: JinaReaderClient = new RuntimeJinaReaderClient(),
-    private readonly translator: FeedTranslator = new LlmFeedTranslator(config)
+    private readonly translator: FeedTranslator = new OpenAIFeedTranslator(config)
   ) {}
 
   ensureStarted(): void {

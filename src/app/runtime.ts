@@ -46,17 +46,17 @@ export function applyGatewayConfigToRuntime(next: { apiBaseUrl: string; apiKey: 
   runtimeSingleton.services.voice = new GatewayVoiceService(runtimeSingleton.config)
 }
 
-export function applyLlmConfigToRuntime(next: {
-  llmApiBaseUrl: string
-  llmApiKey: string
-  llmTranslationModel: string
+export function applyOpenAIConfigToRuntime(next: {
+  openaiApiBaseUrl: string
+  openaiApiKey: string
+  openaiTranslationModel: string
 }): void {
   if (!runtimeSingleton) {
     return
   }
-  runtimeSingleton.config.llmApiBaseUrl = next.llmApiBaseUrl
-  runtimeSingleton.config.llmApiKey = next.llmApiKey
-  runtimeSingleton.config.llmTranslationModel = next.llmTranslationModel
+  runtimeSingleton.config.openaiApiBaseUrl = next.openaiApiBaseUrl
+  runtimeSingleton.config.openaiApiKey = next.openaiApiKey
+  runtimeSingleton.config.openaiTranslationModel = next.openaiTranslationModel
 }
 
 export function applyAppearanceConfigToRuntime(next: {

@@ -11,9 +11,9 @@ export interface AppConfig {
   apiBaseUrl: string
   apiKey: string
   defaultModel: string
-  llmApiBaseUrl: string
-  llmApiKey: string
-  llmTranslationModel: string
+  openaiApiBaseUrl: string
+  openaiApiKey: string
+  openaiTranslationModel: string
   voiceEnabled: boolean
   polymarketSubscriptionEnabled?: boolean
   themeMode: AppThemeMode

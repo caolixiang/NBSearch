@@ -186,7 +186,7 @@ struct GatewayConfigToml {
     #[serde(default)]
     gateway: GatewayConfigTomlSection,
     #[serde(default)]
-    llm: LlmConfigTomlSection,
+    openai: OpenAIConfigTomlSection,
     #[serde(default)]
     appearance: AppearanceConfigTomlSection,
     #[serde(default)]
@@ -206,7 +206,7 @@ struct GatewayConfigTomlSection {
 }
 
 #[derive(Serialize, Deserialize, Default)]
-struct LlmConfigTomlSection {
+struct OpenAIConfigTomlSection {
     #[serde(default)]
     api_base_url: String,
     #[serde(default)]
@@ -262,9 +262,9 @@ struct RecoveryConfigTomlSection {
 struct GatewayConfigPayload {
     api_base_url: String,
     api_key: String,
-    llm_api_base_url: String,
-    llm_api_key: String,
-    llm_translation_model: String,
+    openai_api_base_url: String,
+    openai_api_key: String,
+    openai_translation_model: String,
     theme: String,
     font_size: String,
     timezone: String,
@@ -291,10 +291,10 @@ struct AppearanceConfigPayload {
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct LlmConfigPayload {
-    llm_api_base_url: String,
-    llm_api_key: String,
-    llm_translation_model: String,
+struct OpenAIConfigPayload {
+    openai_api_base_url: String,
+    openai_api_key: String,
+    openai_translation_model: String,
     config_path: String,
 }
 
@@ -433,7 +433,7 @@ fn normalize_timezone(value: &str) -> String {
     }
 }
 
-fn normalize_llm_api_base_url(value: &str) -> String {
+fn normalize_openai_api_base_url(value: &str) -> String {
     let trimmed = value.trim();
     if trimmed.is_empty() {
         "https://cpabak.zeabur.app/v1".to_string()
@@ -442,7 +442,7 @@ fn normalize_llm_api_base_url(value: &str) -> String {
     }
 }
 
-fn normalize_llm_translation_model(value: &str) -> String {
+fn normalize_openai_translation_model(value: &str) -> String {
     let trimmed = value.trim();
     if trimmed.is_empty() {
         "gpt-5.4-mini".to_string()
@@ -1162,9 +1162,11 @@ fn read_gateway_config(app: tauri::AppHandle) -> Result<GatewayConfigPayload, St
     Ok(GatewayConfigPayload {
         api_base_url: parsed.gateway.api_base_url.trim().to_string(),
         api_key: parsed.gateway.api_key.trim().to_string(),
-        llm_api_base_url: normalize_llm_api_base_url(parsed.llm.api_base_url.as_str()),
-        llm_api_key: parsed.llm.api_key.trim().to_string(),
-        llm_translation_model: normalize_llm_translation_model(parsed.llm.translation_model.as_str()),
+        openai_api_base_url: normalize_openai_api_base_url(parsed.openai.api_base_url.as_str()),
+        openai_api_key: parsed.openai.api_key.trim().to_string(),
+        openai_translation_model: normalize_openai_translation_model(
+            parsed.openai.translation_model.as_str(),
+        ),
         theme: normalize_theme_mode(parsed.appearance.theme.as_str()),
         font_size: normalize_font_size_mode(parsed.appearance.font_size.as_str()),
         timezone: normalize_timezone(parsed.personalization.timezone.as_str()),
@@ -1234,9 +1236,11 @@ fn save_gateway_config(
     Ok(GatewayConfigPayload {
         api_base_url: parsed.gateway.api_base_url,
         api_key: parsed.gateway.api_key,
-        llm_api_base_url: normalize_llm_api_base_url(parsed.llm.api_base_url.as_str()),
-        llm_api_key: parsed.llm.api_key.trim().to_string(),
-        llm_translation_model: normalize_llm_translation_model(parsed.llm.translation_model.as_str()),
+        openai_api_base_url: normalize_openai_api_base_url(parsed.openai.api_base_url.as_str()),
+        openai_api_key: parsed.openai.api_key.trim().to_string(),
+        openai_translation_model: normalize_openai_translation_model(
+            parsed.openai.translation_model.as_str(),
+        ),
         theme: normalize_theme_mode(parsed.appearance.theme.as_str()),
         font_size: normalize_font_size_mode(parsed.appearance.font_size.as_str()),
         timezone: normalize_timezone(parsed.personalization.timezone.as_str()),
@@ -1255,23 +1259,24 @@ fn save_gateway_config(
 }
 
 #[tauri::command(rename_all = "camelCase")]
-fn save_llm_config(
+fn save_openai_config(
     app: tauri::AppHandle,
-    llm_api_base_url: String,
-    llm_api_key: String,
-    llm_translation_model: String,
-) -> Result<LlmConfigPayload, String> {
+    openai_api_base_url: String,
+    openai_api_key: String,
+    openai_translation_model: String,
+) -> Result<OpenAIConfigPayload, String> {
     let config_path = resolve_app_config_toml_path(&app)?;
     let mut parsed = read_gateway_config_toml(&config_path).unwrap_or_default();
-    parsed.llm.api_base_url = normalize_llm_api_base_url(llm_api_base_url.as_str());
-    parsed.llm.api_key = llm_api_key.trim().to_string();
-    parsed.llm.translation_model = normalize_llm_translation_model(llm_translation_model.as_str());
+    parsed.openai.api_base_url = normalize_openai_api_base_url(openai_api_base_url.as_str());
+    parsed.openai.api_key = openai_api_key.trim().to_string();
+    parsed.openai.translation_model =
+        normalize_openai_translation_model(openai_translation_model.as_str());
     write_gateway_config_toml(&config_path, &parsed)?;
 
-    Ok(LlmConfigPayload {
-        llm_api_base_url: parsed.llm.api_base_url,
-        llm_api_key: parsed.llm.api_key,
-        llm_translation_model: parsed.llm.translation_model,
+    Ok(OpenAIConfigPayload {
+        openai_api_base_url: parsed.openai.api_base_url,
+        openai_api_key: parsed.openai.api_key,
+        openai_translation_model: parsed.openai.translation_model,
         config_path: config_path.to_string_lossy().to_string(),
     })
 }
@@ -1914,7 +1919,7 @@ fn main() {
             resolve_storage_paths,
             read_gateway_config,
             save_gateway_config,
-            save_llm_config,
+            save_openai_config,
             save_appearance_config,
             save_personalization_config,
             save_subscriptions_config,

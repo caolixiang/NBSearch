@@ -8,7 +8,7 @@ import {
   DEFAULT_OPENAI_COMPATIBLE_BASE_URL,
   DEFAULT_OPENAI_COMPATIBLE_MODEL,
 } from "@/infrastructure/llm/openai-compatible-client"
-const FEED_TRANSLATOR_SCOPE = "feed-llm-translator"
+const FEED_TRANSLATOR_SCOPE = "feed-openai-translator"
 
 const TRANSLATION_RESPONSE_SCHEMA = z.array(
   z.object({
@@ -79,7 +79,7 @@ function normalizeTranslatedText(input: string): string {
   return input.replace(/\r\n/g, "\n").trim()
 }
 
-export class LlmFeedTranslator implements FeedTranslator {
+export class OpenAIFeedTranslator implements FeedTranslator {
   constructor(private readonly config: AppConfig) {}
 
   async translateMany(items: FeedTranslationRequest[]): Promise<FeedTranslationResult[]> {
@@ -87,9 +87,9 @@ export class LlmFeedTranslator implements FeedTranslator {
       return []
     }
 
-    const apiKey = this.config.llmApiKey.trim()
-    const baseURL = this.config.llmApiBaseUrl.trim() || DEFAULT_OPENAI_COMPATIBLE_BASE_URL
-    const model = this.config.llmTranslationModel.trim() || DEFAULT_OPENAI_COMPATIBLE_MODEL
+    const apiKey = this.config.openaiApiKey.trim()
+    const baseURL = this.config.openaiApiBaseUrl.trim() || DEFAULT_OPENAI_COMPATIBLE_BASE_URL
+    const model = this.config.openaiTranslationModel.trim() || DEFAULT_OPENAI_COMPATIBLE_MODEL
     if (!apiKey) {
       return buildSkippedResults(items)
     }

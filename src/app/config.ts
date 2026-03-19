@@ -23,9 +23,9 @@ function parseBool(input: string | undefined, fallback: boolean): boolean {
 interface GatewayConfigPayload {
   apiBaseUrl?: string
   apiKey?: string
-  llmApiBaseUrl?: string
-  llmApiKey?: string
-  llmTranslationModel?: string
+  openaiApiBaseUrl?: string
+  openaiApiKey?: string
+  openaiTranslationModel?: string
   theme?: string
   fontSize?: string
   timezone?: string
@@ -48,10 +48,10 @@ interface AppearanceConfigPayload {
   configPath?: string
 }
 
-interface LlmConfigPayload {
-  llmApiBaseUrl?: string
-  llmApiKey?: string
-  llmTranslationModel?: string
+interface OpenAIConfigPayload {
+  openaiApiBaseUrl?: string
+  openaiApiKey?: string
+  openaiTranslationModel?: string
   configPath?: string
 }
 
@@ -97,8 +97,8 @@ function normalizeIntegerInRange(value: unknown, fallback: number, min: number, 
 const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 20_000
 const DEFAULT_STREAM_IDLE_RETRY_MAX_ATTEMPTS = 1
 const DEFAULT_STREAM_IDLE_RETRY_DELAY_MS = 450
-const DEFAULT_LLM_API_BASE_URL = DEFAULT_OPENAI_COMPATIBLE_BASE_URL
-const DEFAULT_LLM_TRANSLATION_MODEL = DEFAULT_OPENAI_COMPATIBLE_MODEL
+const DEFAULT_OPENAI_API_BASE_URL = DEFAULT_OPENAI_COMPATIBLE_BASE_URL
+const DEFAULT_OPENAI_TRANSLATION_MODEL = DEFAULT_OPENAI_COMPATIBLE_MODEL
 const DEFAULT_TURN_RECOVERY_MESSAGES_LIMIT = 100
 const DEFAULT_TURN_RECOVERY_NOT_FOUND_RETRY_MAX_ATTEMPTS = 1
 const DEFAULT_TURN_RECOVERY_POLL_IN_PROGRESS_MAX_ATTEMPTS = 2
@@ -110,15 +110,17 @@ function readEnvAppConfig(): AppConfig {
   const useEnvGatewayDefaults = import.meta.env.DEV
   const envApiBaseUrl = import.meta.env.VITE_APP_API_BASE_URL?.trim() || ""
   const envApiKey = import.meta.env.VITE_APP_API_KEY?.trim() || ""
+  const envOpenAIApiBaseUrl = import.meta.env.VITE_APP_OPENAI_API_BASE_URL?.trim() || ""
+  const envOpenAIApiKey = import.meta.env.VITE_APP_OPENAI_API_KEY?.trim() || ""
+  const envOpenAITranslationModel = import.meta.env.VITE_APP_OPENAI_TRANSLATION_MODEL?.trim() || ""
   return {
     // Never embed gateway defaults in production bundles to avoid leaking local keys/endpoints.
     apiBaseUrl: useEnvGatewayDefaults ? envApiBaseUrl || "http://localhost:8787" : "",
     apiKey: useEnvGatewayDefaults ? envApiKey : "",
     defaultModel: import.meta.env.VITE_APP_DEFAULT_MODEL?.trim() || "grok-4.1-fast",
-    llmApiBaseUrl: import.meta.env.VITE_APP_LLM_API_BASE_URL?.trim() || DEFAULT_LLM_API_BASE_URL,
-    llmApiKey: import.meta.env.VITE_APP_LLM_API_KEY?.trim() || "",
-    llmTranslationModel:
-      import.meta.env.VITE_APP_LLM_TRANSLATION_MODEL?.trim() || DEFAULT_LLM_TRANSLATION_MODEL,
+    openaiApiBaseUrl: envOpenAIApiBaseUrl || DEFAULT_OPENAI_API_BASE_URL,
+    openaiApiKey: envOpenAIApiKey,
+    openaiTranslationModel: envOpenAITranslationModel || DEFAULT_OPENAI_TRANSLATION_MODEL,
     voiceEnabled: parseBool(import.meta.env.VITE_APP_VOICE_ENABLED, true),
     polymarketSubscriptionEnabled: parseBool(import.meta.env.VITE_APP_POLYMARKET_SUBSCRIPTION_ENABLED, false),
     themeMode: normalizeThemeMode(import.meta.env.VITE_APP_THEME_MODE),
@@ -233,20 +235,20 @@ export async function saveAppearanceConfigToToml(input: {
   }
 }
 
-export async function saveLlmConfigToToml(input: {
-  llmApiBaseUrl: string
-  llmApiKey: string
-  llmTranslationModel: string
-}): Promise<LlmConfigPayload | null> {
+export async function saveOpenAIConfigToToml(input: {
+  openaiApiBaseUrl: string
+  openaiApiKey: string
+  openaiTranslationModel: string
+}): Promise<OpenAIConfigPayload | null> {
   if (!hasTauriRuntime()) {
     return null
   }
   try {
     const { invoke } = await import("@tauri-apps/api/core")
-    return await invoke<LlmConfigPayload>("save_llm_config", {
-      llmApiBaseUrl: normalizeGatewayValue(input.llmApiBaseUrl),
-      llmApiKey: normalizeGatewayValue(input.llmApiKey),
-      llmTranslationModel: normalizeGatewayValue(input.llmTranslationModel),
+    return await invoke<OpenAIConfigPayload>("save_openai_config", {
+      openaiApiBaseUrl: normalizeGatewayValue(input.openaiApiBaseUrl),
+      openaiApiKey: normalizeGatewayValue(input.openaiApiKey),
+      openaiTranslationModel: normalizeGatewayValue(input.openaiTranslationModel),
     })
   } catch {
     return null
@@ -290,9 +292,9 @@ export async function loadAppConfig(): Promise<AppConfig> {
   const fileConfig = await readGatewayConfigFromToml()
   const fileApiBaseUrl = normalizeGatewayValue(fileConfig?.apiBaseUrl)
   const fileApiKey = normalizeGatewayValue(fileConfig?.apiKey)
-  const fileLlmApiBaseUrl = normalizeGatewayValue(fileConfig?.llmApiBaseUrl)
-  const fileLlmApiKey = normalizeGatewayValue(fileConfig?.llmApiKey)
-  const fileLlmTranslationModel = normalizeGatewayValue(fileConfig?.llmTranslationModel)
+  const fileOpenAIApiBaseUrl = normalizeGatewayValue(fileConfig?.openaiApiBaseUrl)
+  const fileOpenAIApiKey = normalizeGatewayValue(fileConfig?.openaiApiKey)
+  const fileOpenAITranslationModel = normalizeGatewayValue(fileConfig?.openaiTranslationModel)
   const fileThemeMode = normalizeThemeMode(fileConfig?.theme)
   const fileFontSizeMode = normalizeFontSizeMode(fileConfig?.fontSize)
   const fileTimezone = normalizeAppTimezone(fileConfig?.timezone)
@@ -364,10 +366,10 @@ export async function loadAppConfig(): Promise<AppConfig> {
     // config.toml has higher priority than .env in all environments.
     apiBaseUrl: fileApiBaseUrl || envConfig.apiBaseUrl,
     apiKey: fileApiKey || envConfig.apiKey,
-    llmApiBaseUrl: fileLlmApiBaseUrl || envConfig.llmApiBaseUrl || DEFAULT_LLM_API_BASE_URL,
-    llmApiKey: fileLlmApiKey || envConfig.llmApiKey,
-    llmTranslationModel:
-      fileLlmTranslationModel || envConfig.llmTranslationModel || DEFAULT_LLM_TRANSLATION_MODEL,
+    openaiApiBaseUrl: fileOpenAIApiBaseUrl || envConfig.openaiApiBaseUrl || DEFAULT_OPENAI_API_BASE_URL,
+    openaiApiKey: fileOpenAIApiKey || envConfig.openaiApiKey,
+    openaiTranslationModel:
+      fileOpenAITranslationModel || envConfig.openaiTranslationModel || DEFAULT_OPENAI_TRANSLATION_MODEL,
     themeMode: hasFileTheme ? fileThemeMode : envConfig.themeMode,
     fontSizeMode: hasFileFontSize ? fileFontSizeMode : envConfig.fontSizeMode,
     timezone: hasFileTimezone ? fileTimezone : envConfig.timezone,

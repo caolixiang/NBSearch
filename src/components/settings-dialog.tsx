@@ -13,7 +13,7 @@ import {
   loadAppConfig,
   saveAppearanceConfigToToml,
   saveGatewayConfigToToml,
-  saveLlmConfigToToml,
+  saveOpenAIConfigToToml,
   savePersonalizationConfigToToml,
   saveSubscriptionsConfigToToml,
 } from "@/app/config"
@@ -31,10 +31,10 @@ interface SettingsDialogProps {
   onOpenChange: (open: boolean) => void
   runtime: AppRuntime
   onGatewayConfigChange: (next: { apiBaseUrl: string; apiKey: string }) => void
-  onLlmConfigChange: (next: {
-    llmApiBaseUrl: string
-    llmApiKey: string
-    llmTranslationModel: string
+  onOpenAIConfigChange: (next: {
+    openaiApiBaseUrl: string
+    openaiApiKey: string
+    openaiTranslationModel: string
   }) => void
   onAppearanceConfigChange: (next: {
     themeMode: AppThemeMode
@@ -82,7 +82,7 @@ export function SettingsDialog({
   onOpenChange,
   runtime,
   onGatewayConfigChange,
-  onLlmConfigChange,
+  onOpenAIConfigChange,
   onAppearanceConfigChange,
   onPersonalizationConfigChange,
   onSubscriptionsConfigChange,
@@ -90,30 +90,30 @@ export function SettingsDialog({
   const [activeTab, setActiveTab] = useState<TabId>("gateway")
   const [baseUrl, setBaseUrl] = useState("")
   const [apiKey, setApiKey] = useState("")
-  const [llmBaseUrl, setLlmBaseUrl] = useState("")
-  const [llmApiKey, setLlmApiKey] = useState("")
-  const [llmTranslationModel, setLlmTranslationModel] = useState("")
+  const [openaiBaseUrl, setOpenAIBaseUrl] = useState("")
+  const [openaiApiKey, setOpenAIApiKey] = useState("")
+  const [openaiTranslationModel, setOpenAITranslationModel] = useState("")
   const [savedGatewayConfig, setSavedGatewayConfig] = useState({
     baseUrl: "",
     apiKey: "",
   })
-  const [savedLlmConfig, setSavedLlmConfig] = useState({
-    llmBaseUrl: "",
-    llmApiKey: "",
-    llmTranslationModel: "",
+  const [savedOpenAIConfig, setSavedOpenAIConfig] = useState({
+    openaiBaseUrl: "",
+    openaiApiKey: "",
+    openaiTranslationModel: "",
   })
   const [themeMode, setThemeMode] = useState<AppThemeMode>("light")
   const [fontSizeMode, setFontSizeMode] = useState<AppFontSizeMode>("default")
   const [timezone, setTimezone] = useState(DEFAULT_APP_TIMEZONE)
   const [savedTimezone, setSavedTimezone] = useState(DEFAULT_APP_TIMEZONE)
   const [showApiKey, setShowApiKey] = useState(false)
-  const [showLlmApiKey, setShowLlmApiKey] = useState(false)
+  const [showOpenAIApiKey, setShowOpenAIApiKey] = useState(false)
   const [gatewayBusy, setGatewayBusy] = useState(false)
   const [gatewayMessage, setGatewayMessage] = useState("")
-  const [llmBusy, setLlmBusy] = useState(false)
-  const [llmMessage, setLlmMessage] = useState("")
-  const [llmTestBusy, setLlmTestBusy] = useState(false)
-  const [llmTestMessage, setLlmTestMessage] = useState("")
+  const [openaiBusy, setOpenAIBusy] = useState(false)
+  const [openaiMessage, setOpenAIMessage] = useState("")
+  const [openaiTestBusy, setOpenAITestBusy] = useState(false)
+  const [openaiTestMessage, setOpenAITestMessage] = useState("")
   const [appearanceMessage, setAppearanceMessage] = useState("")
   const [personalizationBusy, setPersonalizationBusy] = useState(false)
   const [personalizationMessage, setPersonalizationMessage] = useState("")
@@ -174,22 +174,22 @@ export function SettingsDialog({
     }
     const nextBaseUrl = runtime.config.apiBaseUrl || ""
     const nextApiKey = runtime.config.apiKey || ""
-    const nextLlmBaseUrl = runtime.config.llmApiBaseUrl || ""
-    const nextLlmApiKey = runtime.config.llmApiKey || ""
-    const nextLlmTranslationModel = runtime.config.llmTranslationModel || ""
+    const nextOpenAIBaseUrl = runtime.config.openaiApiBaseUrl || ""
+    const nextOpenAIApiKey = runtime.config.openaiApiKey || ""
+    const nextOpenAITranslationModel = runtime.config.openaiTranslationModel || ""
     setBaseUrl(nextBaseUrl)
     setApiKey(nextApiKey)
-    setLlmBaseUrl(nextLlmBaseUrl)
-    setLlmApiKey(nextLlmApiKey)
-    setLlmTranslationModel(nextLlmTranslationModel)
+    setOpenAIBaseUrl(nextOpenAIBaseUrl)
+    setOpenAIApiKey(nextOpenAIApiKey)
+    setOpenAITranslationModel(nextOpenAITranslationModel)
     setSavedGatewayConfig({
       baseUrl: nextBaseUrl,
       apiKey: nextApiKey,
     })
-    setSavedLlmConfig({
-      llmBaseUrl: nextLlmBaseUrl,
-      llmApiKey: nextLlmApiKey,
-      llmTranslationModel: nextLlmTranslationModel,
+    setSavedOpenAIConfig({
+      openaiBaseUrl: nextOpenAIBaseUrl,
+      openaiApiKey: nextOpenAIApiKey,
+      openaiTranslationModel: nextOpenAITranslationModel,
     })
     setThemeMode(runtime.config.themeMode)
     setFontSizeMode(runtime.config.fontSizeMode)
@@ -199,10 +199,10 @@ export function SettingsDialog({
     setPolymarketEnabled(runtime.config.polymarketSubscriptionEnabled === true)
     setSavedPolymarketEnabled(runtime.config.polymarketSubscriptionEnabled === true)
     setShowApiKey(false)
-    setShowLlmApiKey(false)
+    setShowOpenAIApiKey(false)
     setGatewayMessage("")
-    setLlmMessage("")
-    setLlmTestMessage("")
+    setOpenAIMessage("")
+    setOpenAITestMessage("")
     setAppearanceMessage("")
     setPersonalizationMessage("")
     setSubscriptionsMessage("")
@@ -213,9 +213,9 @@ export function SettingsDialog({
     open,
     runtime.config.apiBaseUrl,
     runtime.config.apiKey,
-    runtime.config.llmApiBaseUrl,
-    runtime.config.llmApiKey,
-    runtime.config.llmTranslationModel,
+    runtime.config.openaiApiBaseUrl,
+    runtime.config.openaiApiKey,
+    runtime.config.openaiTranslationModel,
     runtime.config.themeMode,
     runtime.config.fontSizeMode,
     runtime.config.timezone,
@@ -234,11 +234,11 @@ export function SettingsDialog({
       }),
     [apiKey, baseUrl, gatewayBusy, savedGatewayConfig]
   )
-  const llmHasChanges =
-    llmBaseUrl !== savedLlmConfig.llmBaseUrl ||
-    llmApiKey !== savedLlmConfig.llmApiKey ||
-    llmTranslationModel !== savedLlmConfig.llmTranslationModel
-  const llmButtonLabel = llmBusy ? "保存中..." : llmHasChanges ? "保存" : "已保存"
+  const openaiHasChanges =
+    openaiBaseUrl !== savedOpenAIConfig.openaiBaseUrl ||
+    openaiApiKey !== savedOpenAIConfig.openaiApiKey ||
+    openaiTranslationModel !== savedOpenAIConfig.openaiTranslationModel
+  const openaiButtonLabel = openaiBusy ? "保存中..." : openaiHasChanges ? "保存" : "已保存"
 
   const personalizationTimezoneOptions = useMemo(() => resolveAppTimezoneOptions(timezone), [timezone])
   const personalizationHasChanges = timezone !== savedTimezone
@@ -340,66 +340,66 @@ export function SettingsDialog({
     }
   }
 
-  const saveLlmConfig = async () => {
-    if (llmBusy || !llmHasChanges) {
+  const saveOpenAIConfig = async () => {
+    if (openaiBusy || !openaiHasChanges) {
       return
     }
-    setLlmBusy(true)
-    setLlmMessage("")
+    setOpenAIBusy(true)
+    setOpenAIMessage("")
 
     try {
-      const nextLlmBaseUrl = llmBaseUrl.trim()
-      const nextLlmApiKey = llmApiKey.trim()
-      const nextLlmTranslationModel = llmTranslationModel.trim()
+      const nextOpenAIBaseUrl = openaiBaseUrl.trim()
+      const nextOpenAIApiKey = openaiApiKey.trim()
+      const nextOpenAITranslationModel = openaiTranslationModel.trim()
       if (hasTauriRuntime()) {
-        const saved = await saveLlmConfigToToml({
-          llmApiBaseUrl: nextLlmBaseUrl,
-          llmApiKey: nextLlmApiKey,
-          llmTranslationModel: nextLlmTranslationModel,
+        const saved = await saveOpenAIConfigToToml({
+          openaiApiBaseUrl: nextOpenAIBaseUrl,
+          openaiApiKey: nextOpenAIApiKey,
+          openaiTranslationModel: nextOpenAITranslationModel,
         })
         if (!saved) {
-          throw new Error("persist_llm_config_failed")
+          throw new Error("persist_openai_config_failed")
         }
       }
       const resolved = await loadAppConfig()
-      setLlmBaseUrl(resolved.llmApiBaseUrl)
-      setLlmApiKey(resolved.llmApiKey)
-      setLlmTranslationModel(resolved.llmTranslationModel)
-      setSavedLlmConfig({
-        llmBaseUrl: resolved.llmApiBaseUrl,
-        llmApiKey: resolved.llmApiKey,
-        llmTranslationModel: resolved.llmTranslationModel,
+      setOpenAIBaseUrl(resolved.openaiApiBaseUrl)
+      setOpenAIApiKey(resolved.openaiApiKey)
+      setOpenAITranslationModel(resolved.openaiTranslationModel)
+      setSavedOpenAIConfig({
+        openaiBaseUrl: resolved.openaiApiBaseUrl,
+        openaiApiKey: resolved.openaiApiKey,
+        openaiTranslationModel: resolved.openaiTranslationModel,
       })
-      onLlmConfigChange({
-        llmApiBaseUrl: resolved.llmApiBaseUrl,
-        llmApiKey: resolved.llmApiKey,
-        llmTranslationModel: resolved.llmTranslationModel,
+      onOpenAIConfigChange({
+        openaiApiBaseUrl: resolved.openaiApiBaseUrl,
+        openaiApiKey: resolved.openaiApiKey,
+        openaiTranslationModel: resolved.openaiTranslationModel,
       })
     } catch {
-      setLlmMessage("保存失败，请重试")
+      setOpenAIMessage("保存失败，请重试")
     } finally {
-      setLlmBusy(false)
+      setOpenAIBusy(false)
     }
   }
 
-  const testLlmConnection = async () => {
-    if (llmTestBusy || llmBusy) {
+  const testOpenAIConnection = async () => {
+    if (openaiTestBusy || openaiBusy) {
       return
     }
-    setLlmTestBusy(true)
-    setLlmTestMessage("")
+    setOpenAITestBusy(true)
+    setOpenAITestMessage("")
     try {
       const text = await testOpenAICompatibleConnection({
-        baseUrl: llmBaseUrl.trim(),
-        apiKey: llmApiKey.trim(),
-        model: llmTranslationModel.trim(),
+        baseUrl: openaiBaseUrl.trim(),
+        apiKey: openaiApiKey.trim(),
+        model: openaiTranslationModel.trim(),
       })
-      setLlmTestMessage(text ? `联通成功：${text}` : "联通成功，但返回内容为空")
+      setOpenAITestMessage(text ? `联通成功：${text}` : "联通成功，但返回内容为空")
     } catch (error) {
       const message = error instanceof Error && error.message.trim() ? error.message.trim() : "联通测试失败"
-      setLlmTestMessage(`联通失败：${message}`)
+      setOpenAITestMessage(`联通失败：${message}`)
     } finally {
-      setLlmTestBusy(false)
+      setOpenAITestBusy(false)
     }
   }
 
@@ -712,14 +712,14 @@ export function SettingsDialog({
                     </label>
                     <input
                       type="url"
-                      value={llmBaseUrl}
+                      value={openaiBaseUrl}
                       onChange={(event) => {
-                        setLlmBaseUrl(event.target.value)
-                        if (llmMessage) {
-                          setLlmMessage("")
+                        setOpenAIBaseUrl(event.target.value)
+                        if (openaiMessage) {
+                          setOpenAIMessage("")
                         }
-                        if (llmTestMessage) {
-                          setLlmTestMessage("")
+                        if (openaiTestMessage) {
+                          setOpenAITestMessage("")
                         }
                       }}
                       placeholder="https://cpabak.zeabur.app/v1"
@@ -737,15 +737,15 @@ export function SettingsDialog({
                     </label>
                     <div className="relative">
                       <input
-                        type={showLlmApiKey ? "text" : "password"}
-                        value={llmApiKey}
+                        type={showOpenAIApiKey ? "text" : "password"}
+                        value={openaiApiKey}
                         onChange={(event) => {
-                          setLlmApiKey(event.target.value)
-                          if (llmMessage) {
-                            setLlmMessage("")
+                          setOpenAIApiKey(event.target.value)
+                          if (openaiMessage) {
+                            setOpenAIMessage("")
                           }
-                          if (llmTestMessage) {
-                            setLlmTestMessage("")
+                          if (openaiTestMessage) {
+                            setOpenAITestMessage("")
                           }
                         }}
                         placeholder="sk-..."
@@ -753,11 +753,11 @@ export function SettingsDialog({
                       />
                       <button
                         type="button"
-                        onClick={() => setShowLlmApiKey((prev) => !prev)}
-                        aria-label={showLlmApiKey ? "隐藏 OpenAI API Key" : "显示 OpenAI API Key"}
+                        onClick={() => setShowOpenAIApiKey((prev) => !prev)}
+                        aria-label={showOpenAIApiKey ? "隐藏 OpenAI API Key" : "显示 OpenAI API Key"}
                         className="absolute inset-y-0 right-2 inline-flex items-center text-muted-foreground transition-colors hover:text-foreground"
                       >
-                        {showLlmApiKey ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                        {showOpenAIApiKey ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
                       </button>
                     </div>
                     <p className="text-xs text-muted-foreground">
@@ -772,14 +772,14 @@ export function SettingsDialog({
                     </label>
                     <input
                       type="text"
-                      value={llmTranslationModel}
+                      value={openaiTranslationModel}
                       onChange={(event) => {
-                        setLlmTranslationModel(event.target.value)
-                        if (llmMessage) {
-                          setLlmMessage("")
+                        setOpenAITranslationModel(event.target.value)
+                        if (openaiMessage) {
+                          setOpenAIMessage("")
                         }
-                        if (llmTestMessage) {
-                          setLlmTestMessage("")
+                        if (openaiTestMessage) {
+                          setOpenAITestMessage("")
                         }
                       }}
                       placeholder="gpt-5.4-mini"
@@ -790,11 +790,11 @@ export function SettingsDialog({
                     </p>
                   </div>
 
-                  {llmMessage ? (
-                    <p className="text-xs text-muted-foreground">{llmMessage}</p>
+                  {openaiMessage ? (
+                    <p className="text-xs text-muted-foreground">{openaiMessage}</p>
                   ) : null}
-                  {llmTestMessage ? (
-                    <p className="text-xs text-muted-foreground">{llmTestMessage}</p>
+                  {openaiTestMessage ? (
+                    <p className="text-xs text-muted-foreground">{openaiTestMessage}</p>
                   ) : null}
                 </div>
 
@@ -803,25 +803,25 @@ export function SettingsDialog({
                     size="sm"
                     variant="outline"
                     onClick={() => {
-                      void testLlmConnection()
+                      void testOpenAIConnection()
                     }}
-                    disabled={llmTestBusy || llmBusy}
+                    disabled={openaiTestBusy || openaiBusy}
                   >
-                    {llmTestBusy ? "测试中..." : "联通测试"}
+                    {openaiTestBusy ? "测试中..." : "联通测试"}
                   </Button>
                   <Button
                     size="sm"
                     className={cn(
-                      llmHasChanges
+                      openaiHasChanges
                         ? "bg-foreground text-background hover:opacity-80 disabled:opacity-100"
                         : "bg-muted text-muted-foreground hover:bg-muted disabled:opacity-100"
                     )}
                     onClick={() => {
-                      void saveLlmConfig()
+                      void saveOpenAIConfig()
                     }}
-                    disabled={llmBusy || !llmHasChanges}
+                    disabled={openaiBusy || !openaiHasChanges}
                   >
-                    {llmButtonLabel}
+                    {openaiButtonLabel}
                   </Button>
                 </div>
               </div>
