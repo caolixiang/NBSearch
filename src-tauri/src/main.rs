@@ -190,6 +190,8 @@ struct GatewayConfigToml {
     #[serde(default)]
     personalization: PersonalizationConfigTomlSection,
     #[serde(default)]
+    subscriptions: SubscriptionsConfigTomlSection,
+    #[serde(default)]
     recovery: RecoveryConfigTomlSection,
 }
 
@@ -213,6 +215,12 @@ struct AppearanceConfigTomlSection {
 struct PersonalizationConfigTomlSection {
     #[serde(default)]
     timezone: String,
+}
+
+#[derive(Serialize, Deserialize, Default)]
+struct SubscriptionsConfigTomlSection {
+    #[serde(default)]
+    polymarket_enabled: bool,
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -245,6 +253,7 @@ struct GatewayConfigPayload {
     theme: String,
     font_size: String,
     timezone: String,
+    polymarket_enabled: bool,
     stream_idle_timeout_ms: u64,
     stream_idle_retry_max_attempts: u32,
     stream_idle_retry_delay_ms: u64,
@@ -269,6 +278,13 @@ struct AppearanceConfigPayload {
 #[serde(rename_all = "camelCase")]
 struct PersonalizationConfigPayload {
     timezone: String,
+    config_path: String,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SubscriptionsConfigPayload {
+    polymarket_enabled: bool,
     config_path: String,
 }
 
@@ -1107,6 +1123,7 @@ fn read_gateway_config(app: tauri::AppHandle) -> Result<GatewayConfigPayload, St
         theme: normalize_theme_mode(parsed.appearance.theme.as_str()),
         font_size: normalize_font_size_mode(parsed.appearance.font_size.as_str()),
         timezone: normalize_timezone(parsed.personalization.timezone.as_str()),
+        polymarket_enabled: parsed.subscriptions.polymarket_enabled,
         stream_idle_timeout_ms,
         stream_idle_retry_max_attempts,
         stream_idle_retry_delay_ms,
@@ -1175,6 +1192,7 @@ fn save_gateway_config(
         theme: normalize_theme_mode(parsed.appearance.theme.as_str()),
         font_size: normalize_font_size_mode(parsed.appearance.font_size.as_str()),
         timezone: normalize_timezone(parsed.personalization.timezone.as_str()),
+        polymarket_enabled: parsed.subscriptions.polymarket_enabled,
         stream_idle_timeout_ms,
         stream_idle_retry_max_attempts,
         stream_idle_retry_delay_ms,
@@ -1219,6 +1237,22 @@ fn save_personalization_config(
 
     Ok(PersonalizationConfigPayload {
         timezone: parsed.personalization.timezone,
+        config_path: config_path.to_string_lossy().to_string(),
+    })
+}
+
+#[tauri::command(rename_all = "camelCase")]
+fn save_subscriptions_config(
+    app: tauri::AppHandle,
+    polymarket_enabled: bool,
+) -> Result<SubscriptionsConfigPayload, String> {
+    let config_path = resolve_app_config_toml_path(&app)?;
+    let mut parsed = read_gateway_config_toml(&config_path).unwrap_or_default();
+    parsed.subscriptions.polymarket_enabled = polymarket_enabled;
+    write_gateway_config_toml(&config_path, &parsed)?;
+
+    Ok(SubscriptionsConfigPayload {
+        polymarket_enabled: parsed.subscriptions.polymarket_enabled,
         config_path: config_path.to_string_lossy().to_string(),
     })
 }
@@ -1812,6 +1846,7 @@ fn main() {
             save_gateway_config,
             save_appearance_config,
             save_personalization_config,
+            save_subscriptions_config,
             check_app_update,
             prepare_app_update,
             install_prepared_app_update,

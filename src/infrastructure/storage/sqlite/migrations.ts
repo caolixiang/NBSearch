@@ -51,4 +51,37 @@ export const SQLITE_MIGRATIONS: SqlMigration[] = [
        ADD COLUMN starred INTEGER NOT NULL DEFAULT 0`,
     ],
   },
+  {
+    version: 4,
+    name: "add_feed_subscription_tables",
+    statements: [
+      `CREATE TABLE IF NOT EXISTS feed_subscriptions (
+        id TEXT PRIMARY KEY,
+        source TEXT NOT NULL UNIQUE,
+        enabled INTEGER NOT NULL DEFAULT 0,
+        poll_interval_minutes INTEGER NOT NULL DEFAULT 10,
+        last_polled_at INTEGER,
+        last_success_at INTEGER,
+        last_error TEXT NOT NULL DEFAULT '',
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )`,
+      `CREATE TABLE IF NOT EXISTS feed_items (
+        id TEXT PRIMARY KEY,
+        subscription_id TEXT NOT NULL,
+        source TEXT NOT NULL,
+        content_hash TEXT NOT NULL,
+        title TEXT NOT NULL,
+        content_markdown TEXT NOT NULL,
+        media_json TEXT NOT NULL DEFAULT '[]',
+        canonical_url TEXT NOT NULL DEFAULT '',
+        published_at INTEGER,
+        discovered_at INTEGER NOT NULL,
+        fetched_at INTEGER NOT NULL,
+        UNIQUE(subscription_id, content_hash)
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_feed_items_source_discovered
+       ON feed_items(source, discovered_at DESC, id DESC)`,
+    ],
+  },
 ]

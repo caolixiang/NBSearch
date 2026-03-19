@@ -11,6 +11,7 @@ import {
   Trash2,
   Check,
   X,
+  RadioTower,
 } from "lucide-react"
 import { GrokLottieIcon, HoverAnimationProvider } from "./grok-lottie"
 import { cn } from "@/lib/utils"
@@ -24,9 +25,15 @@ interface Conversation {
 }
 
 interface ChatSidebarProps {
+  feedItems?: Array<{
+    id: string
+    title: string
+    description?: string
+  }>
   conversations: Conversation[]
   activeId: string | null
   onSelect: (id: string) => void
+  onSelectFeed?: (id: string) => void
   onNew: () => void
   onRename?: (id: string, title: string) => void
   onToggleStar?: (id: string, starred: boolean) => void
@@ -69,9 +76,11 @@ function NewConversationButton({
 }
 
 export function ChatSidebar({
+  feedItems = [],
   conversations,
   activeId,
   onSelect,
+  onSelectFeed,
   onNew,
   onRename,
   onToggleStar,
@@ -151,9 +160,46 @@ export function ChatSidebar({
           <PanelLeft className="size-4" />
         </Button>
         <NewConversationButton onNew={onNew} />
+        {feedItems.length > 0 ? (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => onSelectFeed?.(feedItems[0]!.id)}
+            className={cn(
+              "text-sidebar-foreground hover:bg-sidebar-accent",
+              activeId === feedItems[0]!.id ? "bg-sidebar-accent" : ""
+            )}
+          >
+            <RadioTower className="size-4" />
+          </Button>
+        ) : null}
       </div>
     )
   }
+
+  const renderFeedItem = (item: { id: string; title: string; description?: string }) => (
+    <button
+      key={item.id}
+      type="button"
+      onClick={() => onSelectFeed?.(item.id)}
+      className={cn(
+        "flex h-auto w-full items-start gap-2 rounded-xl px-2 py-2 text-left transition-colors",
+        activeId === item.id
+          ? "bg-sidebar-accent text-sidebar-accent-foreground"
+          : "text-sidebar-foreground hover:bg-sidebar-accent/50"
+      )}
+    >
+      <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full border border-sidebar-border/70 bg-sidebar/80">
+        <RadioTower className="size-3.5" />
+      </span>
+      <span className="min-w-0">
+        <span className="block truncate text-sm font-medium">{item.title}</span>
+        {item.description ? (
+          <span className="mt-0.5 block truncate text-xs text-muted-foreground">{item.description}</span>
+        ) : null}
+      </span>
+    </button>
+  )
 
   const renderConvoItem = (convo: Conversation) => {
     const canToggleStar = Boolean(onToggleStar && !isEmptyConversation(convo))
@@ -330,6 +376,14 @@ export function ChatSidebar({
 
       {/* Conversations list */}
       <div className="chat-sidebar-scroll-area flex-1 overflow-y-auto px-3">
+        {feedItems.length > 0 && (
+          <div className="mb-4">
+            <p className="mb-1 px-2 text-xs font-medium text-muted-foreground">
+              订阅
+            </p>
+            {feedItems.map(renderFeedItem)}
+          </div>
+        )}
         {starredConvos.length > 0 && (
           <div className="mb-4">
             <p className="mb-1 px-2 text-xs font-medium text-muted-foreground">

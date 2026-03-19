@@ -1,4 +1,5 @@
 import type { ChatService } from "../domain/chat/service"
+import type { FeedService } from "../domain/feed/service"
 import type { AppRepository } from "../domain/storage/repository"
 import type { VoiceService } from "../domain/voice/service"
 
@@ -11,6 +12,7 @@ export interface AppConfig {
   apiKey: string
   defaultModel: string
   voiceEnabled: boolean
+  polymarketSubscriptionEnabled?: boolean
   themeMode: AppThemeMode
   fontSizeMode: AppFontSizeMode
   timezone?: string
@@ -27,6 +29,7 @@ export interface AppConfig {
 
 export interface AppServices {
   chat: ChatService
+  feeds: FeedService
   voice: VoiceService
   repository: AppRepository
 }

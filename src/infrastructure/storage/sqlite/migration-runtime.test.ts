@@ -88,7 +88,7 @@ describe("ensureSqliteMigrations", () => {
     const versions = db
       .query("SELECT version FROM schema_migrations ORDER BY version ASC")
       .all() as Array<{ version: number }>
-    expect(versions.map((row) => row.version)).toEqual([1, 2])
+    expect(versions.map((row) => row.version)).toEqual([1, 2, 4])
 
     db.close()
   })
@@ -167,6 +167,7 @@ describe("ensureSqliteMigrations", () => {
       { version: 1, name: "init_chat_schema" },
       { version: 2, name: "add_conversation_has_deep_search_flag" },
       { version: 3, name: "repair_conversation_starred_after_version_conflict" },
+      { version: 4, name: "add_feed_subscription_tables" },
     ])
 
     db.close()

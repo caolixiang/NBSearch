@@ -14,13 +14,14 @@ import {
   saveAppearanceConfigToToml,
   saveGatewayConfigToToml,
   savePersonalizationConfigToToml,
+  saveSubscriptionsConfigToToml,
 } from "@/app/config"
 import { DEFAULT_APP_TIMEZONE, resolveAppTimezoneOptions } from "@/app/personalization"
 import { getRuntimeInfo, hasTauriRuntime } from "@/app/runtime-info"
 import { checkForAppUpdate, installAppUpdate } from "@/app/updater"
 import { cn } from "@/lib/utils"
 import { getGatewaySaveButtonState } from "./settings-dialog-gateway-save"
-import { Bell, Clock3, Database, Eye, EyeOff, Globe, Key, Palette, Shield, SlidersHorizontal } from "lucide-react"
+import { Bell, Clock3, Database, Eye, EyeOff, Globe, Key, Palette, RadioTower, Shield, SlidersHorizontal } from "lucide-react"
 
 interface SettingsDialogProps {
   open: boolean
@@ -32,6 +33,7 @@ interface SettingsDialogProps {
     fontSizeMode: AppFontSizeMode
   }) => void
   onPersonalizationConfigChange: (next: { timezone: string }) => void
+  onSubscriptionsConfigChange: (next: { polymarketSubscriptionEnabled: boolean }) => void
 }
 
 const tabs = [
@@ -40,6 +42,7 @@ const tabs = [
   { id: "notifications", label: "通知", icon: Bell },
   { id: "privacy", label: "隐私与安全", icon: Shield },
   { id: "personalization", label: "个性化配置", icon: SlidersHorizontal },
+  { id: "subscriptions", label: "订阅", icon: RadioTower },
   { id: "data", label: "数据管理", icon: Database },
 ] as const
 
@@ -72,6 +75,7 @@ export function SettingsDialog({
   onGatewayConfigChange,
   onAppearanceConfigChange,
   onPersonalizationConfigChange,
+  onSubscriptionsConfigChange,
 }: SettingsDialogProps) {
   const [activeTab, setActiveTab] = useState<TabId>("gateway")
   const [baseUrl, setBaseUrl] = useState("")
@@ -90,6 +94,10 @@ export function SettingsDialog({
   const [appearanceMessage, setAppearanceMessage] = useState("")
   const [personalizationBusy, setPersonalizationBusy] = useState(false)
   const [personalizationMessage, setPersonalizationMessage] = useState("")
+  const [polymarketEnabled, setPolymarketEnabled] = useState(false)
+  const [savedPolymarketEnabled, setSavedPolymarketEnabled] = useState(false)
+  const [subscriptionsBusy, setSubscriptionsBusy] = useState(false)
+  const [subscriptionsMessage, setSubscriptionsMessage] = useState("")
   const [imageCacheStats, setImageCacheStats] = useState<ImageCacheStats | null>(null)
   const [cacheBusy, setCacheBusy] = useState(false)
   const [cacheMessage, setCacheMessage] = useState("")
@@ -154,10 +162,13 @@ export function SettingsDialog({
     const nextTimezone = runtime.config.timezone || DEFAULT_APP_TIMEZONE
     setTimezone(nextTimezone)
     setSavedTimezone(nextTimezone)
+    setPolymarketEnabled(runtime.config.polymarketSubscriptionEnabled === true)
+    setSavedPolymarketEnabled(runtime.config.polymarketSubscriptionEnabled === true)
     setShowApiKey(false)
     setGatewayMessage("")
     setAppearanceMessage("")
     setPersonalizationMessage("")
+    setSubscriptionsMessage("")
     setUpdateAvailableVersion("")
     setUpdateMessage("")
     setUpdateEnabled(null)
@@ -168,6 +179,7 @@ export function SettingsDialog({
     runtime.config.themeMode,
     runtime.config.fontSizeMode,
     runtime.config.timezone,
+    runtime.config.polymarketSubscriptionEnabled,
   ])
 
   const gatewaySaveButtonState = useMemo(
@@ -188,6 +200,12 @@ export function SettingsDialog({
   const personalizationButtonLabel = personalizationBusy
     ? "保存中..."
     : personalizationHasChanges
+      ? "保存"
+      : "已保存"
+  const subscriptionsHasChanges = polymarketEnabled !== savedPolymarketEnabled
+  const subscriptionsButtonLabel = subscriptionsBusy
+    ? "保存中..."
+    : subscriptionsHasChanges
       ? "保存"
       : "已保存"
 
@@ -245,6 +263,35 @@ export function SettingsDialog({
       setGatewayMessage("保存失败，请重试")
     } finally {
       setGatewayBusy(false)
+    }
+  }
+
+  const saveSubscriptionsConfig = async () => {
+    if (subscriptionsBusy || !subscriptionsHasChanges) {
+      return
+    }
+    setSubscriptionsBusy(true)
+    setSubscriptionsMessage("")
+    try {
+      if (hasTauriRuntime()) {
+        const saved = await saveSubscriptionsConfigToToml({
+          polymarketEnabled,
+        })
+        if (!saved) {
+          throw new Error("persist_subscriptions_config_failed")
+        }
+      }
+      const resolved = await loadAppConfig()
+      const nextEnabled = resolved.polymarketSubscriptionEnabled === true
+      setPolymarketEnabled(nextEnabled)
+      setSavedPolymarketEnabled(nextEnabled)
+      onSubscriptionsConfigChange({
+        polymarketSubscriptionEnabled: nextEnabled,
+      })
+    } catch {
+      setSubscriptionsMessage("保存失败，请重试")
+    } finally {
+      setSubscriptionsBusy(false)
     }
   }
 
@@ -729,6 +776,75 @@ export function SettingsDialog({
                     disabled={personalizationBusy || !personalizationHasChanges}
                   >
                     {personalizationButtonLabel}
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {activeTab === "subscriptions" && (
+              <div className="space-y-5">
+                <div>
+                  <h3 className="text-sm font-medium text-foreground">订阅设置</h3>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    通过 Jina 拉取 Polymarket 在 X 上的最新动态，应用运行期间每 10 分钟同步一次。
+                  </p>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="rounded-xl border border-input p-4">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-foreground">订阅 Polymarket 最新动态</p>
+                        <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                          关闭窗口到状态栏时会继续同步；彻底退出应用后暂停，下次启动时会做一次补抓。
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={polymarketEnabled}
+                        onClick={() => {
+                          setPolymarketEnabled((prev) => !prev)
+                          if (subscriptionsMessage) {
+                            setSubscriptionsMessage("")
+                          }
+                        }}
+                        className={cn(
+                          "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition-colors",
+                          polymarketEnabled
+                            ? "border-foreground/20 bg-foreground"
+                            : "border-input bg-muted"
+                        )}
+                      >
+                        <span
+                          className={cn(
+                            "inline-block h-5 w-5 rounded-full bg-background transition-transform",
+                            polymarketEnabled ? "translate-x-[1.35rem]" : "translate-x-0.5"
+                          )}
+                        />
+                      </button>
+                    </div>
+                  </div>
+
+                  {subscriptionsMessage ? (
+                    <p className="text-xs text-muted-foreground">{subscriptionsMessage}</p>
+                  ) : null}
+                </div>
+
+                <div className="flex justify-end pt-2">
+                  <Button
+                    size="sm"
+                    className={cn(
+                      subscriptionsHasChanges
+                        ? "bg-foreground text-background hover:opacity-80 disabled:opacity-100"
+                        : "bg-muted text-muted-foreground hover:bg-muted disabled:opacity-100"
+                    )}
+                    onClick={() => {
+                      void saveSubscriptionsConfig()
+                    }}
+                    disabled={subscriptionsBusy || !subscriptionsHasChanges}
+                  >
+                    {subscriptionsButtonLabel}
                   </Button>
                 </div>
               </div>

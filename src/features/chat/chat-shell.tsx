@@ -1,17 +1,24 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { AppFontSizeMode, AppRuntime, AppThemeMode } from "@/app/contracts"
 import { applyAppearanceSettings } from "@/app/appearance"
-import { applyAppearanceConfigToRuntime, applyGatewayConfigToRuntime, applyPersonalizationConfigToRuntime } from "@/app/runtime"
+import {
+  applyAppearanceConfigToRuntime,
+  applyGatewayConfigToRuntime,
+  applyPersonalizationConfigToRuntime,
+  applySubscriptionsConfigToRuntime,
+} from "@/app/runtime"
 import type {
   ChatAnchors,
   ChatCardAttachmentPayload,
   ChatMessage as DomainChatMessage,
 } from "@/domain/chat/types"
+import type { FeedItemRecord, FeedPageCursor, FeedSubscriptionRecord } from "@/domain/feed/types"
 import type { ConversationRecord } from "@/domain/storage/repository"
 import { ChatInput, type ChatInputVoiceRuntimeEvent } from "@/components/chat-input"
 import { ChatMessage, type RenderChatMessage, TypingIndicator } from "@/components/chat-message"
 import { ChatSidebar } from "@/components/chat-sidebar"
 import { ModelSelector } from "@/components/model-selector"
+import { PolymarketFeedPane } from "@/components/polymarket-feed-pane"
 import { SettingsDialog } from "@/components/settings-dialog"
 import { WelcomeScreen } from "@/components/welcome-screen"
 import { cn } from "@/lib/utils"
@@ -64,13 +71,26 @@ import {
 } from "./voice-assistant-stream"
 
 const DRAFT_CONVERSATION_ID = "draft_new_conversation"
+const POLYMARKET_FEED_ID = "feed_polymarket"
+const POLYMARKET_SOURCE = "polymarket"
 const PENDING_RECOVERY_POLL_INTERVAL_MS = 2500
 const PENDING_RECOVERY_NONE_RESULT_MAX_RETRIES = 24
 export function ChatShell({ runtime }: { runtime: AppRuntime }) {
   const repository = runtime.services.repository
   const chatService = runtime.services.chat
+  const feedService = runtime.services.feeds
 
   const [conversations, setConversations] = useState<ConversationRecord[]>([])
+  const [activeMainView, setActiveMainView] = useState<"chat" | "polymarket">("chat")
+  const [polymarketSubscription, setPolymarketSubscription] = useState<FeedSubscriptionRecord | null>(null)
+  const [polymarketItems, setPolymarketItems] = useState<FeedItemRecord[]>([])
+  const [polymarketCursor, setPolymarketCursor] = useState<FeedPageCursor | null>(null)
+  const [polymarketHasMore, setPolymarketHasMore] = useState(false)
+  const [polymarketListLoading, setPolymarketListLoading] = useState(false)
+  const [polymarketLoadedOnce, setPolymarketLoadedOnce] = useState(false)
+  const [polymarketRuntimeState, setPolymarketRuntimeState] = useState(
+    feedService.getRuntimeState(POLYMARKET_SOURCE)
+  )
   const {
     hasDraftConversation,
     draftConversationUpdatedAt,
@@ -403,6 +423,48 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
   const handlePersonalizationConfigChange = useCallback((next: { timezone: string }) => {
     applyPersonalizationConfigToRuntime(next)
   }, [])
+
+  const loadPolymarketSubscription = useCallback(async (): Promise<FeedSubscriptionRecord> => {
+    const subscription = await feedService.getSubscription(POLYMARKET_SOURCE)
+    setPolymarketSubscription(subscription)
+    return subscription
+  }, [feedService])
+
+  const loadPolymarketItems = useCallback(
+    async (input: { append?: boolean; cursor?: FeedPageCursor | null } = {}): Promise<void> => {
+      setPolymarketListLoading(true)
+      try {
+        const page = await feedService.listItems({
+          source: POLYMARKET_SOURCE,
+          limit: 20,
+          cursor: input.append ? input.cursor || polymarketCursor : null,
+        })
+        setPolymarketItems((previous) =>
+          input.append ? [...previous, ...page.items] : page.items
+        )
+        setPolymarketCursor(page.nextCursor)
+        setPolymarketHasMore(Boolean(page.nextCursor))
+        setPolymarketLoadedOnce(true)
+      } finally {
+        setPolymarketListLoading(false)
+      }
+    },
+    [feedService, polymarketCursor]
+  )
+
+  const handleSubscriptionsConfigChange = useCallback(
+    (next: { polymarketSubscriptionEnabled: boolean }) => {
+      applySubscriptionsConfigToRuntime(next)
+      void loadPolymarketSubscription()
+      if (next.polymarketSubscriptionEnabled) {
+        void feedService
+          .syncNow(POLYMARKET_SOURCE)
+          .then(() => loadPolymarketItems())
+          .catch(() => {})
+      }
+    },
+    [feedService, loadPolymarketItems, loadPolymarketSubscription]
+  )
 
   const refreshConversations = useCallback(async (): Promise<ConversationRecord[]> => {
     const list = await repository.listConversations()
@@ -836,6 +898,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
 
     const initialize = async () => {
       const list = await refreshConversations()
+      await loadPolymarketSubscription()
       if (!mounted) {
         return
       }
@@ -857,7 +920,27 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       }
       abortControllerByConversationIdRef.current = {}
     }
-  }, [loadMessages, refreshConversations])
+  }, [loadMessages, loadPolymarketSubscription, refreshConversations])
+
+  useEffect(() => {
+    const unsubscribe = feedService.subscribe((event) => {
+      if (event.source !== POLYMARKET_SOURCE) {
+        return
+      }
+      setPolymarketRuntimeState(feedService.getRuntimeState(POLYMARKET_SOURCE))
+      if (event.type === "subscription_updated") {
+        void loadPolymarketSubscription()
+        return
+      }
+      if (event.type === "sync_completed" || event.type === "sync_failed") {
+        void loadPolymarketSubscription()
+        void loadPolymarketItems()
+      }
+    })
+
+    setPolymarketRuntimeState(feedService.getRuntimeState(POLYMARKET_SOURCE))
+    return unsubscribe
+  }, [feedService, loadPolymarketItems, loadPolymarketSubscription])
 
   useEffect(() => {
     if (!activeConversationId || activeConversationId === DRAFT_CONVERSATION_ID) {
@@ -1579,6 +1662,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
 
   const handleSelectConversation = useCallback(
     async (conversationId: string): Promise<void> => {
+      setActiveMainView("chat")
       if (conversationId === activeConversationIdRef.current) {
         return
       }
@@ -1608,7 +1692,19 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     ]
   )
 
+  const handleSelectFeed = useCallback(async (): Promise<void> => {
+    setActiveMainView("polymarket")
+    if (!polymarketLoadedOnce) {
+      await loadPolymarketItems()
+      return
+    }
+    if (polymarketItems.length === 0) {
+      await loadPolymarketItems()
+    }
+  }, [loadPolymarketItems, polymarketItems.length, polymarketLoadedOnce])
+
   const handleNewConversation = useCallback(() => {
+    setActiveMainView("chat")
     if (activeConversationIdRef.current === DRAFT_CONVERSATION_ID) {
       clearMessagesForConversation(DRAFT_CONVERSATION_ID)
       return
@@ -1717,13 +1813,29 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     ]
   )
 
+  const activeSidebarId = activeMainView === "polymarket" ? POLYMARKET_FEED_ID : activeConversationId
+
   return (
     <main className="flex h-dvh min-h-0 overflow-hidden bg-background">
       <div className="shrink-0">
         <ChatSidebar
+          feedItems={[
+            {
+              id: POLYMARKET_FEED_ID,
+              title: "Polymarket",
+              description: polymarketSubscription?.enabled
+                ? polymarketRuntimeState.isSyncing
+                  ? "同步中..."
+                  : "最新动态"
+                : "未开启",
+            },
+          ]}
           conversations={sidebarConversations}
-          activeId={activeConversationId}
+          activeId={activeSidebarId}
           onSelect={(id) => void handleSelectConversation(id)}
+          onSelectFeed={() => {
+            void handleSelectFeed()
+          }}
           onNew={() => void handleNewConversation()}
           onRename={(id, title) => void handleRenameConversation(id, title)}
           onToggleStar={(id, starred) => void handleToggleConversationStar(id, starred)}
@@ -1737,19 +1849,30 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
 
       <div data-chat-main-pane="true" className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <header className="flex items-center justify-between border-b border-border px-4 py-2.5">
-          <ModelSelector
-            models={modelOptions}
-            selectedModel={selectedModel}
-            onModelChange={(modelId) => {
-              setSelectedModel(modelId)
-            }}
-            onRefresh={() => {
-              void refreshModelOptions()
-            }}
-            isRefreshing={isRefreshingModels}
-            refreshStatusMessage={modelSyncNotice?.message}
-            refreshStatusTone={modelSyncNotice?.tone}
-          />
+          {activeMainView === "polymarket" ? (
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-foreground">Polymarket</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                {polymarketSubscription?.enabled
+                  ? "X 订阅流"
+                  : "在设置中开启后，每 10 分钟同步一次"}
+              </p>
+            </div>
+          ) : (
+            <ModelSelector
+              models={modelOptions}
+              selectedModel={selectedModel}
+              onModelChange={(modelId) => {
+                setSelectedModel(modelId)
+              }}
+              onRefresh={() => {
+                void refreshModelOptions()
+              }}
+              isRefreshing={isRefreshingModels}
+              refreshStatusMessage={modelSyncNotice?.message}
+              refreshStatusTone={modelSyncNotice?.tone}
+            />
+          )}
           <div className="flex min-w-0 items-center gap-2">
             {readyUpdateVersion ? (
               <button
@@ -1805,7 +1928,31 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
           onScroll={handleMessagesScroll}
           className="flex-1 min-h-0 overflow-y-auto overscroll-y-none"
         >
-          {visibleMessages.length === 0 ? (
+          {activeMainView === "polymarket" ? (
+            <PolymarketFeedPane
+              subscription={polymarketSubscription}
+              items={polymarketItems}
+              isLoading={polymarketListLoading}
+              isSyncing={polymarketRuntimeState.isSyncing}
+              hasMore={polymarketHasMore}
+              onRefresh={() => {
+                void feedService
+                  .syncNow(POLYMARKET_SOURCE)
+                  .then(() => loadPolymarketItems())
+                  .catch(() => {})
+              }}
+              onLoadMore={() => {
+                if (!polymarketHasMore || polymarketListLoading) {
+                  return
+                }
+                void loadPolymarketItems({
+                  append: true,
+                  cursor: polymarketCursor,
+                })
+              }}
+              onOpenSettings={() => setSettingsOpen(true)}
+            />
+          ) : visibleMessages.length === 0 ? (
             <WelcomeScreen />
           ) : (
             <div
@@ -1854,36 +2001,38 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
           )}
         </div>
 
-        <div className="shrink-0">
-          <ChatInput
-            onSendMessage={(text, attachments) => {
-              void handleSendMessage(text, attachments)
-            }}
-            isLoading={isActiveConversationStreaming}
-            voiceEnabled={runtime.config.voiceEnabled}
-            modelOptions={modelOptions}
-            selectedModel={selectedModel}
-            onModelChange={(modelId) => {
-              setSelectedModel(modelId)
-            }}
-            activeConversationId={activeConversationId}
-            voiceService={runtime.services.voice}
-            onPrepareVoiceSession={handlePrepareVoiceSession}
-            onVoiceRuntimeEvent={(event) => {
-              void handleVoiceRuntimeEvent(event)
-            }}
-            onHeightChange={(height) => {
-              setChatInputHeight((prev) => (Math.abs(prev - height) < 1 ? prev : height))
-            }}
-            onStop={() => {
-              const currentConversationId = activeConversationIdRef.current
-              if (!currentConversationId) {
-                return
-              }
-              abortControllerByConversationIdRef.current[currentConversationId]?.abort()
-            }}
-          />
-        </div>
+        {activeMainView === "chat" ? (
+          <div className="shrink-0">
+            <ChatInput
+              onSendMessage={(text, attachments) => {
+                void handleSendMessage(text, attachments)
+              }}
+              isLoading={isActiveConversationStreaming}
+              voiceEnabled={runtime.config.voiceEnabled}
+              modelOptions={modelOptions}
+              selectedModel={selectedModel}
+              onModelChange={(modelId) => {
+                setSelectedModel(modelId)
+              }}
+              activeConversationId={activeConversationId}
+              voiceService={runtime.services.voice}
+              onPrepareVoiceSession={handlePrepareVoiceSession}
+              onVoiceRuntimeEvent={(event) => {
+                void handleVoiceRuntimeEvent(event)
+              }}
+              onHeightChange={(height) => {
+                setChatInputHeight((prev) => (Math.abs(prev - height) < 1 ? prev : height))
+              }}
+              onStop={() => {
+                const currentConversationId = activeConversationIdRef.current
+                if (!currentConversationId) {
+                  return
+                }
+                abortControllerByConversationIdRef.current[currentConversationId]?.abort()
+              }}
+            />
+          </div>
+        ) : null}
       </div>
 
       <SettingsDialog
@@ -1893,6 +2042,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
         onGatewayConfigChange={handleGatewayConfigChange}
         onAppearanceConfigChange={handleAppearanceConfigChange}
         onPersonalizationConfigChange={handlePersonalizationConfigChange}
+        onSubscriptionsConfigChange={handleSubscriptionsConfigChange}
       />
     </main>
   )

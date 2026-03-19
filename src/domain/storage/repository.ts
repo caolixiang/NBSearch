@@ -1,4 +1,11 @@
 import type { ChatAnchors, ChatMessage } from "../chat/types"
+import type {
+  FeedItemRecord,
+  FeedPage,
+  FeedPageCursor,
+  FeedSource,
+  FeedSubscriptionRecord,
+} from "../feed/types"
 
 export interface ConversationRecord {
   id: string
@@ -43,4 +50,16 @@ export interface AppRepository {
   ): Promise<void>
 
   upsertVoiceSession(record: VoiceSessionRecord): Promise<void>
+
+  getFeedSubscription(source: FeedSource): Promise<FeedSubscriptionRecord | null>
+
+  upsertFeedSubscription(record: FeedSubscriptionRecord): Promise<void>
+
+  listFeedItems(input: {
+    source: FeedSource
+    limit: number
+    cursor?: FeedPageCursor | null
+  }): Promise<FeedPage<FeedItemRecord>>
+
+  insertFeedItems(items: FeedItemRecord[]): Promise<number>
 }

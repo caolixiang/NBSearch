@@ -1,6 +1,7 @@
 import type { AppFontSizeMode, AppRuntime, AppThemeMode } from "./contracts"
 import { loadAppConfig } from "./config"
 import { GrokChatService } from "../infrastructure/chat/grok-chat-service"
+import { PolymarketFeedService } from "../infrastructure/feed/polymarket-feed-service"
 import { getAppRepository } from "../infrastructure/storage/factory"
 import { GatewayVoiceService } from "../infrastructure/voice/gateway-voice-service"
 
@@ -23,9 +24,11 @@ export async function getAppRuntime(): Promise<AppRuntime> {
       services: {
         repository,
         chat: new GrokChatService(repository, config),
+        feeds: new PolymarketFeedService(repository, config),
         voice: new GatewayVoiceService(config),
       },
     }
+    runtimeSingleton.services.feeds.ensureStarted()
     return runtimeSingleton
   })()
 
@@ -59,4 +62,16 @@ export function applyPersonalizationConfigToRuntime(next: { timezone: string }):
     return
   }
   runtimeSingleton.config.timezone = next.timezone
+}
+
+export function applySubscriptionsConfigToRuntime(next: {
+  polymarketSubscriptionEnabled: boolean
+}): void {
+  if (!runtimeSingleton) {
+    return
+  }
+  runtimeSingleton.config.polymarketSubscriptionEnabled = next.polymarketSubscriptionEnabled
+  runtimeSingleton.services.feeds.applyConfig({
+    polymarketEnabled: next.polymarketSubscriptionEnabled,
+  })
 }

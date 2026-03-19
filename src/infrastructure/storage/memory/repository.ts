@@ -4,11 +4,20 @@ import type {
   ConversationRecord,
   VoiceSessionRecord,
 } from "../../../domain/storage/repository"
+import type {
+  FeedItemRecord,
+  FeedPage,
+  FeedPageCursor,
+  FeedSource,
+  FeedSubscriptionRecord,
+} from "../../../domain/feed/types"
 
 export class MemoryAppRepository implements AppRepository {
   private conversations = new Map<string, ConversationRecord>()
   private messages = new Map<string, ChatMessage[]>()
   private voiceSessions = new Map<string, VoiceSessionRecord>()
+  private feedSubscriptions = new Map<FeedSource, FeedSubscriptionRecord>()
+  private feedItems = new Map<FeedSource, FeedItemRecord[]>()
 
   async listConversations(): Promise<ConversationRecord[]> {
     return Array.from(this.conversations.values()).sort((a, b) => b.updatedAt - a.updatedAt)
@@ -87,5 +96,67 @@ export class MemoryAppRepository implements AppRepository {
 
   async upsertVoiceSession(record: VoiceSessionRecord): Promise<void> {
     this.voiceSessions.set(record.id, record)
+  }
+
+  async getFeedSubscription(source: FeedSource): Promise<FeedSubscriptionRecord | null> {
+    return this.feedSubscriptions.get(source) || null
+  }
+
+  async upsertFeedSubscription(record: FeedSubscriptionRecord): Promise<void> {
+    this.feedSubscriptions.set(record.source, record)
+  }
+
+  async listFeedItems(input: {
+    source: FeedSource
+    limit: number
+    cursor?: FeedPageCursor | null
+  }): Promise<FeedPage<FeedItemRecord>> {
+    const list = [...(this.feedItems.get(input.source) || [])].sort((left, right) => {
+      if (right.discoveredAt !== left.discoveredAt) {
+        return right.discoveredAt - left.discoveredAt
+      }
+      return right.id.localeCompare(left.id)
+    })
+    const filtered = input.cursor
+      ? list.filter((item) => {
+          if (item.discoveredAt < input.cursor!.discoveredAt) {
+            return true
+          }
+          if (item.discoveredAt > input.cursor!.discoveredAt) {
+            return false
+          }
+          return item.id < input.cursor!.id
+        })
+      : list
+    const items = filtered.slice(0, Math.max(1, input.limit))
+    const lastItem = items[items.length - 1] || null
+    const hasMore = filtered.length > items.length
+    return {
+      items,
+      nextCursor: hasMore && lastItem
+        ? {
+            discoveredAt: lastItem.discoveredAt,
+            id: lastItem.id,
+          }
+        : null,
+    }
+  }
+
+  async insertFeedItems(items: FeedItemRecord[]): Promise<number> {
+    let inserted = 0
+    for (const item of items) {
+      const current = this.feedItems.get(item.source) || []
+      const exists = current.some(
+        (candidate) =>
+          candidate.subscriptionId === item.subscriptionId &&
+          candidate.contentHash === item.contentHash
+      )
+      if (exists) {
+        continue
+      }
+      this.feedItems.set(item.source, [...current, item])
+      inserted += 1
+    }
+    return inserted
   }
 }

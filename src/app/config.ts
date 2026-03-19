@@ -22,6 +22,7 @@ interface GatewayConfigPayload {
   theme?: string
   fontSize?: string
   timezone?: string
+  polymarketEnabled?: boolean
   streamIdleTimeoutMs?: number
   streamIdleRetryMaxAttempts?: number
   streamIdleRetryDelayMs?: number
@@ -42,6 +43,11 @@ interface AppearanceConfigPayload {
 
 interface PersonalizationConfigPayload {
   timezone?: string
+  configPath?: string
+}
+
+interface SubscriptionsConfigPayload {
+  polymarketEnabled?: boolean
   configPath?: string
 }
 
@@ -94,6 +100,7 @@ function readEnvAppConfig(): AppConfig {
     apiKey: useEnvGatewayDefaults ? envApiKey : "",
     defaultModel: import.meta.env.VITE_APP_DEFAULT_MODEL?.trim() || "grok-4.1-fast",
     voiceEnabled: parseBool(import.meta.env.VITE_APP_VOICE_ENABLED, true),
+    polymarketSubscriptionEnabled: parseBool(import.meta.env.VITE_APP_POLYMARKET_SUBSCRIPTION_ENABLED, false),
     themeMode: normalizeThemeMode(import.meta.env.VITE_APP_THEME_MODE),
     fontSizeMode: normalizeFontSizeMode(import.meta.env.VITE_APP_FONT_SIZE_MODE),
     timezone: normalizeAppTimezone(import.meta.env.VITE_APP_TIMEZONE || DEFAULT_APP_TIMEZONE),
@@ -222,6 +229,22 @@ export async function savePersonalizationConfigToToml(input: {
   }
 }
 
+export async function saveSubscriptionsConfigToToml(input: {
+  polymarketEnabled: boolean
+}): Promise<SubscriptionsConfigPayload | null> {
+  if (!hasTauriRuntime()) {
+    return null
+  }
+  try {
+    const { invoke } = await import("@tauri-apps/api/core")
+    return await invoke<SubscriptionsConfigPayload>("save_subscriptions_config", {
+      polymarketEnabled: input.polymarketEnabled,
+    })
+  } catch {
+    return null
+  }
+}
+
 export async function loadAppConfig(): Promise<AppConfig> {
   const envConfig = readEnvAppConfig()
   const fileConfig = await readGatewayConfigFromToml()
@@ -230,6 +253,10 @@ export async function loadAppConfig(): Promise<AppConfig> {
   const fileThemeMode = normalizeThemeMode(fileConfig?.theme)
   const fileFontSizeMode = normalizeFontSizeMode(fileConfig?.fontSize)
   const fileTimezone = normalizeAppTimezone(fileConfig?.timezone)
+  const filePolymarketEnabled =
+    typeof fileConfig?.polymarketEnabled === "boolean"
+      ? fileConfig.polymarketEnabled
+      : envConfig.polymarketSubscriptionEnabled
   const fileStreamIdleTimeoutMs = normalizeIntegerInRange(
     fileConfig?.streamIdleTimeoutMs,
     envConfig.streamIdleTimeoutMs ?? DEFAULT_STREAM_IDLE_TIMEOUT_MS,
@@ -297,6 +324,7 @@ export async function loadAppConfig(): Promise<AppConfig> {
     themeMode: hasFileTheme ? fileThemeMode : envConfig.themeMode,
     fontSizeMode: hasFileFontSize ? fileFontSizeMode : envConfig.fontSizeMode,
     timezone: hasFileTimezone ? fileTimezone : envConfig.timezone,
+    polymarketSubscriptionEnabled: filePolymarketEnabled,
     streamIdleTimeoutMs: fileStreamIdleTimeoutMs,
     streamIdleRetryMaxAttempts: fileStreamIdleRetryMaxAttempts,
     streamIdleRetryDelayMs: fileStreamIdleRetryDelayMs,

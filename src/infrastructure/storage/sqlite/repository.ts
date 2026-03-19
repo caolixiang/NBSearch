@@ -1,5 +1,12 @@
 import type { ChatAttachment, ChatDeepSearchResearch, ChatMessage, ChatReasoningEventDetail } from "../../../domain/chat/types"
 import type {
+  FeedItemRecord,
+  FeedPage,
+  FeedPageCursor,
+  FeedSource,
+  FeedSubscriptionRecord,
+} from "../../../domain/feed/types"
+import type {
   AppRepository,
   ConversationRecord,
   VoiceSessionRecord,
@@ -156,6 +163,86 @@ export type SqliteMessageRow = {
   previous_response_id: string
   status: "streaming" | "completed" | "failed"
   created_at: number
+}
+
+type SqliteFeedSubscriptionRow = {
+  id: string
+  source: FeedSource
+  enabled: number
+  poll_interval_minutes: number
+  last_polled_at: number | null
+  last_success_at: number | null
+  last_error: string
+  created_at: number
+  updated_at: number
+}
+
+type SqliteFeedItemRow = {
+  id: string
+  subscription_id: string
+  source: FeedSource
+  content_hash: string
+  title: string
+  content_markdown: string
+  media_json: string
+  canonical_url: string
+  published_at: number | null
+  discovered_at: number
+  fetched_at: number
+}
+
+function parseFeedMediaUrls(mediaJson: string): string[] {
+  const trimmed = mediaJson.trim()
+  if (!trimmed) {
+    return []
+  }
+  try {
+    const value = JSON.parse(trimmed) as unknown
+    if (!Array.isArray(value)) {
+      return []
+    }
+    return value
+      .map((item) => (typeof item === "string" ? item.trim() : ""))
+      .filter((item) => item.length > 0)
+  } catch {
+    return []
+  }
+}
+
+function serializeFeedMediaUrls(mediaUrls: string[]): string {
+  return JSON.stringify(
+    Array.from(new Set(mediaUrls.map((item) => item.trim()).filter((item) => item.length > 0)))
+  )
+}
+
+function hydrateFeedSubscription(row: SqliteFeedSubscriptionRow): FeedSubscriptionRecord {
+  return {
+    id: row.id,
+    source: row.source,
+    enabled: Boolean(row.enabled),
+    pollIntervalMinutes: row.poll_interval_minutes,
+    lastPolledAt: row.last_polled_at,
+    lastSuccessAt: row.last_success_at,
+    lastError: row.last_error || "",
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }
+}
+
+function hydrateFeedItem(row: SqliteFeedItemRow): FeedItemRecord {
+  return {
+    id: row.id,
+    subscriptionId: row.subscription_id,
+    source: row.source,
+    contentHash: row.content_hash,
+    title: row.title,
+    contentMarkdown: row.content_markdown,
+    mediaUrls: parseFeedMediaUrls(row.media_json),
+    canonicalUrl: row.canonical_url || "",
+    publishedAt: row.published_at,
+    discoveredAt: row.discovered_at,
+    fetchedAt: row.fetched_at,
+  }
 }
 
 export function hydrateChatMessagesFromSqliteRows(rows: SqliteMessageRow[]): ChatMessage[] {
@@ -379,5 +466,123 @@ export class SqliteAppRepository implements AppRepository {
         record.endedAt,
       ]
     )
+  }
+
+  async getFeedSubscription(source: FeedSource): Promise<FeedSubscriptionRecord | null> {
+    const db = await getDatabase()
+    const rows = await db.select<SqliteFeedSubscriptionRow[]>(
+      `SELECT id, source, enabled, poll_interval_minutes, last_polled_at, last_success_at, last_error, created_at, updated_at
+       FROM feed_subscriptions
+       WHERE source = $1
+       LIMIT 1`,
+      [source]
+    )
+    const row = rows[0]
+    return row ? hydrateFeedSubscription(row) : null
+  }
+
+  async upsertFeedSubscription(record: FeedSubscriptionRecord): Promise<void> {
+    const db = await getDatabase()
+    await db.execute(
+      `INSERT INTO feed_subscriptions(
+         id, source, enabled, poll_interval_minutes, last_polled_at, last_success_at, last_error, created_at, updated_at
+       )
+       VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       ON CONFLICT(source) DO UPDATE SET
+         id=excluded.id,
+         enabled=excluded.enabled,
+         poll_interval_minutes=excluded.poll_interval_minutes,
+         last_polled_at=excluded.last_polled_at,
+         last_success_at=excluded.last_success_at,
+         last_error=excluded.last_error,
+         updated_at=excluded.updated_at`,
+      [
+        record.id,
+        record.source,
+        record.enabled ? 1 : 0,
+        record.pollIntervalMinutes,
+        record.lastPolledAt,
+        record.lastSuccessAt,
+        record.lastError || "",
+        record.createdAt,
+        record.updatedAt,
+      ]
+    )
+  }
+
+  async listFeedItems(input: {
+    source: FeedSource
+    limit: number
+    cursor?: FeedPageCursor | null
+  }): Promise<FeedPage<FeedItemRecord>> {
+    const db = await getDatabase()
+    const limit = Math.max(1, Math.floor(input.limit))
+    const rows = input.cursor
+      ? await db.select<SqliteFeedItemRow[]>(
+          `SELECT id, subscription_id, source, content_hash, title, content_markdown, media_json, canonical_url, published_at, discovered_at, fetched_at
+           FROM feed_items
+           WHERE source = $1
+             AND (
+               discovered_at < $2
+               OR (discovered_at = $2 AND id < $3)
+             )
+           ORDER BY discovered_at DESC, id DESC
+           LIMIT $4`,
+          [input.source, input.cursor.discoveredAt, input.cursor.id, limit + 1]
+        )
+      : await db.select<SqliteFeedItemRow[]>(
+          `SELECT id, subscription_id, source, content_hash, title, content_markdown, media_json, canonical_url, published_at, discovered_at, fetched_at
+           FROM feed_items
+           WHERE source = $1
+           ORDER BY discovered_at DESC, id DESC
+           LIMIT $2`,
+          [input.source, limit + 1]
+        )
+
+    const hasMore = rows.length > limit
+    const pageRows = hasMore ? rows.slice(0, limit) : rows
+    const items = pageRows.map(hydrateFeedItem)
+    const lastItem = items[items.length - 1] || null
+
+    return {
+      items,
+      nextCursor: hasMore && lastItem
+        ? {
+            discoveredAt: lastItem.discoveredAt,
+            id: lastItem.id,
+          }
+        : null,
+    }
+  }
+
+  async insertFeedItems(items: FeedItemRecord[]): Promise<number> {
+    if (items.length === 0) {
+      return 0
+    }
+    const db = await getDatabase()
+    let inserted = 0
+    for (const item of items) {
+      const result = await db.execute(
+        `INSERT OR IGNORE INTO feed_items(
+           id, subscription_id, source, content_hash, title, content_markdown, media_json, canonical_url, published_at, discovered_at, fetched_at
+         )
+         VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+        [
+          item.id,
+          item.subscriptionId,
+          item.source,
+          item.contentHash,
+          item.title,
+          item.contentMarkdown,
+          serializeFeedMediaUrls(item.mediaUrls),
+          item.canonicalUrl || "",
+          item.publishedAt,
+          item.discoveredAt,
+          item.fetchedAt,
+        ]
+      )
+      inserted += result.rowsAffected
+    }
+    return inserted
   }
 }
