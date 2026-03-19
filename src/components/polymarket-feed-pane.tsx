@@ -17,6 +17,10 @@ export function shouldAutoLoadPolymarketPage(input: {
   return input.subscriptionEnabled && input.hasMore && !input.isLoading
 }
 
+export function normalizePolymarketCardText(value: string): string {
+  return value.replace(/\r\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim()
+}
+
 function formatSyncTime(value: number | null): string {
   if (!value) {
     return "尚未同步"
@@ -35,12 +39,20 @@ function formatItemTime(item: FeedItemRecord): string {
   return formatSyncTime(value)
 }
 
-function getItemTitle(item: FeedItemRecord): string {
-  return item.titleZh.trim() || item.title
+export function getPolymarketItemTitle(item: FeedItemRecord): string {
+  return normalizePolymarketCardText(item.titleZh.trim() || item.title)
 }
 
-function getItemContent(item: FeedItemRecord): string {
-  return item.contentMarkdownZh.trim() || item.contentMarkdown
+export function getPolymarketItemContent(item: FeedItemRecord): string {
+  const content = normalizePolymarketCardText(item.contentMarkdownZh.trim() || item.contentMarkdown)
+  const title = getPolymarketItemTitle(item)
+  if (!content) {
+    return ""
+  }
+  if (content === title) {
+    return ""
+  }
+  return content
 }
 
 interface PolymarketFeedPaneProps {
@@ -183,14 +195,14 @@ export function PolymarketFeedPane({
               <article key={item.id} className="rounded-2xl border border-border bg-card p-4 shadow-sm">
                 <div className="flex items-start justify-between gap-4">
                   <div className="min-w-0">
-                    <h3 className="line-clamp-2 text-sm font-semibold leading-6 text-foreground">{getItemTitle(item)}</h3>
+                    <h3 className="line-clamp-2 text-sm font-semibold leading-6 text-foreground">{getPolymarketItemTitle(item)}</h3>
                     <p className="mt-1 text-xs text-muted-foreground">{formatItemTime(item)}</p>
                   </div>
                 </div>
 
-                {getItemContent(item) ? (
+                {getPolymarketItemContent(item) ? (
                   <p className="mt-3 whitespace-pre-wrap text-sm leading-7 text-foreground">
-                    {getItemContent(item)}
+                    {getPolymarketItemContent(item)}
                   </p>
                 ) : null}
 
@@ -211,9 +223,15 @@ export function PolymarketFeedPane({
                   </div>
                 ) : null}
 
-                <div className="mt-4 flex justify-end">
+                <div
+                  className={cn(
+                    "flex items-center justify-end",
+                    item.mediaUrls.length > 0 || getPolymarketItemContent(item) ? "mt-3" : "mt-2"
+                  )}
+                >
                   <Button
                     size="sm"
+                    className="rounded-full px-3.5"
                     onClick={() => {
                       onDeepResearch(item)
                     }}

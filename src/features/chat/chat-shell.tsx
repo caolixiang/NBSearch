@@ -36,7 +36,7 @@ import {
   type PendingRecoveryNoneRetryTracker,
 } from "./pending-recovery-bootstrap"
 import { useChatConversationStore } from "./chat-conversation-store"
-import { resolveFastModelId } from "./model-selection"
+import { resolveFastModelId, resolveThinkerModelId } from "./model-selection"
 import { createChatStreamRuntime, persistCompletedReasoning } from "./chat-stream-runtime"
 import {
   buildAssistantRoundByMessageId,
@@ -172,6 +172,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
           conversationId?: string
           turnAttachments?: ChatTurnAttachmentInput[]
           messageAttachments?: ChatAttachment[]
+          modelId?: string
         }
       ) => Promise<void>)
     | null
@@ -1135,6 +1136,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
         conversationId?: string
         turnAttachments?: ChatTurnAttachmentInput[]
         messageAttachments?: ChatAttachment[]
+        modelId?: string
       }
     ): Promise<void> => {
       const content = text.trim()
@@ -1148,6 +1150,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
         explicitTurnAttachments.length > 0 ? explicitTurnAttachments : selectedFileAttachments
       const retryExistingUserMessageId = options?.retryExistingUserMessageId?.trim() || ""
       const targetConversationId = options?.conversationId?.trim() || ""
+      const effectiveModelId = options?.modelId?.trim() || selectedModel
       if (!content && turnAttachments.length === 0) {
         return
       }
@@ -1208,7 +1211,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       try {
         await chatService.streamTurn(
           {
-            model: selectedModel,
+            model: effectiveModelId,
             text: content,
             attachments: turnAttachments,
             ...(messageAttachments.length > 0 ? { messageAttachments } : {}),
@@ -1749,26 +1752,34 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       const prompt = buildPolymarketResearchPrompt(item)
       const turnAttachments = buildPolymarketResearchImageAttachments(item)
       const messageAttachments = buildPolymarketResearchMessageAttachments(item)
+      const thinkerModelId = resolveThinkerModelId(modelOptions, selectedModel) || selectedModel
 
       setPolymarketResearchingItemId(item.id)
       try {
         setActiveMainView("chat")
+        if (thinkerModelId && thinkerModelId !== selectedModel) {
+          setSelectedModel(thinkerModelId)
+        }
         const conversationId = await createConversation("")
         await handleSendMessage(prompt, [], {
           conversationId,
           turnAttachments,
           messageAttachments,
+          modelId: thinkerModelId,
         })
       } finally {
         setPolymarketResearchingItemId(null)
       }
     },
     [
+      modelOptions,
       buildPolymarketResearchPrompt,
       createConversation,
       handleSendMessage,
       polymarketResearchingItemId,
+      selectedModel,
       setActiveMainView,
+      setSelectedModel,
     ]
   )
 
