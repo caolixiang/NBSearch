@@ -97,7 +97,6 @@ function normalizeIntegerInRange(value: unknown, fallback: number, min: number, 
 const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 20_000
 const DEFAULT_STREAM_IDLE_RETRY_MAX_ATTEMPTS = 1
 const DEFAULT_STREAM_IDLE_RETRY_DELAY_MS = 450
-const DEFAULT_OPENAI_API_BASE_URL = DEFAULT_OPENAI_COMPATIBLE_BASE_URL
 const DEFAULT_OPENAI_TRANSLATION_MODEL = DEFAULT_OPENAI_COMPATIBLE_MODEL
 const DEFAULT_TURN_RECOVERY_MESSAGES_LIMIT = 100
 const DEFAULT_TURN_RECOVERY_NOT_FOUND_RETRY_MAX_ATTEMPTS = 1
@@ -118,7 +117,7 @@ function readEnvAppConfig(): AppConfig {
     apiBaseUrl: useEnvGatewayDefaults ? envApiBaseUrl || "http://localhost:8787" : "",
     apiKey: useEnvGatewayDefaults ? envApiKey : "",
     defaultModel: import.meta.env.VITE_APP_DEFAULT_MODEL?.trim() || "grok-4.1-fast",
-    openaiApiBaseUrl: envOpenAIApiBaseUrl || DEFAULT_OPENAI_API_BASE_URL,
+    openaiApiBaseUrl: envOpenAIApiBaseUrl,
     openaiApiKey: envOpenAIApiKey,
     openaiTranslationModel: envOpenAITranslationModel || DEFAULT_OPENAI_TRANSLATION_MODEL,
     voiceEnabled: parseBool(import.meta.env.VITE_APP_VOICE_ENABLED, true),
@@ -366,7 +365,7 @@ export async function loadAppConfig(): Promise<AppConfig> {
     // config.toml has higher priority than .env in all environments.
     apiBaseUrl: fileApiBaseUrl || envConfig.apiBaseUrl,
     apiKey: fileApiKey || envConfig.apiKey,
-    openaiApiBaseUrl: fileOpenAIApiBaseUrl || envConfig.openaiApiBaseUrl || DEFAULT_OPENAI_API_BASE_URL,
+    openaiApiBaseUrl: fileOpenAIApiBaseUrl || envConfig.openaiApiBaseUrl,
     openaiApiKey: fileOpenAIApiKey || envConfig.openaiApiKey,
     openaiTranslationModel:
       fileOpenAITranslationModel || envConfig.openaiTranslationModel || DEFAULT_OPENAI_TRANSLATION_MODEL,

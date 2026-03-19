@@ -5,7 +5,6 @@ import { appendClientLog, logClientError } from "@/app/client-log"
 import type { FeedItemTranslationStatus } from "@/domain/feed/types"
 import {
   createOpenAICompatibleProvider,
-  DEFAULT_OPENAI_COMPATIBLE_BASE_URL,
   DEFAULT_OPENAI_COMPATIBLE_MODEL,
 } from "@/infrastructure/llm/openai-compatible-client"
 const FEED_TRANSLATOR_SCOPE = "feed-openai-translator"
@@ -88,9 +87,9 @@ export class OpenAIFeedTranslator implements FeedTranslator {
     }
 
     const apiKey = this.config.openaiApiKey.trim()
-    const baseURL = this.config.openaiApiBaseUrl.trim() || DEFAULT_OPENAI_COMPATIBLE_BASE_URL
+    const baseURL = this.config.openaiApiBaseUrl.trim()
     const model = this.config.openaiTranslationModel.trim() || DEFAULT_OPENAI_COMPATIBLE_MODEL
-    if (!apiKey) {
+    if (!apiKey || !baseURL) {
       return buildSkippedResults(items)
     }
 

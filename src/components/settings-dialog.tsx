@@ -722,12 +722,10 @@ export function SettingsDialog({
                           setOpenAITestMessage("")
                         }
                       }}
-                      placeholder="https://cpabak.zeabur.app/v1"
+                      placeholder="https://your-openai-compatible-gateway/v1"
                       className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:border-ring focus:ring-1 focus:ring-ring transition-colors"
                     />
-                    <p className="text-xs text-muted-foreground">
-                      默认使用 OpenAI-compatible 网关地址
-                    </p>
+                    <p className="text-xs text-muted-foreground">填写 OpenAI-compatible 网关地址</p>
                   </div>
 
                   <div className="space-y-1.5">

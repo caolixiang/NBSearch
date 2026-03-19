@@ -6,11 +6,7 @@ export const DEFAULT_OPENAI_COMPATIBLE_BASE_URL = "https://cpabak.zeabur.app/v1"
 export const DEFAULT_OPENAI_COMPATIBLE_MODEL = "gpt-5.4-mini"
 
 function normalizeBaseUrl(baseUrl: string): string {
-  const trimmed = baseUrl.trim()
-  if (!trimmed) {
-    return DEFAULT_OPENAI_COMPATIBLE_BASE_URL
-  }
-  return trimmed.replace(/\/+$/, "")
+  return baseUrl.trim().replace(/\/+$/, "")
 }
 
 function normalizeModel(model: string): string {
@@ -23,9 +19,13 @@ export function createOpenAICompatibleProvider(input: {
   apiKey: string
   fetchFn?: typeof fetch
 }) {
+  const normalizedBaseUrl = normalizeBaseUrl(input.baseUrl)
+  if (!normalizedBaseUrl) {
+    throw new Error("openai_base_url_missing")
+  }
   return createOpenAI({
     name: "openai-compatible",
-    baseURL: normalizeBaseUrl(input.baseUrl),
+    baseURL: normalizedBaseUrl,
     apiKey: input.apiKey.trim(),
     fetch: input.fetchFn || runtimeFetch,
   })

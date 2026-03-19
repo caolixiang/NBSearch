@@ -100,6 +100,38 @@ export function buildUserMessageContent(text: string, attachments?: File[]): str
   return `${content}\n\n${attachmentLines.join("\n")}`
 }
 
+function normalizeFeedOriginalText(value: string): string {
+  return value.replace(/\s+/g, " ").trim()
+}
+
+function stripTrailingEllipsis(value: string): string {
+  return value.replace(/[.。…\s]+$/g, "").trim()
+}
+
+function shouldTreatFeedOriginalAsDuplicate(left: string, right: string): boolean {
+  const normalizedLeft = normalizeFeedOriginalText(left)
+  const normalizedRight = normalizeFeedOriginalText(right)
+  if (!normalizedLeft || !normalizedRight) {
+    return false
+  }
+  if (normalizedLeft === normalizedRight) {
+    return true
+  }
+
+  const compactLeft = stripTrailingEllipsis(normalizedLeft)
+  const compactRight = stripTrailingEllipsis(normalizedRight)
+  if (!compactLeft || !compactRight) {
+    return false
+  }
+  return compactLeft.startsWith(compactRight) || compactRight.startsWith(compactLeft)
+}
+
+function pickPreferredFeedOriginalText(left: string, right: string): string {
+  const normalizedLeft = left.trim()
+  const normalizedRight = right.trim()
+  return normalizedLeft.length >= normalizedRight.length ? normalizedLeft : normalizedRight
+}
+
 export function buildPolymarketResearchPrompt(item: FeedItemRecord): string {
   const title = item.title.trim()
   const content = item.contentMarkdown.trim()
@@ -108,11 +140,16 @@ export function buildPolymarketResearchPrompt(item: FeedItemRecord): string {
   const sections: string[] = []
   const originalSegments: string[] = []
 
-  if (title) {
-    originalSegments.push(title)
-  }
-  if (content && content !== title) {
+  if (title && content) {
+    if (shouldTreatFeedOriginalAsDuplicate(title, content)) {
+      originalSegments.push(pickPreferredFeedOriginalText(title, content))
+    } else {
+      originalSegments.push(title, content)
+    }
+  } else if (content) {
     originalSegments.push(content)
+  } else if (title) {
+    originalSegments.push(title)
   }
   if (originalSegments.length > 0) {
     sections.push(`原文：\n${originalSegments.join("\n\n")}`)
