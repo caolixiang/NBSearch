@@ -1,6 +1,9 @@
 import { describe, expect, it } from "bun:test"
 import {
   buildSidebarConversationItems,
+  buildPolymarketResearchImageAttachments,
+  buildPolymarketResearchMessageAttachments,
+  buildPolymarketResearchPrompt,
   buildVisibleMessages,
   buildVoiceConversationTitle,
   clearStaleSessionAnchors,
@@ -168,6 +171,76 @@ describe("chat-shell voice resume helpers", () => {
       ["draft_conversation", false],
       ["conv_star_1", true],
       ["conv_today_1", false],
+    ])
+  })
+})
+
+describe("polymarket feed to chat helpers", () => {
+  const item = {
+    id: "feed_1",
+    subscriptionId: "sub_1",
+    source: "polymarket" as const,
+    contentHash: "hash_1",
+    title: "Original headline",
+    contentMarkdown: "Original body",
+    titleZh: "中文标题",
+    contentMarkdownZh: "中文正文",
+    translationStatus: "translated" as const,
+    translationModel: "gpt-5.4-mini",
+    translatedAt: 1,
+    mediaUrls: ["https://example.com/one.png", " https://example.com/two.jpg "],
+    canonicalUrl: "https://x.com/polymarket/status/1",
+    publishedAt: 1,
+    discoveredAt: 1,
+    fetchedAt: 1,
+  }
+
+  it("builds deep research prompts from original feed content instead of translated text", () => {
+    expect(buildPolymarketResearchPrompt(item)).toBe(
+      [
+        "标题：",
+        "Original headline",
+        "",
+        "内容：",
+        "Original body",
+        "",
+        "原帖链接：",
+        "https://x.com/polymarket/status/1",
+        "",
+        "图片链接：",
+        "https://example.com/one.png",
+        "https://example.com/two.jpg",
+        "",
+        "继续深入调研",
+      ].join("\n")
+    )
+  })
+
+  it("builds remote image attachments for request payload and local preview", () => {
+    expect(buildPolymarketResearchImageAttachments(item)).toEqual([
+      {
+        kind: "image_url",
+        url: "https://example.com/one.png",
+        name: "Polymarket image 1",
+      },
+      {
+        kind: "image_url",
+        url: "https://example.com/two.jpg",
+        name: "Polymarket image 2",
+      },
+    ])
+
+    expect(buildPolymarketResearchMessageAttachments(item)).toEqual([
+      {
+        name: "Polymarket image 1",
+        kind: "image",
+        previewImageUrl: "https://example.com/one.png",
+      },
+      {
+        name: "Polymarket image 2",
+        kind: "image",
+        previewImageUrl: "https://example.com/two.jpg",
+      },
     ])
   })
 })

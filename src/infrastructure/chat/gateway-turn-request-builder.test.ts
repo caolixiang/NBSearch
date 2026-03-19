@@ -18,6 +18,18 @@ describe("buildUserMessageText", () => {
     const text = buildUserMessageText("  ", [new File(["a"], "note.txt", { type: "text/plain" })])
     expect(text).toBe("[附件] note.txt")
   })
+
+  it("supports remote image attachments when building optimistic user text", () => {
+    const text = buildUserMessageText("继续分析", [
+      {
+        kind: "image_url",
+        url: "https://example.com/cover.png",
+        name: "Polymarket image 1",
+      },
+    ])
+
+    expect(text).toBe("继续分析\n\n[附件] Polymarket image 1")
+  })
 })
 
 describe("buildGatewayTurnRequestPayload", () => {
@@ -167,6 +179,44 @@ describe("buildGatewayTurnRequestPayload", () => {
     expect(String((content[1]?.image_url as Record<string, unknown>).url)).toContain("data:image/png;base64,")
     expect(String((content[2]?.image_url as Record<string, unknown>).url)).toContain("data:image/jpeg;base64,")
     expect(String((content[3]?.file as Record<string, unknown>).file_data)).toContain("data:application/pdf")
+  })
+
+  it("passes remote image attachments through as image_url blocks", async () => {
+    const payload = await buildGatewayTurnRequestPayload({
+      model: "grok-4.1-fast",
+      sessionId: "sess_1",
+      clientTurnId: "turn_1",
+      text: "继续深入调研",
+      attachments: [
+        {
+          kind: "image_url",
+          url: "https://example.com/one.png",
+          name: "Polymarket image 1",
+        },
+        {
+          kind: "image_url",
+          url: "https://example.com/two.jpg",
+          name: "Polymarket image 2",
+        },
+      ],
+    })
+
+    const inputRows = payload["input"] as Array<Record<string, unknown>>
+    const content = inputRows[0]?.content as Array<Record<string, unknown>>
+    expect(content).toHaveLength(3)
+    expect(content[0]?.type).toBe("text")
+    expect(content[1]).toEqual({
+      type: "image_url",
+      image_url: {
+        url: "https://example.com/one.png",
+      },
+    })
+    expect(content[2]).toEqual({
+      type: "image_url",
+      image_url: {
+        url: "https://example.com/two.jpg",
+      },
+    })
   })
 
   it("rejects oversized attachments", async () => {
