@@ -13,6 +13,24 @@ class FakeJinaReaderClient implements JinaReaderClient {
   }
 }
 
+class FlakyJinaReaderClient implements JinaReaderClient {
+  calls = 0
+
+  constructor(
+    private readonly payload: string,
+    private readonly failuresBeforeSuccess: number,
+    private readonly errorMessage = "temporary jina failure"
+  ) {}
+
+  async fetchPolymarketTimeline(): Promise<string> {
+    this.calls += 1
+    if (this.calls <= this.failuresBeforeSuccess) {
+      throw new Error(this.errorMessage)
+    }
+    return this.payload
+  }
+}
+
 class FakeFeedTranslator implements FeedTranslator {
   calls: FeedTranslationRequest[][] = []
 
@@ -153,5 +171,46 @@ describe("PolymarketFeedService", () => {
     expect(translator.calls[1]).toHaveLength(2)
     expect(secondPage.items.every((item) => item.translationStatus === "translated")).toBe(true)
     expect(secondPage.items.every((item) => item.titleZh.startsWith("[回填]"))).toBe(true)
+  })
+
+  it("retries a failed sync attempt before surfacing success", async () => {
+    const repository = new MemoryAppRepository()
+    const translator = new FakeFeedTranslator()
+    const client = new FlakyJinaReaderClient(SAMPLE_TIMELINE, 1)
+    const service = new PolymarketFeedService(repository, buildConfig(), client, translator, {
+      syncRetryMaxAttempts: 3,
+      syncRetryDelayMs: 0,
+    })
+
+    const result = await service.syncNow("polymarket")
+
+    expect(client.calls).toBe(2)
+    expect(result.insertedCount).toBe(2)
+    const subscription = await service.getSubscription("polymarket")
+    expect(subscription.lastError).toBe("")
+    expect(subscription.lastSuccessAt).not.toBeNull()
+  })
+
+  it("keeps the final error after exhausting sync retries", async () => {
+    const repository = new MemoryAppRepository()
+    const translator = new FakeFeedTranslator()
+    const client = new FlakyJinaReaderClient(SAMPLE_TIMELINE, 3, "jina unavailable")
+    const service = new PolymarketFeedService(repository, buildConfig(), client, translator, {
+      syncRetryMaxAttempts: 3,
+      syncRetryDelayMs: 0,
+    })
+
+    try {
+      await service.syncNow("polymarket")
+      throw new Error("expected syncNow to fail")
+    } catch (error) {
+      expect(error).toBeInstanceOf(Error)
+      expect((error as Error).message).toBe("jina unavailable")
+    }
+    expect(client.calls).toBe(3)
+
+    const subscription = await service.getSubscription("polymarket")
+    expect(subscription.lastError).toBe("jina unavailable")
+    expect(subscription.lastSuccessAt).toBeNull()
   })
 })

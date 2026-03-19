@@ -25,6 +25,16 @@ const POLYMARKET_SOURCE: FeedSource = "polymarket"
 const POLL_INTERVAL_MINUTES = 10
 const STARTUP_SYNC_DELAY_MS = 10_000
 const TRANSLATION_BACKFILL_LIMIT = 20
+const SYNC_RETRY_MAX_ATTEMPTS = 3
+const SYNC_RETRY_DELAY_MS = 1_500
+const FAILED_POLL_RETRY_DELAY_MS = 60_000
+
+type PolymarketFeedServiceOptions = {
+  syncRetryMaxAttempts?: number
+  syncRetryDelayMs?: number
+  failedPollRetryDelayMs?: number
+  sleep?: (delayMs: number) => Promise<void>
+}
 
 type FeedSourceState = {
   isSyncing: boolean
@@ -59,6 +69,15 @@ async function sha256Hex(input: string): Promise<string> {
     .join("")
 }
 
+async function defaultSleep(delayMs: number): Promise<void> {
+  if (delayMs <= 0) {
+    return
+  }
+  await new Promise<void>((resolve) => {
+    globalThis.setTimeout(resolve, delayMs)
+  })
+}
+
 export class PolymarketFeedService implements FeedService {
   private readonly listeners = new Set<(event: FeedServiceEvent) => void>()
   private readonly sourceState: FeedSourceState = {
@@ -75,7 +94,8 @@ export class PolymarketFeedService implements FeedService {
     private readonly repository: AppRepository,
     private readonly config: AppConfig,
     private readonly client: JinaReaderClient = new RuntimeJinaReaderClient(),
-    private readonly translator: FeedTranslator = new OpenAIFeedTranslator(config)
+    private readonly translator: FeedTranslator = new OpenAIFeedTranslator(config),
+    private readonly options: PolymarketFeedServiceOptions = {}
   ) {}
 
   ensureStarted(): void {
@@ -136,11 +156,13 @@ export class PolymarketFeedService implements FeedService {
     }
     const promise = this.runPolymarketSync()
     this.sourceState.inFlight = promise
-    promise.finally(() => {
-      if (this.sourceState.inFlight === promise) {
-        this.sourceState.inFlight = null
-      }
-    })
+    void promise
+      .finally(() => {
+        if (this.sourceState.inFlight === promise) {
+          this.sourceState.inFlight = null
+        }
+      })
+      .catch(() => {})
     return promise
   }
 
@@ -206,11 +228,16 @@ export class PolymarketFeedService implements FeedService {
     }
     this.startupTimer = globalThis.setTimeout(() => {
       void this.syncNow(POLYMARKET_SOURCE)
-      this.scheduleNextPoll()
+        .then(() => {
+          this.scheduleNextPoll()
+        })
+        .catch(() => {
+          this.scheduleNextPoll(this.resolveFailedPollRetryDelayMs())
+        })
     }, STARTUP_SYNC_DELAY_MS)
   }
 
-  private scheduleNextPoll(): void {
+  private scheduleNextPoll(delayMs = POLL_INTERVAL_MINUTES * 60 * 1000): void {
     if (!this.resolveEnabled(POLYMARKET_SOURCE)) {
       return
     }
@@ -218,10 +245,14 @@ export class PolymarketFeedService implements FeedService {
       globalThis.clearTimeout(this.pollTimer)
     }
     this.pollTimer = globalThis.setTimeout(() => {
-      void this.syncNow(POLYMARKET_SOURCE).finally(() => {
-        this.scheduleNextPoll()
-      })
-    }, POLL_INTERVAL_MINUTES * 60 * 1000)
+      void this.syncNow(POLYMARKET_SOURCE)
+        .then(() => {
+          this.scheduleNextPoll()
+        })
+        .catch(() => {
+          this.scheduleNextPoll(this.resolveFailedPollRetryDelayMs())
+        })
+    }, delayMs)
   }
 
   private async backfillPendingTranslations(excludeContentHashes: string[]): Promise<void> {
@@ -260,117 +291,162 @@ export class PolymarketFeedService implements FeedService {
     await this.repository.updateFeedItemTranslations(updates)
   }
 
+  private resolveSyncRetryMaxAttempts(): number {
+    return Math.max(1, this.options.syncRetryMaxAttempts ?? SYNC_RETRY_MAX_ATTEMPTS)
+  }
+
+  private resolveSyncRetryDelayMs(): number {
+    return Math.max(0, this.options.syncRetryDelayMs ?? SYNC_RETRY_DELAY_MS)
+  }
+
+  private resolveFailedPollRetryDelayMs(): number {
+    return Math.max(0, this.options.failedPollRetryDelayMs ?? FAILED_POLL_RETRY_DELAY_MS)
+  }
+
+  private async waitForRetry(): Promise<void> {
+    const sleep = this.options.sleep ?? defaultSleep
+    await sleep(this.resolveSyncRetryDelayMs())
+  }
+
   private async runPolymarketSync(): Promise<FeedSyncResult> {
-    const fetchedAt = Date.now()
     const subscription = await this.ensureSubscription()
     this.sourceState.isSyncing = true
     this.emit({ type: "sync_started", source: POLYMARKET_SOURCE })
 
     try {
-      const raw = await this.client.fetchPolymarketTimeline()
-      const parsed = parsePolymarketTimeline(raw)
-      const items = await Promise.all(
-        parsed.map(async (item, index) => {
-          const normalizedTitle = item.title.trim() || "Polymarket 更新"
-          const normalizedMarkdown = item.contentMarkdown.trim()
-          const normalizedMediaUrls = Array.from(new Set(item.mediaUrls))
-          const contentHash = await sha256Hex(
-            [
-              normalizedTitle,
-              normalizedMarkdown,
-              normalizedMediaUrls.join("|"),
-              item.canonicalUrl.trim(),
-            ].join("\n")
-          )
-          return {
-            id: `feed_item_${contentHash.slice(0, 24)}`,
-            subscriptionId: subscription.id,
-            source: POLYMARKET_SOURCE,
-            contentHash,
-            title: normalizedTitle,
-            contentMarkdown: normalizedMarkdown,
-            titleZh: "",
-            contentMarkdownZh: "",
-            translationStatus: "skipped" as const,
-            translationModel: "",
-            translatedAt: null,
-            mediaUrls: normalizedMediaUrls,
-            canonicalUrl: item.canonicalUrl.trim(),
-            publishedAt: item.publishedAt,
-            discoveredAt: fetchedAt - index,
-            fetchedAt,
-          } satisfies FeedItemRecord
-        })
-      )
-      const existingContentHashes = new Set(
-        await this.repository.listExistingFeedItemContentHashes({
-          subscriptionId: subscription.id,
-          contentHashes: items.map((item) => item.contentHash),
-        })
-      )
-      const pendingItems = items.filter((item) => !existingContentHashes.has(item.contentHash))
-      const translations =
-        pendingItems.length > 0
-          ? await this.translator.translateMany(
-              pendingItems.map((item) => ({
-                contentHash: item.contentHash,
-                title: item.title,
-                contentMarkdown: item.contentMarkdown,
-              }))
-            )
-          : []
-      const translationByHash = new Map(translations.map((item) => [item.contentHash, item]))
-      const translatedItems = pendingItems.map((item) => {
-        const translated = translationByHash.get(item.contentHash)
-        if (!translated) {
-          return item
-        }
-        return {
-          ...item,
-          titleZh: translated.titleZh,
-          contentMarkdownZh: translated.contentMarkdownZh,
-          translationStatus: translated.status,
-          translationModel: translated.model,
-          translatedAt: translated.translatedAt,
-        } satisfies FeedItemRecord
-      })
-      const insertedCount = await this.repository.insertFeedItems(translatedItems)
-      await this.backfillPendingTranslations(pendingItems.map((item) => item.contentHash))
-      const nextSubscription: FeedSubscriptionRecord = {
-        ...subscription,
-        enabled: this.resolveEnabled(POLYMARKET_SOURCE),
-        lastPolledAt: fetchedAt,
-        lastSuccessAt: fetchedAt,
-        lastError: "",
-        updatedAt: fetchedAt,
-      }
-      await this.repository.upsertFeedSubscription(nextSubscription)
+      const result = await this.runPolymarketSyncWithRetry(subscription)
       this.sourceState.isSyncing = false
       this.sourceState.lastError = ""
-      this.sourceState.lastCompletedAt = fetchedAt
+      this.sourceState.lastCompletedAt = result.fetchedAt
       this.emit({ type: "subscription_updated", source: POLYMARKET_SOURCE })
-      const result: FeedSyncResult = {
-        source: POLYMARKET_SOURCE,
-        fetchedAt,
-        insertedCount,
-        parsedCount: parsed.length,
-      }
       this.emit({ type: "sync_completed", source: POLYMARKET_SOURCE, result })
       return result
     } catch (error) {
+      const failedAt = Date.now()
       const message = error instanceof Error ? error.message : "Polymarket 同步失败"
       await this.repository.upsertFeedSubscription({
         ...subscription,
         enabled: this.resolveEnabled(POLYMARKET_SOURCE),
-        lastPolledAt: fetchedAt,
+        lastPolledAt: failedAt,
         lastError: message,
-        updatedAt: fetchedAt,
+        updatedAt: failedAt,
       })
       this.sourceState.isSyncing = false
       this.sourceState.lastError = message
       this.emit({ type: "subscription_updated", source: POLYMARKET_SOURCE })
       this.emit({ type: "sync_failed", source: POLYMARKET_SOURCE, error: message })
       throw error
+    }
+  }
+
+  private async runPolymarketSyncWithRetry(
+    subscription: FeedSubscriptionRecord
+  ): Promise<FeedSyncResult> {
+    const maxAttempts = this.resolveSyncRetryMaxAttempts()
+    let lastError: unknown = new Error("Polymarket 同步失败")
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      try {
+        return await this.runPolymarketSyncAttempt(subscription)
+      } catch (error) {
+        lastError = error
+        if (attempt >= maxAttempts) {
+          break
+        }
+        await this.waitForRetry()
+      }
+    }
+
+    throw lastError
+  }
+
+  private async runPolymarketSyncAttempt(
+    subscription: FeedSubscriptionRecord
+  ): Promise<FeedSyncResult> {
+    const fetchedAt = Date.now()
+    const raw = await this.client.fetchPolymarketTimeline()
+    const parsed = parsePolymarketTimeline(raw)
+    const items = await Promise.all(
+      parsed.map(async (item, index) => {
+        const normalizedTitle = item.title.trim() || "Polymarket 更新"
+        const normalizedMarkdown = item.contentMarkdown.trim()
+        const normalizedMediaUrls = Array.from(new Set(item.mediaUrls))
+        const contentHash = await sha256Hex(
+          [
+            normalizedTitle,
+            normalizedMarkdown,
+            normalizedMediaUrls.join("|"),
+            item.canonicalUrl.trim(),
+          ].join("\n")
+        )
+        return {
+          id: `feed_item_${contentHash.slice(0, 24)}`,
+          subscriptionId: subscription.id,
+          source: POLYMARKET_SOURCE,
+          contentHash,
+          title: normalizedTitle,
+          contentMarkdown: normalizedMarkdown,
+          titleZh: "",
+          contentMarkdownZh: "",
+          translationStatus: "skipped" as const,
+          translationModel: "",
+          translatedAt: null,
+          mediaUrls: normalizedMediaUrls,
+          canonicalUrl: item.canonicalUrl.trim(),
+          publishedAt: item.publishedAt,
+          discoveredAt: fetchedAt - index,
+          fetchedAt,
+        } satisfies FeedItemRecord
+      })
+    )
+    const existingContentHashes = new Set(
+      await this.repository.listExistingFeedItemContentHashes({
+        subscriptionId: subscription.id,
+        contentHashes: items.map((item) => item.contentHash),
+      })
+    )
+    const pendingItems = items.filter((item) => !existingContentHashes.has(item.contentHash))
+    const translations =
+      pendingItems.length > 0
+        ? await this.translator.translateMany(
+            pendingItems.map((item) => ({
+              contentHash: item.contentHash,
+              title: item.title,
+              contentMarkdown: item.contentMarkdown,
+            }))
+          )
+        : []
+    const translationByHash = new Map(translations.map((item) => [item.contentHash, item]))
+    const translatedItems = pendingItems.map((item) => {
+      const translated = translationByHash.get(item.contentHash)
+      if (!translated) {
+        return item
+      }
+      return {
+        ...item,
+        titleZh: translated.titleZh,
+        contentMarkdownZh: translated.contentMarkdownZh,
+        translationStatus: translated.status,
+        translationModel: translated.model,
+        translatedAt: translated.translatedAt,
+      } satisfies FeedItemRecord
+    })
+    const insertedCount = await this.repository.insertFeedItems(translatedItems)
+    await this.backfillPendingTranslations(pendingItems.map((item) => item.contentHash))
+    const nextSubscription: FeedSubscriptionRecord = {
+      ...subscription,
+      enabled: this.resolveEnabled(POLYMARKET_SOURCE),
+      lastPolledAt: fetchedAt,
+      lastSuccessAt: fetchedAt,
+      lastError: "",
+      updatedAt: fetchedAt,
+    }
+    await this.repository.upsertFeedSubscription(nextSubscription)
+    return {
+      source: POLYMARKET_SOURCE,
+      fetchedAt,
+      insertedCount,
+      parsedCount: parsed.length,
     }
   }
 }

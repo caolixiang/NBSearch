@@ -29,6 +29,7 @@ import { Bell, Clock3, Database, Eye, EyeOff, Globe, Key, Palette, RadioTower, S
 interface SettingsDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  requestedTab?: SettingsDialogTabId
   runtime: AppRuntime
   onGatewayConfigChange: (next: { apiBaseUrl: string; apiKey: string }) => void
   onOpenAIConfigChange: (next: {
@@ -55,7 +56,18 @@ const tabs = [
   { id: "data", label: "数据管理", icon: Database },
 ] as const
 
-type TabId = (typeof tabs)[number]["id"]
+export type SettingsDialogTabId = (typeof tabs)[number]["id"]
+
+function isSettingsDialogTabId(value: string): value is SettingsDialogTabId {
+  return tabs.some((tab) => tab.id === value)
+}
+
+export function resolveSettingsDialogTab(requestedTab?: string | null): SettingsDialogTabId {
+  if (requestedTab && isSettingsDialogTabId(requestedTab)) {
+    return requestedTab
+  }
+  return "gateway"
+}
 
 type ImageCacheStats = {
   rootPath: string
@@ -80,6 +92,7 @@ function formatBytes(bytes: number): string {
 export function SettingsDialog({
   open,
   onOpenChange,
+  requestedTab = "gateway",
   runtime,
   onGatewayConfigChange,
   onOpenAIConfigChange,
@@ -87,7 +100,7 @@ export function SettingsDialog({
   onPersonalizationConfigChange,
   onSubscriptionsConfigChange,
 }: SettingsDialogProps) {
-  const [activeTab, setActiveTab] = useState<TabId>("gateway")
+  const [activeTab, setActiveTab] = useState<SettingsDialogTabId>("gateway")
   const [baseUrl, setBaseUrl] = useState("")
   const [apiKey, setApiKey] = useState("")
   const [openaiBaseUrl, setOpenAIBaseUrl] = useState("")
@@ -131,6 +144,13 @@ export function SettingsDialog({
   const [installBusy, setInstallBusy] = useState(false)
   const [updateMessage, setUpdateMessage] = useState("")
   const appearanceSaveSequenceRef = useRef(0)
+
+  useEffect(() => {
+    if (!open) {
+      return
+    }
+    setActiveTab(resolveSettingsDialogTab(requestedTab))
+  }, [open, requestedTab])
 
   const loadImageCacheStats = useCallback(async () => {
     if (!hasTauriRuntime()) {

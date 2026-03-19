@@ -22,7 +22,7 @@ import { ChatMessage, type RenderChatMessage, TypingIndicator } from "@/componen
 import { ChatSidebar } from "@/components/chat-sidebar"
 import { ModelSelector } from "@/components/model-selector"
 import { PolymarketFeedPane } from "@/components/polymarket-feed-pane"
-import { SettingsDialog } from "@/components/settings-dialog"
+import { SettingsDialog, type SettingsDialogTabId } from "@/components/settings-dialog"
 import { WelcomeScreen } from "@/components/welcome-screen"
 import { cn } from "@/lib/utils"
 import { buildChatAttachments } from "@/lib/chat-attachments"
@@ -133,6 +133,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
   } = useChatShellModels(runtime)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsRequestedTab, setSettingsRequestedTab] = useState<SettingsDialogTabId>("gateway")
   const [pendingRecoverySyncingByConversationId, setPendingRecoverySyncingByConversationId] = useState<
     Record<string, boolean>
   >({})
@@ -143,6 +144,11 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     Record<string, string>
   >({})
   const { readyUpdateVersion, isInstallingPreparedUpdate, installReadyUpdate } = useChatShellAppUpdate()
+
+  const openSettings = useCallback((tab: SettingsDialogTabId = "gateway") => {
+    setSettingsRequestedTab(tab)
+    setSettingsOpen(true)
+  }, [])
 
   const {
     chatInputHeight,
@@ -1920,7 +1926,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
           onRename={(id, title) => void handleRenameConversation(id, title)}
           onToggleStar={(id, starred) => void handleToggleConversationStar(id, starred)}
           onDelete={(id) => void handleDeleteConversation(id)}
-          onOpenSettings={() => setSettingsOpen(true)}
+          onOpenSettings={() => openSettings()}
           disableConversationActions={false}
           isCollapsed={sidebarCollapsed}
           onToggleCollapse={() => setSidebarCollapsed((prev) => !prev)}
@@ -2031,7 +2037,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
                   cursor: polymarketCursor,
                 })
               }}
-              onOpenSettings={() => setSettingsOpen(true)}
+              onOpenSettings={() => openSettings("subscriptions")}
               onDeepResearch={(item) => {
                 void handleDeepResearchFeedItem(item)
               }}
@@ -2122,6 +2128,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       <SettingsDialog
         open={settingsOpen}
         onOpenChange={setSettingsOpen}
+        requestedTab={settingsRequestedTab}
         runtime={runtime}
         onGatewayConfigChange={handleGatewayConfigChange}
         onOpenAIConfigChange={handleOpenAIConfigChange}

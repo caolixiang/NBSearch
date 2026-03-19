@@ -92,6 +92,7 @@ export function PolymarketFeedPane({
     }
     return `上次同步 ${formatSyncTime(subscription?.lastSuccessAt || null)}`
   }, [isSyncing, subscription?.lastError, subscription?.lastSuccessAt])
+  const refreshLabel = isSyncing ? "同步中..." : subscription?.lastError ? "重试同步" : "立即同步"
 
   useEffect(() => {
     if (!isLoading) {
@@ -162,7 +163,7 @@ export function PolymarketFeedPane({
           </Button>
           <Button size="sm" variant="outline" onClick={onRefresh} disabled={isSyncing}>
             <RefreshCcw className={cn("mr-1 size-3.5", isSyncing ? "animate-spin" : "")} />
-            {isSyncing ? "同步中..." : "立即同步"}
+            {refreshLabel}
           </Button>
         </div>
       </div>
