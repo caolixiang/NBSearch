@@ -1,20 +1,21 @@
+import { getFeedSourceConfig } from "@/domain/feed/source-config"
+import type { FeedSource } from "@/domain/feed/types"
 import { runtimeFetch } from "@/infrastructure/http/runtime-fetch"
 
-const JINA_READER_POLYMARKET_URL = "https://r.jina.ai/http://x.com/Polymarket"
 const REQUEST_TIMEOUT_MS = 30_000
 
 export interface JinaReaderClient {
-  fetchPolymarketTimeline(signal?: AbortSignal): Promise<string>
+  fetchTimeline(source: FeedSource, signal?: AbortSignal): Promise<string>
 }
 
 export class RuntimeJinaReaderClient implements JinaReaderClient {
-  async fetchPolymarketTimeline(signal?: AbortSignal): Promise<string> {
+  async fetchTimeline(source: FeedSource, signal?: AbortSignal): Promise<string> {
     const controller = new AbortController()
     const timeout = globalThis.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
     const forwardAbort = () => controller.abort()
     signal?.addEventListener("abort", forwardAbort, { once: true })
     try {
-      const response = await runtimeFetch(JINA_READER_POLYMARKET_URL, {
+      const response = await runtimeFetch(getFeedSourceConfig(source).readerUrl, {
         method: "GET",
         headers: {
           "x-no-cache": "true",

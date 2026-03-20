@@ -30,6 +30,7 @@ interface GatewayConfigPayload {
   fontSize?: string
   timezone?: string
   polymarketEnabled?: boolean
+  kalshiEnabled?: boolean
   streamIdleTimeoutMs?: number
   streamIdleRetryMaxAttempts?: number
   streamIdleRetryDelayMs?: number
@@ -62,6 +63,7 @@ interface PersonalizationConfigPayload {
 
 interface SubscriptionsConfigPayload {
   polymarketEnabled?: boolean
+  kalshiEnabled?: boolean
   configPath?: string
 }
 
@@ -122,6 +124,7 @@ function readEnvAppConfig(): AppConfig {
     openaiTranslationModel: envOpenAITranslationModel || DEFAULT_OPENAI_TRANSLATION_MODEL,
     voiceEnabled: parseBool(import.meta.env.VITE_APP_VOICE_ENABLED, true),
     polymarketSubscriptionEnabled: parseBool(import.meta.env.VITE_APP_POLYMARKET_SUBSCRIPTION_ENABLED, false),
+    kalshiSubscriptionEnabled: parseBool(import.meta.env.VITE_APP_KALSHI_SUBSCRIPTION_ENABLED, false),
     themeMode: normalizeThemeMode(import.meta.env.VITE_APP_THEME_MODE),
     fontSizeMode: normalizeFontSizeMode(import.meta.env.VITE_APP_FONT_SIZE_MODE),
     timezone: normalizeAppTimezone(import.meta.env.VITE_APP_TIMEZONE || DEFAULT_APP_TIMEZONE),
@@ -272,6 +275,7 @@ export async function savePersonalizationConfigToToml(input: {
 
 export async function saveSubscriptionsConfigToToml(input: {
   polymarketEnabled: boolean
+  kalshiEnabled: boolean
 }): Promise<SubscriptionsConfigPayload | null> {
   if (!hasTauriRuntime()) {
     return null
@@ -280,6 +284,7 @@ export async function saveSubscriptionsConfigToToml(input: {
     const { invoke } = await import("@tauri-apps/api/core")
     return await invoke<SubscriptionsConfigPayload>("save_subscriptions_config", {
       polymarketEnabled: input.polymarketEnabled,
+      kalshiEnabled: input.kalshiEnabled,
     })
   } catch {
     return null
@@ -301,6 +306,10 @@ export async function loadAppConfig(): Promise<AppConfig> {
     typeof fileConfig?.polymarketEnabled === "boolean"
       ? fileConfig.polymarketEnabled
       : envConfig.polymarketSubscriptionEnabled
+  const fileKalshiEnabled =
+    typeof fileConfig?.kalshiEnabled === "boolean"
+      ? fileConfig.kalshiEnabled
+      : envConfig.kalshiSubscriptionEnabled
   const fileStreamIdleTimeoutMs = normalizeIntegerInRange(
     fileConfig?.streamIdleTimeoutMs,
     envConfig.streamIdleTimeoutMs ?? DEFAULT_STREAM_IDLE_TIMEOUT_MS,
@@ -373,6 +382,7 @@ export async function loadAppConfig(): Promise<AppConfig> {
     fontSizeMode: hasFileFontSize ? fileFontSizeMode : envConfig.fontSizeMode,
     timezone: hasFileTimezone ? fileTimezone : envConfig.timezone,
     polymarketSubscriptionEnabled: filePolymarketEnabled,
+    kalshiSubscriptionEnabled: fileKalshiEnabled,
     streamIdleTimeoutMs: fileStreamIdleTimeoutMs,
     streamIdleRetryMaxAttempts: fileStreamIdleRetryMaxAttempts,
     streamIdleRetryDelayMs: fileStreamIdleRetryDelayMs,

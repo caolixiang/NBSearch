@@ -1,4 +1,6 @@
 import type { AppConfig } from "@/app/contracts"
+import { hasTauriRuntime } from "@/app/runtime-info"
+import { FEED_SOURCES, getFeedSourceConfig } from "@/domain/feed/source-config"
 import type {
   FeedRuntimeState,
   FeedService,
@@ -15,21 +17,22 @@ import type {
 import type { AppRepository } from "@/domain/storage/repository"
 import type { JinaReaderClient } from "./jina-reader-client"
 import { RuntimeJinaReaderClient } from "./jina-reader-client"
+import { listenToNativeFeedSyncTick } from "./native-feed-sync"
 import {
   OpenAIFeedTranslator,
   type FeedTranslator,
 } from "./openai-feed-translator"
-import { parsePolymarketTimeline } from "./polymarket-timeline-parser"
+import { parseXTimeline } from "./polymarket-timeline-parser"
 
-const POLYMARKET_SOURCE: FeedSource = "polymarket"
 const POLL_INTERVAL_MINUTES = 10
 const STARTUP_SYNC_DELAY_MS = 10_000
+const SCHEDULER_TICK_INTERVAL_MS = 60_000
 const TRANSLATION_BACKFILL_LIMIT = 20
 const SYNC_RETRY_MAX_ATTEMPTS = 3
 const SYNC_RETRY_DELAY_MS = 1_500
 const FAILED_POLL_RETRY_DELAY_MS = 60_000
 
-type PolymarketFeedServiceOptions = {
+type FeedSyncServiceOptions = {
   syncRetryMaxAttempts?: number
   syncRetryDelayMs?: number
   failedPollRetryDelayMs?: number
@@ -78,16 +81,29 @@ async function defaultSleep(delayMs: number): Promise<void> {
   })
 }
 
-export class PolymarketFeedService implements FeedService {
-  private readonly listeners = new Set<(event: FeedServiceEvent) => void>()
-  private readonly sourceState: FeedSourceState = {
+function createDefaultSourceState(): FeedSourceState {
+  return {
     isSyncing: false,
     lastError: "",
     lastCompletedAt: null,
     inFlight: null,
   }
-  private pollTimer: ReturnType<typeof globalThis.setTimeout> | null = null
+}
+
+function createSourceStateMap(): Record<FeedSource, FeedSourceState> {
+  return {
+    polymarket: createDefaultSourceState(),
+    kalshi: createDefaultSourceState(),
+  }
+}
+
+export class FeedSyncService implements FeedService {
+  private readonly listeners = new Set<(event: FeedServiceEvent) => void>()
+  private readonly sourceStateBySource: Record<FeedSource, FeedSourceState> = createSourceStateMap()
   private startupTimer: ReturnType<typeof globalThis.setTimeout> | null = null
+  private localTickTimer: ReturnType<typeof globalThis.setInterval> | null = null
+  private nativeTickUnlisten: (() => void) | null = null
+  private nativeTickReady = false
   private started = false
 
   constructor(
@@ -95,7 +111,7 @@ export class PolymarketFeedService implements FeedService {
     private readonly config: AppConfig,
     private readonly client: JinaReaderClient = new RuntimeJinaReaderClient(),
     private readonly translator: FeedTranslator = new OpenAIFeedTranslator(config),
-    private readonly options: PolymarketFeedServiceOptions = {}
+    private readonly options: FeedSyncServiceOptions = {}
   ) {}
 
   ensureStarted(): void {
@@ -103,8 +119,8 @@ export class PolymarketFeedService implements FeedService {
       return
     }
     this.started = true
-    void this.ensureSubscription()
-    this.reconfigureTimers()
+    void Promise.all(FEED_SOURCES.map((source) => this.getSubscription(source))).catch(() => {})
+    this.initializeScheduling()
   }
 
   async getSubscription(source: FeedSource): Promise<FeedSubscriptionRecord> {
@@ -130,7 +146,10 @@ export class PolymarketFeedService implements FeedService {
     }
     await this.repository.upsertFeedSubscription(next)
     this.applyConfig({
-      polymarketEnabled: next.enabled,
+      polymarketEnabled:
+        input.source === "polymarket" ? next.enabled : this.config.polymarketSubscriptionEnabled === true,
+      kalshiEnabled:
+        input.source === "kalshi" ? next.enabled : this.config.kalshiSubscriptionEnabled === true,
     })
     this.emit({
       type: "subscription_updated",
@@ -148,18 +167,19 @@ export class PolymarketFeedService implements FeedService {
   }
 
   syncNow(source: FeedSource): Promise<FeedSyncResult> {
-    if (source !== POLYMARKET_SOURCE) {
+    const state = this.sourceStateBySource[source]
+    if (!state) {
       return Promise.reject(new Error(`Unsupported feed source: ${source}`))
     }
-    if (this.sourceState.inFlight) {
-      return this.sourceState.inFlight
+    if (state.inFlight) {
+      return state.inFlight
     }
-    const promise = this.runPolymarketSync()
-    this.sourceState.inFlight = promise
+    const promise = this.runSync(source)
+    state.inFlight = promise
     void promise
       .finally(() => {
-        if (this.sourceState.inFlight === promise) {
-          this.sourceState.inFlight = null
+        if (state.inFlight === promise) {
+          state.inFlight = null
         }
       })
       .catch(() => {})
@@ -167,11 +187,12 @@ export class PolymarketFeedService implements FeedService {
   }
 
   getRuntimeState(source: FeedSource): FeedRuntimeState {
+    const state = this.sourceStateBySource[source] || createDefaultSourceState()
     return {
       source,
-      isSyncing: this.sourceState.isSyncing,
-      lastError: this.sourceState.lastError,
-      lastCompletedAt: this.sourceState.lastCompletedAt,
+      isSyncing: state.isSyncing,
+      lastError: state.lastError,
+      lastCompletedAt: state.lastCompletedAt,
     }
   }
 
@@ -184,9 +205,10 @@ export class PolymarketFeedService implements FeedService {
 
   applyConfig(input: {
     polymarketEnabled: boolean
+    kalshiEnabled: boolean
   }): void {
     this.config.polymarketSubscriptionEnabled = input.polymarketEnabled
-    this.reconfigureTimers()
+    this.config.kalshiSubscriptionEnabled = input.kalshiEnabled
   }
 
   private emit(event: FeedServiceEvent): void {
@@ -200,64 +222,79 @@ export class PolymarketFeedService implements FeedService {
   }
 
   private resolveEnabled(source: FeedSource): boolean {
-    if (source === POLYMARKET_SOURCE) {
-      return this.config.polymarketSubscriptionEnabled === true
-    }
-    return false
+    return source === "polymarket"
+      ? this.config.polymarketSubscriptionEnabled === true
+      : this.config.kalshiSubscriptionEnabled === true
   }
 
-  private async ensureSubscription(): Promise<FeedSubscriptionRecord> {
-    return this.getSubscription(POLYMARKET_SOURCE)
+  private initializeScheduling(): void {
+    this.clearScheduling()
+    this.startupTimer = globalThis.setTimeout(() => {
+      void this.syncDueSources()
+    }, STARTUP_SYNC_DELAY_MS)
+    void this.ensureNativeTicker()
   }
 
-  private clearTimers(): void {
+  private clearScheduling(): void {
     if (this.startupTimer) {
       globalThis.clearTimeout(this.startupTimer)
       this.startupTimer = null
     }
-    if (this.pollTimer) {
-      globalThis.clearTimeout(this.pollTimer)
-      this.pollTimer = null
+    if (this.localTickTimer) {
+      globalThis.clearInterval(this.localTickTimer)
+      this.localTickTimer = null
     }
   }
 
-  private reconfigureTimers(): void {
-    this.clearTimers()
-    if (!this.resolveEnabled(POLYMARKET_SOURCE)) {
+  private async ensureNativeTicker(): Promise<void> {
+    if (this.nativeTickReady) {
       return
     }
-    this.startupTimer = globalThis.setTimeout(() => {
-      void this.syncNow(POLYMARKET_SOURCE)
-        .then(() => {
-          this.scheduleNextPoll()
-        })
-        .catch(() => {
-          this.scheduleNextPoll(this.resolveFailedPollRetryDelayMs())
-        })
-    }, STARTUP_SYNC_DELAY_MS)
-  }
-
-  private scheduleNextPoll(delayMs = POLL_INTERVAL_MINUTES * 60 * 1000): void {
-    if (!this.resolveEnabled(POLYMARKET_SOURCE)) {
+    if (!hasTauriRuntime()) {
+      if (!this.localTickTimer) {
+        this.localTickTimer = globalThis.setInterval(() => {
+          void this.syncDueSources()
+        }, SCHEDULER_TICK_INTERVAL_MS)
+      }
       return
     }
-    if (this.pollTimer) {
-      globalThis.clearTimeout(this.pollTimer)
+    try {
+      this.nativeTickUnlisten = await listenToNativeFeedSyncTick(() => {
+        void this.syncDueSources()
+      })
+      this.nativeTickReady = true
+    } catch {
+      this.nativeTickReady = false
+      if (!this.localTickTimer) {
+        this.localTickTimer = globalThis.setInterval(() => {
+          void this.syncDueSources()
+        }, SCHEDULER_TICK_INTERVAL_MS)
+      }
     }
-    this.pollTimer = globalThis.setTimeout(() => {
-      void this.syncNow(POLYMARKET_SOURCE)
-        .then(() => {
-          this.scheduleNextPoll()
-        })
-        .catch(() => {
-          this.scheduleNextPoll(this.resolveFailedPollRetryDelayMs())
-        })
-    }, delayMs)
   }
 
-  private async backfillPendingTranslations(excludeContentHashes: string[]): Promise<void> {
+  private async syncDueSources(): Promise<void> {
+    await Promise.allSettled(FEED_SOURCES.map((source) => this.syncDueSource(source)))
+  }
+
+  private async syncDueSource(source: FeedSource): Promise<void> {
+    const subscription = await this.getSubscription(source)
+    if (!subscription.enabled || !this.resolveEnabled(source)) {
+      return
+    }
+    const lastPolledAt = subscription.lastPolledAt || 0
+    const retryDelayMs = subscription.lastError
+      ? this.resolveFailedPollRetryDelayMs()
+      : subscription.pollIntervalMinutes * 60 * 1000
+    if (lastPolledAt > 0 && Date.now() - lastPolledAt < retryDelayMs) {
+      return
+    }
+    await this.syncNow(source)
+  }
+
+  private async backfillPendingTranslations(source: FeedSource, excludeContentHashes: string[]): Promise<void> {
     const pendingItems = await this.repository.listFeedItemsNeedingTranslation({
-      source: POLYMARKET_SOURCE,
+      source,
       limit: TRANSLATION_BACKFILL_LIMIT,
       excludeContentHashes,
     })
@@ -308,46 +345,49 @@ export class PolymarketFeedService implements FeedService {
     await sleep(this.resolveSyncRetryDelayMs())
   }
 
-  private async runPolymarketSync(): Promise<FeedSyncResult> {
-    const subscription = await this.ensureSubscription()
-    this.sourceState.isSyncing = true
-    this.emit({ type: "sync_started", source: POLYMARKET_SOURCE })
+  private async runSync(source: FeedSource): Promise<FeedSyncResult> {
+    const subscription = await this.getSubscription(source)
+    const state = this.sourceStateBySource[source]
+    state.isSyncing = true
+    this.emit({ type: "sync_started", source })
 
     try {
-      const result = await this.runPolymarketSyncWithRetry(subscription)
-      this.sourceState.isSyncing = false
-      this.sourceState.lastError = ""
-      this.sourceState.lastCompletedAt = result.fetchedAt
-      this.emit({ type: "subscription_updated", source: POLYMARKET_SOURCE })
-      this.emit({ type: "sync_completed", source: POLYMARKET_SOURCE, result })
+      const result = await this.runSyncWithRetry(source, subscription)
+      state.isSyncing = false
+      state.lastError = ""
+      state.lastCompletedAt = result.fetchedAt
+      this.emit({ type: "subscription_updated", source })
+      this.emit({ type: "sync_completed", source, result })
       return result
     } catch (error) {
       const failedAt = Date.now()
-      const message = error instanceof Error ? error.message : "Polymarket 同步失败"
+      const message =
+        error instanceof Error ? error.message : `${getFeedSourceConfig(source).label} 同步失败`
       await this.repository.upsertFeedSubscription({
         ...subscription,
-        enabled: this.resolveEnabled(POLYMARKET_SOURCE),
+        enabled: this.resolveEnabled(source),
         lastPolledAt: failedAt,
         lastError: message,
         updatedAt: failedAt,
       })
-      this.sourceState.isSyncing = false
-      this.sourceState.lastError = message
-      this.emit({ type: "subscription_updated", source: POLYMARKET_SOURCE })
-      this.emit({ type: "sync_failed", source: POLYMARKET_SOURCE, error: message })
+      state.isSyncing = false
+      state.lastError = message
+      this.emit({ type: "subscription_updated", source })
+      this.emit({ type: "sync_failed", source, error: message })
       throw error
     }
   }
 
-  private async runPolymarketSyncWithRetry(
+  private async runSyncWithRetry(
+    source: FeedSource,
     subscription: FeedSubscriptionRecord
   ): Promise<FeedSyncResult> {
     const maxAttempts = this.resolveSyncRetryMaxAttempts()
-    let lastError: unknown = new Error("Polymarket 同步失败")
+    let lastError: unknown = new Error(`${getFeedSourceConfig(source).label} 同步失败`)
 
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       try {
-        return await this.runPolymarketSyncAttempt(subscription)
+        return await this.runSyncAttempt(source, subscription)
       } catch (error) {
         lastError = error
         if (attempt >= maxAttempts) {
@@ -360,15 +400,16 @@ export class PolymarketFeedService implements FeedService {
     throw lastError
   }
 
-  private async runPolymarketSyncAttempt(
+  private async runSyncAttempt(
+    source: FeedSource,
     subscription: FeedSubscriptionRecord
   ): Promise<FeedSyncResult> {
     const fetchedAt = Date.now()
-    const raw = await this.client.fetchPolymarketTimeline()
-    const parsed = parsePolymarketTimeline(raw)
+    const raw = await this.client.fetchTimeline(source)
+    const parsed = parseXTimeline(raw, source)
     const items = await Promise.all(
       parsed.map(async (item, index) => {
-        const normalizedTitle = item.title.trim() || "Polymarket 更新"
+        const normalizedTitle = item.title.trim() || getFeedSourceConfig(source).fallbackTitle
         const normalizedMarkdown = item.contentMarkdown.trim()
         const normalizedMediaUrls = Array.from(new Set(item.mediaUrls))
         const contentHash = await sha256Hex(
@@ -382,7 +423,7 @@ export class PolymarketFeedService implements FeedService {
         return {
           id: `feed_item_${contentHash.slice(0, 24)}`,
           subscriptionId: subscription.id,
-          source: POLYMARKET_SOURCE,
+          source,
           contentHash,
           title: normalizedTitle,
           contentMarkdown: normalizedMarkdown,
@@ -432,10 +473,10 @@ export class PolymarketFeedService implements FeedService {
       } satisfies FeedItemRecord
     })
     const insertedCount = await this.repository.insertFeedItems(translatedItems)
-    await this.backfillPendingTranslations(pendingItems.map((item) => item.contentHash))
+    await this.backfillPendingTranslations(source, pendingItems.map((item) => item.contentHash))
     const nextSubscription: FeedSubscriptionRecord = {
       ...subscription,
-      enabled: this.resolveEnabled(POLYMARKET_SOURCE),
+      enabled: this.resolveEnabled(source),
       lastPolledAt: fetchedAt,
       lastSuccessAt: fetchedAt,
       lastError: "",
@@ -443,10 +484,12 @@ export class PolymarketFeedService implements FeedService {
     }
     await this.repository.upsertFeedSubscription(nextSubscription)
     return {
-      source: POLYMARKET_SOURCE,
+      source,
       fetchedAt,
       insertedCount,
       parsedCount: parsed.length,
     }
   }
 }
+
+export { FeedSyncService as PolymarketFeedService }

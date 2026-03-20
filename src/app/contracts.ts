@@ -16,6 +16,7 @@ export interface AppConfig {
   openaiTranslationModel: string
   voiceEnabled: boolean
   polymarketSubscriptionEnabled?: boolean
+  kalshiSubscriptionEnabled?: boolean
   themeMode: AppThemeMode
   fontSizeMode: AppFontSizeMode
   timezone?: string
