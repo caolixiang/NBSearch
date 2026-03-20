@@ -1,15 +1,16 @@
 "use client"
 
 import { useEffect, useMemo, useRef } from "react"
-import type { FeedItemRecord, FeedSubscriptionRecord } from "@/domain/feed/types"
+import { getFeedSourceConfig } from "@/domain/feed/source-config"
+import type { FeedItemRecord, FeedSource, FeedSubscriptionRecord } from "@/domain/feed/types"
 import { openExternalUrl } from "@/lib/open-external-url"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { RefreshCcw } from "lucide-react"
 
-export const POLYMARKET_FEED_AUTOLOAD_ROOT_MARGIN = "0px 0px 160px 0px"
+export const FEED_AUTOLOAD_ROOT_MARGIN = "0px 0px 160px 0px"
 
-export function shouldAutoLoadPolymarketPage(input: {
+export function shouldAutoLoadFeedPage(input: {
   subscriptionEnabled: boolean
   hasMore: boolean
   isLoading: boolean
@@ -17,7 +18,7 @@ export function shouldAutoLoadPolymarketPage(input: {
   return input.subscriptionEnabled && input.hasMore && !input.isLoading
 }
 
-export function normalizePolymarketCardText(value: string): string {
+export function normalizeFeedCardText(value: string): string {
   return value.replace(/\r\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim()
 }
 
@@ -39,13 +40,13 @@ function formatItemTime(item: FeedItemRecord): string {
   return formatSyncTime(value)
 }
 
-export function getPolymarketItemTitle(item: FeedItemRecord): string {
-  return normalizePolymarketCardText(item.titleZh.trim() || item.title)
+export function getFeedItemTitle(item: FeedItemRecord): string {
+  return normalizeFeedCardText(item.titleZh.trim() || item.title)
 }
 
-export function getPolymarketItemContent(item: FeedItemRecord): string {
-  const content = normalizePolymarketCardText(item.contentMarkdownZh.trim() || item.contentMarkdown)
-  const title = getPolymarketItemTitle(item)
+export function getFeedItemContent(item: FeedItemRecord): string {
+  const content = normalizeFeedCardText(item.contentMarkdownZh.trim() || item.contentMarkdown)
+  const title = getFeedItemTitle(item)
   if (!content) {
     return ""
   }
@@ -55,7 +56,8 @@ export function getPolymarketItemContent(item: FeedItemRecord): string {
   return content
 }
 
-interface PolymarketFeedPaneProps {
+interface FeedPaneProps {
+  source: FeedSource
   subscription: FeedSubscriptionRecord | null
   items: FeedItemRecord[]
   isLoading: boolean
@@ -68,7 +70,8 @@ interface PolymarketFeedPaneProps {
   onDeepResearch: (item: FeedItemRecord) => void
 }
 
-export function PolymarketFeedPane({
+export function FeedPane({
+  source,
   subscription,
   items,
   isLoading,
@@ -79,10 +82,11 @@ export function PolymarketFeedPane({
   onLoadMore,
   onOpenSettings,
   onDeepResearch,
-}: PolymarketFeedPaneProps) {
+}: FeedPaneProps) {
   const scrollContainerRef = useRef<HTMLDivElement | null>(null)
   const autoLoadSentinelRef = useRef<HTMLDivElement | null>(null)
   const autoLoadRequestedRef = useRef(false)
+  const sourceConfig = getFeedSourceConfig(source)
   const statusLabel = useMemo(() => {
     if (isSyncing) {
       return "同步中..."
@@ -116,7 +120,7 @@ export function PolymarketFeedPane({
           return
         }
         if (
-          !shouldAutoLoadPolymarketPage({
+          !shouldAutoLoadFeedPage({
             subscriptionEnabled: subscription?.enabled === true,
             hasMore,
             isLoading,
@@ -129,7 +133,7 @@ export function PolymarketFeedPane({
       },
       {
         root,
-        rootMargin: POLYMARKET_FEED_AUTOLOAD_ROOT_MARGIN,
+        rootMargin: FEED_AUTOLOAD_ROOT_MARGIN,
         threshold: 0.01,
       }
     )
@@ -143,9 +147,14 @@ export function PolymarketFeedPane({
     <div className="mx-auto flex h-full w-full max-w-[72rem] flex-col px-6 py-6">
       <div className="flex flex-wrap items-start justify-between gap-4 border-b border-border pb-4">
         <div>
-          <h2 className="text-lg font-semibold text-foreground">Polymarket</h2>
+          <div className="flex items-center gap-2">
+            <h2 className="text-lg font-semibold text-foreground">{sourceConfig.label}</h2>
+            <span className="rounded-full border border-border bg-secondary/40 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+              @{sourceConfig.accountHandle}
+            </span>
+          </div>
           <p className="mt-1 text-sm text-muted-foreground">
-            同步 X 上的最新动态。应用运行期间每 10 分钟拉取一次。
+            同步 X 上的最新动态。应用运行期间每 10 分钟自动同步一次。
           </p>
           <p
             className={cn(
@@ -172,7 +181,7 @@ export function PolymarketFeedPane({
         <div className="mt-6 rounded-2xl border border-dashed border-border bg-secondary/20 p-6">
           <p className="text-sm font-medium text-foreground">订阅尚未开启</p>
           <p className="mt-1 text-sm leading-6 text-muted-foreground">
-            开启后会在应用运行期间自动拉取 Polymarket 的最新动态，并保存在本地，支持后续“加载更多”。
+            开启后会在应用运行期间自动拉取 {sourceConfig.label} 的最新动态，并保存在本地，支持后续“加载更多”。
           </p>
           <Button size="sm" className="mt-4" onClick={onOpenSettings}>
             去开启订阅
@@ -196,14 +205,14 @@ export function PolymarketFeedPane({
               <article key={item.id} className="rounded-2xl border border-border bg-card p-4 shadow-sm">
                 <div className="flex items-start justify-between gap-4">
                   <div className="min-w-0">
-                    <h3 className="line-clamp-2 text-sm font-semibold leading-6 text-foreground">{getPolymarketItemTitle(item)}</h3>
+                    <h3 className="line-clamp-2 text-sm font-semibold leading-6 text-foreground">{getFeedItemTitle(item)}</h3>
                     <p className="mt-1 text-xs text-muted-foreground">{formatItemTime(item)}</p>
                   </div>
                 </div>
 
-                {getPolymarketItemContent(item) ? (
+                {getFeedItemContent(item) ? (
                   <p className="mt-3 whitespace-pre-wrap text-sm leading-7 text-foreground">
-                    {getPolymarketItemContent(item)}
+                    {getFeedItemContent(item)}
                   </p>
                 ) : null}
 
@@ -227,7 +236,7 @@ export function PolymarketFeedPane({
                 <div
                   className={cn(
                     "flex items-center justify-end",
-                    item.mediaUrls.length > 0 || getPolymarketItemContent(item) ? "mt-3" : "mt-2"
+                    item.mediaUrls.length > 0 || getFeedItemContent(item) ? "mt-3" : "mt-2"
                   )}
                 >
                   <Button

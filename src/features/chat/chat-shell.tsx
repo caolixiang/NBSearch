@@ -8,6 +8,7 @@ import {
   applyPersonalizationConfigToRuntime,
   applySubscriptionsConfigToRuntime,
 } from "@/app/runtime"
+import { FEED_SOURCES, getFeedSourceConfig } from "@/domain/feed/source-config"
 import type {
   ChatAnchors,
   ChatAttachment,
@@ -15,13 +16,14 @@ import type {
   ChatMessage as DomainChatMessage,
   ChatTurnAttachmentInput,
 } from "@/domain/chat/types"
-import type { FeedItemRecord, FeedPageCursor, FeedSubscriptionRecord } from "@/domain/feed/types"
+import type { FeedRuntimeState } from "@/domain/feed/service"
+import type { FeedItemRecord, FeedPageCursor, FeedSource, FeedSubscriptionRecord } from "@/domain/feed/types"
 import type { ConversationRecord } from "@/domain/storage/repository"
 import { ChatInput, type ChatInputVoiceRuntimeEvent } from "@/components/chat-input"
 import { ChatMessage, type RenderChatMessage, TypingIndicator } from "@/components/chat-message"
 import { ChatSidebar } from "@/components/chat-sidebar"
 import { ModelSelector } from "@/components/model-selector"
-import { PolymarketFeedPane } from "@/components/polymarket-feed-pane"
+import { FeedPane } from "@/components/polymarket-feed-pane"
 import { SettingsDialog, type SettingsDialogTabId } from "@/components/settings-dialog"
 import { WelcomeScreen } from "@/components/welcome-screen"
 import { cn } from "@/lib/utils"
@@ -40,9 +42,9 @@ import { resolveFastModelId, resolveThinkerModelId } from "./model-selection"
 import { createChatStreamRuntime, persistCompletedReasoning } from "./chat-stream-runtime"
 import {
   buildAssistantRoundByMessageId,
-  buildPolymarketResearchImageAttachments,
-  buildPolymarketResearchMessageAttachments,
-  buildPolymarketResearchPrompt,
+  buildFeedResearchImageAttachments,
+  buildFeedResearchMessageAttachments,
+  buildFeedResearchPrompt,
   buildPdfExportMetaByMessageId,
   buildReasoningCaches,
   buildSidebarConversationItems,
@@ -77,27 +79,55 @@ import {
 } from "./voice-assistant-stream"
 
 const DRAFT_CONVERSATION_ID = "draft_new_conversation"
-const POLYMARKET_FEED_ID = "feed_polymarket"
-const POLYMARKET_SOURCE = "polymarket"
+const FEED_ID_PREFIX = "feed_"
 const PENDING_RECOVERY_POLL_INTERVAL_MS = 2500
 const PENDING_RECOVERY_NONE_RESULT_MAX_RETRIES = 24
+
+type FeedViewState = {
+  subscription: FeedSubscriptionRecord | null
+  items: FeedItemRecord[]
+  cursor: FeedPageCursor | null
+  hasMore: boolean
+  isLoading: boolean
+  loadedOnce: boolean
+  researchingItemId: string | null
+  runtimeState: FeedRuntimeState
+}
+
+function createInitialFeedViewState(source: FeedSource, runtime: AppRuntime): FeedViewState {
+  return {
+    subscription: null,
+    items: [],
+    cursor: null,
+    hasMore: false,
+    isLoading: false,
+    loadedOnce: false,
+    researchingItemId: null,
+    runtimeState: runtime.services.feeds.getRuntimeState(source),
+  }
+}
+
+function resolveFeedSidebarId(source: FeedSource): string {
+  return `${FEED_ID_PREFIX}${source}`
+}
+
+function resolveFeedSourceFromSidebarId(value: string): FeedSource | null {
+  const normalized = value.startsWith(FEED_ID_PREFIX) ? value.slice(FEED_ID_PREFIX.length) : ""
+  return FEED_SOURCES.find((source) => source === normalized) || null
+}
+
 export function ChatShell({ runtime }: { runtime: AppRuntime }) {
   const repository = runtime.services.repository
   const chatService = runtime.services.chat
   const feedService = runtime.services.feeds
 
   const [conversations, setConversations] = useState<ConversationRecord[]>([])
-  const [activeMainView, setActiveMainView] = useState<"chat" | "polymarket">("chat")
-  const [polymarketSubscription, setPolymarketSubscription] = useState<FeedSubscriptionRecord | null>(null)
-  const [polymarketItems, setPolymarketItems] = useState<FeedItemRecord[]>([])
-  const [polymarketCursor, setPolymarketCursor] = useState<FeedPageCursor | null>(null)
-  const [polymarketHasMore, setPolymarketHasMore] = useState(false)
-  const [polymarketListLoading, setPolymarketListLoading] = useState(false)
-  const [polymarketLoadedOnce, setPolymarketLoadedOnce] = useState(false)
-  const [polymarketResearchingItemId, setPolymarketResearchingItemId] = useState<string | null>(null)
-  const [polymarketRuntimeState, setPolymarketRuntimeState] = useState(
-    feedService.getRuntimeState(POLYMARKET_SOURCE)
-  )
+  const [activeMainView, setActiveMainView] = useState<"chat" | "feed">("chat")
+  const [activeFeedSource, setActiveFeedSource] = useState<FeedSource | null>(null)
+  const [feedViewBySource, setFeedViewBySource] = useState<Record<FeedSource, FeedViewState>>({
+    polymarket: createInitialFeedViewState("polymarket", runtime),
+    kalshi: createInitialFeedViewState("kalshi", runtime),
+  })
   const {
     hasDraftConversation,
     draftConversationUpdatedAt,
@@ -161,6 +191,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
 
   const abortControllerByConversationIdRef = useRef<Record<string, AbortController>>({})
   const activeConversationIdRef = useRef<string | null>(null)
+  const feedViewBySourceRef = useRef(feedViewBySource)
   const messagesByConversationIdRef = useRef(messagesByConversationId)
   const streamingStateByConversationIdRef = useRef(streamingStateByConversationId)
   const attemptedPendingRecoveryMessageIdByConversationRef = useRef<Record<string, string>>({})
@@ -187,6 +218,10 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
   useEffect(() => {
     activeConversationIdRef.current = activeConversationId
   }, [activeConversationId])
+
+  useEffect(() => {
+    feedViewBySourceRef.current = feedViewBySource
+  }, [feedViewBySource])
 
   useEffect(() => {
     messagesByConversationIdRef.current = messagesByConversationId
@@ -452,46 +487,86 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     applyPersonalizationConfigToRuntime(next)
   }, [])
 
-  const loadPolymarketSubscription = useCallback(async (): Promise<FeedSubscriptionRecord> => {
-    const subscription = await feedService.getSubscription(POLYMARKET_SOURCE)
-    setPolymarketSubscription(subscription)
-    return subscription
-  }, [feedService])
+  const updateFeedView = useCallback(
+    (source: FeedSource, updater: (current: FeedViewState) => FeedViewState) => {
+      setFeedViewBySource((previous) => ({
+        ...previous,
+        [source]: updater(previous[source]),
+      }))
+    },
+    []
+  )
 
-  const loadPolymarketItems = useCallback(
-    async (input: { append?: boolean; cursor?: FeedPageCursor | null } = {}): Promise<void> => {
-      setPolymarketListLoading(true)
+  const loadFeedSubscription = useCallback(
+    async (source: FeedSource): Promise<FeedSubscriptionRecord> => {
+      const subscription = await feedService.getSubscription(source)
+      updateFeedView(source, (current) => ({
+        ...current,
+        subscription,
+      }))
+      return subscription
+    },
+    [feedService, updateFeedView]
+  )
+
+  const loadFeedItems = useCallback(
+    async (
+      source: FeedSource,
+      input: { append?: boolean; cursor?: FeedPageCursor | null } = {}
+    ): Promise<void> => {
+      updateFeedView(source, (current) => ({
+        ...current,
+        isLoading: true,
+      }))
       try {
         const page = await feedService.listItems({
-          source: POLYMARKET_SOURCE,
+          source,
           limit: 20,
-          cursor: input.append ? input.cursor || polymarketCursor : null,
+          cursor: input.append ? input.cursor ?? feedViewBySourceRef.current[source].cursor : null,
         })
-        setPolymarketItems((previous) =>
-          input.append ? [...previous, ...page.items] : page.items
-        )
-        setPolymarketCursor(page.nextCursor)
-        setPolymarketHasMore(Boolean(page.nextCursor))
-        setPolymarketLoadedOnce(true)
+        updateFeedView(source, (current) => ({
+          ...current,
+          items: input.append ? [...current.items, ...page.items] : page.items,
+          cursor: page.nextCursor,
+          hasMore: Boolean(page.nextCursor),
+          loadedOnce: true,
+        }))
       } finally {
-        setPolymarketListLoading(false)
+        updateFeedView(source, (current) => ({
+          ...current,
+          isLoading: false,
+        }))
       }
     },
-    [feedService, polymarketCursor]
+    [feedService, updateFeedView]
   )
 
   const handleSubscriptionsConfigChange = useCallback(
-    (next: { polymarketSubscriptionEnabled: boolean }) => {
+    (next: {
+      polymarketSubscriptionEnabled: boolean
+      kalshiSubscriptionEnabled: boolean
+    }) => {
       applySubscriptionsConfigToRuntime(next)
-      void loadPolymarketSubscription()
-      if (next.polymarketSubscriptionEnabled) {
+      for (const source of FEED_SOURCES) {
+        void loadFeedSubscription(source)
+      }
+
+      const enabledBySource: Record<FeedSource, boolean> = {
+        polymarket: next.polymarketSubscriptionEnabled,
+        kalshi: next.kalshiSubscriptionEnabled,
+      }
+
+      for (const source of FEED_SOURCES) {
+        if (!enabledBySource[source]) {
+          continue
+        }
         void feedService
-          .syncNow(POLYMARKET_SOURCE)
-          .then(() => loadPolymarketItems())
+          .syncNow(source)
+          .then(() => loadFeedItems(source))
           .catch(() => {})
       }
     },
-    [feedService, loadPolymarketItems, loadPolymarketSubscription]
+    [feedService, loadFeedItems, loadFeedSubscription]
   )
 
   const refreshConversations = useCallback(async (): Promise<ConversationRecord[]> => {
@@ -927,7 +1002,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
 
     const initialize = async () => {
       const list = await refreshConversations()
-      await loadPolymarketSubscription()
+      await Promise.all(FEED_SOURCES.map((source) => loadFeedSubscription(source)))
       if (!mounted) {
         return
       }
@@ -949,27 +1024,32 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       }
       abortControllerByConversationIdRef.current = {}
     }
-  }, [loadMessages, loadPolymarketSubscription, refreshConversations])
+  }, [loadFeedSubscription, loadMessages, refreshConversations])
 
   useEffect(() => {
     const unsubscribe = feedService.subscribe((event) => {
-      if (event.source !== POLYMARKET_SOURCE) {
-        return
-      }
-      setPolymarketRuntimeState(feedService.getRuntimeState(POLYMARKET_SOURCE))
+      updateFeedView(event.source, (current) => ({
+        ...current,
+        runtimeState: feedService.getRuntimeState(event.source),
+      }))
       if (event.type === "subscription_updated") {
-        void loadPolymarketSubscription()
+        void loadFeedSubscription(event.source)
         return
       }
       if (event.type === "sync_completed" || event.type === "sync_failed") {
-        void loadPolymarketSubscription()
-        void loadPolymarketItems()
+        void loadFeedSubscription(event.source)
+        void loadFeedItems(event.source)
       }
     })
 
-    setPolymarketRuntimeState(feedService.getRuntimeState(POLYMARKET_SOURCE))
+    for (const source of FEED_SOURCES) {
+      updateFeedView(source, (current) => ({
+        ...current,
+        runtimeState: feedService.getRuntimeState(source),
+      }))
+    }
     return unsubscribe
-  }, [feedService, loadPolymarketItems, loadPolymarketSubscription])
+  }, [feedService, loadFeedItems, loadFeedSubscription, updateFeedView])
 
   useEffect(() => {
     if (!activeConversationId || activeConversationId === DRAFT_CONVERSATION_ID) {
@@ -1739,28 +1819,34 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     ]
   )
 
-  const handleSelectFeed = useCallback(async (): Promise<void> => {
-    setActiveMainView("polymarket")
-    if (!polymarketLoadedOnce) {
-      await loadPolymarketItems()
-      return
-    }
-    if (polymarketItems.length === 0) {
-      await loadPolymarketItems()
-    }
-  }, [loadPolymarketItems, polymarketItems.length, polymarketLoadedOnce])
+  const handleSelectFeed = useCallback(
+    async (source: FeedSource): Promise<void> => {
+      setActiveMainView("feed")
+      setActiveFeedSource(source)
+      const current = feedViewBySourceRef.current[source]
+      if (!current.loadedOnce || current.items.length === 0) {
+        await loadFeedItems(source)
+      }
+    },
+    [loadFeedItems]
+  )
 
   const handleDeepResearchFeedItem = useCallback(
     async (item: FeedItemRecord): Promise<void> => {
-      if (polymarketResearchingItemId) {
+      const source = item.source
+      const current = feedViewBySourceRef.current[source]
+      if (current.researchingItemId) {
         return
       }
-      const prompt = buildPolymarketResearchPrompt(item)
-      const turnAttachments = buildPolymarketResearchImageAttachments(item)
-      const messageAttachments = buildPolymarketResearchMessageAttachments(item)
+      const prompt = buildFeedResearchPrompt(item)
+      const turnAttachments = buildFeedResearchImageAttachments(item)
+      const messageAttachments = buildFeedResearchMessageAttachments(item)
       const thinkerModelId = resolveThinkerModelId(modelOptions, selectedModel) || selectedModel
 
-      setPolymarketResearchingItemId(item.id)
+      updateFeedView(source, (value) => ({
+        ...value,
+        researchingItemId: item.id,
+      }))
       try {
         setActiveMainView("chat")
         if (thinkerModelId && thinkerModelId !== selectedModel) {
@@ -1774,18 +1860,21 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
           modelId: thinkerModelId,
         })
       } finally {
-        setPolymarketResearchingItemId(null)
+        updateFeedView(source, (value) => ({
+          ...value,
+          researchingItemId: null,
+        }))
       }
     },
     [
       modelOptions,
-      buildPolymarketResearchPrompt,
+      buildFeedResearchPrompt,
       createConversation,
       handleSendMessage,
-      polymarketResearchingItemId,
       selectedModel,
       setActiveMainView,
       setSelectedModel,
+      updateFeedView,
     ]
   )
 
@@ -1899,28 +1988,39 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     ]
   )
 
-  const activeSidebarId = activeMainView === "polymarket" ? POLYMARKET_FEED_ID : activeConversationId
+  const activeFeedView = activeFeedSource ? feedViewBySource[activeFeedSource] : null
+  const activeFeedConfig = activeFeedSource ? getFeedSourceConfig(activeFeedSource) : null
+  const activeSidebarId =
+    activeMainView === "feed" && activeFeedSource
+      ? resolveFeedSidebarId(activeFeedSource)
+      : activeConversationId
 
   return (
     <main className="flex h-dvh min-h-0 overflow-hidden bg-background">
       <div className="shrink-0">
         <ChatSidebar
-          feedItems={[
-            {
-              id: POLYMARKET_FEED_ID,
-              title: "Polymarket",
-              description: polymarketSubscription?.enabled
-                ? polymarketRuntimeState.isSyncing
+          feedItems={FEED_SOURCES.map((source) => {
+            const feedView = feedViewBySource[source]
+            const sourceConfig = getFeedSourceConfig(source)
+            return {
+              id: resolveFeedSidebarId(source),
+              title: sourceConfig.label,
+              description: feedView.subscription?.enabled
+                ? feedView.runtimeState.isSyncing
                   ? "同步中..."
                   : "最新动态"
                 : "未开启",
-            },
-          ]}
+            }
+          })}
           conversations={sidebarConversations}
           activeId={activeSidebarId}
           onSelect={(id) => void handleSelectConversation(id)}
-          onSelectFeed={() => {
-            void handleSelectFeed()
+          onSelectFeed={(id) => {
+            const source = resolveFeedSourceFromSidebarId(id)
+            if (!source) {
+              return
+            }
+            void handleSelectFeed(source)
           }}
           onNew={() => void handleNewConversation()}
           onRename={(id, title) => void handleRenameConversation(id, title)}
@@ -1935,11 +2035,11 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
 
       <div data-chat-main-pane="true" className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <header className="flex items-center justify-between border-b border-border px-4 py-2.5">
-          {activeMainView === "polymarket" ? (
+          {activeMainView === "feed" && activeFeedConfig ? (
             <div className="min-w-0">
-              <p className="text-sm font-semibold text-foreground">Polymarket</p>
+              <p className="text-sm font-semibold text-foreground">{activeFeedConfig.label}</p>
               <p className="mt-0.5 text-xs text-muted-foreground">
-                {polymarketSubscription?.enabled
+                {activeFeedView?.subscription?.enabled
                   ? "X 订阅流"
                   : "在设置中开启后，每 10 分钟同步一次"}
               </p>
@@ -2014,27 +2114,28 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
           onScroll={handleMessagesScroll}
           className="flex-1 min-h-0 overflow-y-auto overscroll-y-none"
         >
-          {activeMainView === "polymarket" ? (
-            <PolymarketFeedPane
-              subscription={polymarketSubscription}
-              items={polymarketItems}
-              isLoading={polymarketListLoading}
-              isSyncing={polymarketRuntimeState.isSyncing}
-              hasMore={polymarketHasMore}
-              researchingItemId={polymarketResearchingItemId}
+          {activeMainView === "feed" && activeFeedSource && activeFeedView ? (
+            <FeedPane
+              source={activeFeedSource}
+              subscription={activeFeedView.subscription}
+              items={activeFeedView.items}
+              isLoading={activeFeedView.isLoading}
+              isSyncing={activeFeedView.runtimeState.isSyncing}
+              hasMore={activeFeedView.hasMore}
+              researchingItemId={activeFeedView.researchingItemId}
               onRefresh={() => {
                 void feedService
-                  .syncNow(POLYMARKET_SOURCE)
-                  .then(() => loadPolymarketItems())
+                  .syncNow(activeFeedSource)
+                  .then(() => loadFeedItems(activeFeedSource))
                   .catch(() => {})
               }}
               onLoadMore={() => {
-                if (!polymarketHasMore || polymarketListLoading) {
+                if (!activeFeedView.hasMore || activeFeedView.isLoading) {
                   return
                 }
-                void loadPolymarketItems({
+                void loadFeedItems(activeFeedSource, {
                   append: true,
-                  cursor: polymarketCursor,
+                  cursor: activeFeedView.cursor,
                 })
               }}
               onOpenSettings={() => openSettings("subscriptions")}

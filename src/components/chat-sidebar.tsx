@@ -160,19 +160,20 @@ export function ChatSidebar({
           <PanelLeft className="size-4" />
         </Button>
         <NewConversationButton onNew={onNew} />
-        {feedItems.length > 0 ? (
+        {feedItems.map((item) => (
           <Button
+            key={item.id}
             variant="ghost"
             size="icon-sm"
-            onClick={() => onSelectFeed?.(feedItems[0]!.id)}
+            onClick={() => onSelectFeed?.(item.id)}
             className={cn(
               "text-sidebar-foreground hover:bg-sidebar-accent",
-              activeId === feedItems[0]!.id ? "bg-sidebar-accent" : ""
+              activeId === item.id ? "bg-sidebar-accent" : ""
             )}
           >
             <RadioTower className="size-4" />
           </Button>
-        ) : null}
+        ))}
       </div>
     )
   }

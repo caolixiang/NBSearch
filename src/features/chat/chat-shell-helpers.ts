@@ -5,6 +5,7 @@ import type {
   ChatReasoningEventDetail,
   RemoteChatAttachmentInput,
 } from "@/domain/chat/types"
+import { getFeedSourceConfig } from "@/domain/feed/source-config"
 import type { FeedItemRecord } from "@/domain/feed/types"
 import type { ConversationRecord } from "@/domain/storage/repository"
 import type { RenderChatMessage } from "@/components/chat-message"
@@ -132,7 +133,7 @@ function pickPreferredFeedOriginalText(left: string, right: string): string {
   return normalizedLeft.length >= normalizedRight.length ? normalizedLeft : normalizedRight
 }
 
-export function buildPolymarketResearchPrompt(item: FeedItemRecord): string {
+export function buildFeedResearchPrompt(item: FeedItemRecord): string {
   const title = item.title.trim()
   const content = item.contentMarkdown.trim()
   const canonicalUrl = item.canonicalUrl.trim()
@@ -165,23 +166,25 @@ export function buildPolymarketResearchPrompt(item: FeedItemRecord): string {
   return sections.join("\n\n").trim()
 }
 
-export function buildPolymarketResearchImageAttachments(item: FeedItemRecord): RemoteChatAttachmentInput[] {
+export function buildFeedResearchImageAttachments(item: FeedItemRecord): RemoteChatAttachmentInput[] {
+  const sourceLabel = getFeedSourceConfig(item.source).label
   return item.mediaUrls
     .map((url) => url.trim())
     .filter((url) => url.length > 0)
     .map((url, index) => ({
       kind: "image_url" as const,
       url,
-      name: `Polymarket image ${index + 1}`,
+      name: `${sourceLabel} image ${index + 1}`,
     }))
 }
 
-export function buildPolymarketResearchMessageAttachments(item: FeedItemRecord): ChatAttachment[] {
+export function buildFeedResearchMessageAttachments(item: FeedItemRecord): ChatAttachment[] {
+  const sourceLabel = getFeedSourceConfig(item.source).label
   return item.mediaUrls
     .map((url) => url.trim())
     .filter((url) => url.length > 0)
     .map((url, index) => ({
-      name: `Polymarket image ${index + 1}`,
+      name: `${sourceLabel} image ${index + 1}`,
       kind: "image" as const,
       previewImageUrl: url,
     }))

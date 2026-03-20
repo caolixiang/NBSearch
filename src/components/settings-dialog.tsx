@@ -42,7 +42,10 @@ interface SettingsDialogProps {
     fontSizeMode: AppFontSizeMode
   }) => void
   onPersonalizationConfigChange: (next: { timezone: string }) => void
-  onSubscriptionsConfigChange: (next: { polymarketSubscriptionEnabled: boolean }) => void
+  onSubscriptionsConfigChange: (next: {
+    polymarketSubscriptionEnabled: boolean
+    kalshiSubscriptionEnabled: boolean
+  }) => void
 }
 
 const tabs = [
@@ -89,6 +92,46 @@ function formatBytes(bytes: number): string {
   return `${value >= 100 || index === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[index]}`
 }
 
+function SubscriptionToggleCard({
+  title,
+  description,
+  enabled,
+  onToggle,
+}: {
+  title: string
+  description: string
+  enabled: boolean
+  onToggle: () => void
+}) {
+  return (
+    <div className="rounded-xl border border-input p-4">
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-foreground">{title}</p>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">{description}</p>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={enabled}
+          onClick={onToggle}
+          className={cn(
+            "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition-colors",
+            enabled ? "border-foreground/20 bg-foreground" : "border-input bg-muted"
+          )}
+        >
+          <span
+            className={cn(
+              "inline-block h-5 w-5 rounded-full bg-background transition-transform",
+              enabled ? "translate-x-[1.35rem]" : "translate-x-0.5"
+            )}
+          />
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export function SettingsDialog({
   open,
   onOpenChange,
@@ -132,6 +175,8 @@ export function SettingsDialog({
   const [personalizationMessage, setPersonalizationMessage] = useState("")
   const [polymarketEnabled, setPolymarketEnabled] = useState(false)
   const [savedPolymarketEnabled, setSavedPolymarketEnabled] = useState(false)
+  const [kalshiEnabled, setKalshiEnabled] = useState(false)
+  const [savedKalshiEnabled, setSavedKalshiEnabled] = useState(false)
   const [subscriptionsBusy, setSubscriptionsBusy] = useState(false)
   const [subscriptionsMessage, setSubscriptionsMessage] = useState("")
   const [imageCacheStats, setImageCacheStats] = useState<ImageCacheStats | null>(null)
@@ -218,6 +263,8 @@ export function SettingsDialog({
     setSavedTimezone(nextTimezone)
     setPolymarketEnabled(runtime.config.polymarketSubscriptionEnabled === true)
     setSavedPolymarketEnabled(runtime.config.polymarketSubscriptionEnabled === true)
+    setKalshiEnabled(runtime.config.kalshiSubscriptionEnabled === true)
+    setSavedKalshiEnabled(runtime.config.kalshiSubscriptionEnabled === true)
     setShowApiKey(false)
     setShowOpenAIApiKey(false)
     setGatewayMessage("")
@@ -240,6 +287,7 @@ export function SettingsDialog({
     runtime.config.fontSizeMode,
     runtime.config.timezone,
     runtime.config.polymarketSubscriptionEnabled,
+    runtime.config.kalshiSubscriptionEnabled,
   ])
 
   const gatewaySaveButtonState = useMemo(
@@ -267,7 +315,8 @@ export function SettingsDialog({
     : personalizationHasChanges
       ? "保存"
       : "已保存"
-  const subscriptionsHasChanges = polymarketEnabled !== savedPolymarketEnabled
+  const subscriptionsHasChanges =
+    polymarketEnabled !== savedPolymarketEnabled || kalshiEnabled !== savedKalshiEnabled
   const subscriptionsButtonLabel = subscriptionsBusy
     ? "保存中..."
     : subscriptionsHasChanges
@@ -341,6 +390,7 @@ export function SettingsDialog({
       if (hasTauriRuntime()) {
         const saved = await saveSubscriptionsConfigToToml({
           polymarketEnabled,
+          kalshiEnabled,
         })
         if (!saved) {
           throw new Error("persist_subscriptions_config_failed")
@@ -348,10 +398,14 @@ export function SettingsDialog({
       }
       const resolved = await loadAppConfig()
       const nextEnabled = resolved.polymarketSubscriptionEnabled === true
+      const nextKalshiEnabled = resolved.kalshiSubscriptionEnabled === true
       setPolymarketEnabled(nextEnabled)
       setSavedPolymarketEnabled(nextEnabled)
+      setKalshiEnabled(nextKalshiEnabled)
+      setSavedKalshiEnabled(nextKalshiEnabled)
       onSubscriptionsConfigChange({
         polymarketSubscriptionEnabled: nextEnabled,
+        kalshiSubscriptionEnabled: nextKalshiEnabled,
       })
     } catch {
       setSubscriptionsMessage("保存失败，请重试")
@@ -719,7 +773,7 @@ export function SettingsDialog({
                   <div>
                     <h3 className="text-sm font-medium text-foreground">OpenAI</h3>
                     <p className="mt-0.5 text-xs text-muted-foreground">
-                      独立用于 Polymarket 条目入库前的中文翻译，不影响聊天主链
+                      独立用于订阅条目入库前的中文翻译，不影响聊天主链
                     </p>
                   </div>
                 </div>
@@ -1049,45 +1103,34 @@ export function SettingsDialog({
                 <div>
                   <h3 className="text-sm font-medium text-foreground">订阅设置</h3>
                   <p className="mt-0.5 text-xs text-muted-foreground">
-                    通过 Jina 拉取 Polymarket 在 X 上的最新动态，应用运行期间每 10 分钟同步一次。
+                    通过 Jina 拉取 X 上的最新动态。应用运行期间每 10 分钟同步一次，隐藏到 tray 后仍会继续同步。
                   </p>
                 </div>
 
                 <div className="space-y-4">
-                  <div className="rounded-xl border border-input p-4">
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium text-foreground">订阅 Polymarket 最新动态</p>
-                        <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                          关闭窗口到状态栏时会继续同步；彻底退出应用后暂停，下次启动时会做一次补抓。
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        role="switch"
-                        aria-checked={polymarketEnabled}
-                        onClick={() => {
-                          setPolymarketEnabled((prev) => !prev)
-                          if (subscriptionsMessage) {
-                            setSubscriptionsMessage("")
-                          }
-                        }}
-                        className={cn(
-                          "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition-colors",
-                          polymarketEnabled
-                            ? "border-foreground/20 bg-foreground"
-                            : "border-input bg-muted"
-                        )}
-                      >
-                        <span
-                          className={cn(
-                            "inline-block h-5 w-5 rounded-full bg-background transition-transform",
-                            polymarketEnabled ? "translate-x-[1.35rem]" : "translate-x-0.5"
-                          )}
-                        />
-                      </button>
-                    </div>
-                  </div>
+                  <SubscriptionToggleCard
+                    title="订阅 Polymarket 最新动态"
+                    description="关闭窗口到状态栏时会继续同步；彻底退出应用后暂停，下次启动时会做一次补抓。"
+                    enabled={polymarketEnabled}
+                    onToggle={() => {
+                      setPolymarketEnabled((prev) => !prev)
+                      if (subscriptionsMessage) {
+                        setSubscriptionsMessage("")
+                      }
+                    }}
+                  />
+
+                  <SubscriptionToggleCard
+                    title="订阅 Kalshi 最新动态"
+                    description="规则与 Polymarket 一致：运行中每 10 分钟同步一次，隐藏到 tray 后继续同步。"
+                    enabled={kalshiEnabled}
+                    onToggle={() => {
+                      setKalshiEnabled((prev) => !prev)
+                      if (subscriptionsMessage) {
+                        setSubscriptionsMessage("")
+                      }
+                    }}
+                  />
 
                   {subscriptionsMessage ? (
                     <p className="text-xs text-muted-foreground">{subscriptionsMessage}</p>
