@@ -19,7 +19,7 @@ use sha2::{Digest, Sha256};
 use tauri::{
     menu::MenuBuilder,
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Manager, WindowEvent,
+    Emitter, Manager, WindowEvent,
 };
 use tauri_plugin_updater::UpdaterExt;
 use url::Url;
@@ -233,6 +233,8 @@ struct PersonalizationConfigTomlSection {
 struct SubscriptionsConfigTomlSection {
     #[serde(default)]
     polymarket_enabled: bool,
+    #[serde(default)]
+    kalshi_enabled: bool,
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -269,6 +271,7 @@ struct GatewayConfigPayload {
     font_size: String,
     timezone: String,
     polymarket_enabled: bool,
+    kalshi_enabled: bool,
     stream_idle_timeout_ms: u64,
     stream_idle_retry_max_attempts: u32,
     stream_idle_retry_delay_ms: u64,
@@ -309,7 +312,15 @@ struct PersonalizationConfigPayload {
 #[serde(rename_all = "camelCase")]
 struct SubscriptionsConfigPayload {
     polymarket_enabled: bool,
+    kalshi_enabled: bool,
     config_path: String,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct FeedSyncTickPayload {
+    reason: String,
+    emitted_at: u64,
 }
 
 #[derive(Serialize)]
@@ -1171,6 +1182,7 @@ fn read_gateway_config(app: tauri::AppHandle) -> Result<GatewayConfigPayload, St
         font_size: normalize_font_size_mode(parsed.appearance.font_size.as_str()),
         timezone: normalize_timezone(parsed.personalization.timezone.as_str()),
         polymarket_enabled: parsed.subscriptions.polymarket_enabled,
+        kalshi_enabled: parsed.subscriptions.kalshi_enabled,
         stream_idle_timeout_ms,
         stream_idle_retry_max_attempts,
         stream_idle_retry_delay_ms,
@@ -1245,6 +1257,7 @@ fn save_gateway_config(
         font_size: normalize_font_size_mode(parsed.appearance.font_size.as_str()),
         timezone: normalize_timezone(parsed.personalization.timezone.as_str()),
         polymarket_enabled: parsed.subscriptions.polymarket_enabled,
+        kalshi_enabled: parsed.subscriptions.kalshi_enabled,
         stream_idle_timeout_ms,
         stream_idle_retry_max_attempts,
         stream_idle_retry_delay_ms,
@@ -1320,14 +1333,17 @@ fn save_personalization_config(
 fn save_subscriptions_config(
     app: tauri::AppHandle,
     polymarket_enabled: bool,
+    kalshi_enabled: bool,
 ) -> Result<SubscriptionsConfigPayload, String> {
     let config_path = resolve_app_config_toml_path(&app)?;
     let mut parsed = read_gateway_config_toml(&config_path).unwrap_or_default();
     parsed.subscriptions.polymarket_enabled = polymarket_enabled;
+    parsed.subscriptions.kalshi_enabled = kalshi_enabled;
     write_gateway_config_toml(&config_path, &parsed)?;
 
     Ok(SubscriptionsConfigPayload {
         polymarket_enabled: parsed.subscriptions.polymarket_enabled,
+        kalshi_enabled: parsed.subscriptions.kalshi_enabled,
         config_path: config_path.to_string_lossy().to_string(),
     })
 }
@@ -1812,6 +1828,8 @@ const MAIN_WINDOW_LABEL: &str = "main";
 const TRAY_ICON_ID: &str = "main-tray";
 const TRAY_SHOW_WINDOW_MENU_ID: &str = "tray-show-window";
 const TRAY_QUIT_MENU_ID: &str = "tray-quit";
+const FEED_SYNC_TICK_EVENT: &str = "nbsearch://feed-sync-tick";
+const FEED_SYNC_TICK_INTERVAL: Duration = Duration::from_secs(60);
 
 struct CloseToTrayState {
     quitting: AtomicBool,
@@ -1835,12 +1853,30 @@ impl CloseToTrayState {
     }
 }
 
-fn restore_main_window<R: tauri::Runtime, M: Manager<R>>(manager: &M) {
+fn restore_main_window<R: tauri::Runtime, M: Manager<R> + Emitter<R>>(manager: &M) {
     if let Some(window) = manager.get_webview_window(MAIN_WINDOW_LABEL) {
         let _ = window.unminimize();
         let _ = window.show();
         let _ = window.set_focus();
     }
+    emit_feed_sync_tick(manager, "window_restored");
+}
+
+fn emit_feed_sync_tick<R: tauri::Runtime, M: Manager<R> + Emitter<R>>(manager: &M, reason: &str) {
+    let _ = manager.emit(
+        FEED_SYNC_TICK_EVENT,
+        FeedSyncTickPayload {
+            reason: reason.to_string(),
+            emitted_at: now_ms(),
+        },
+    );
+}
+
+fn start_feed_sync_ticker<R: tauri::Runtime>(app: tauri::AppHandle<R>) {
+    std::thread::spawn(move || loop {
+        std::thread::sleep(FEED_SYNC_TICK_INTERVAL);
+        emit_feed_sync_tick(&app, "interval");
+    });
 }
 
 fn setup_tray<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<()> {
@@ -1902,6 +1938,7 @@ fn main() {
         .plugin(tauri_plugin_sql::Builder::default().build())
         .setup(|app| {
             setup_tray(&app.handle())?;
+            start_feed_sync_ticker(app.handle().clone());
             Ok(())
         })
         .on_window_event(|window, event| match event {
