@@ -1,9 +1,9 @@
 import { describe, expect, it } from "bun:test"
 import {
   buildSidebarConversationItems,
-  buildPolymarketResearchImageAttachments,
-  buildPolymarketResearchMessageAttachments,
-  buildPolymarketResearchPrompt,
+  buildFeedResearchImageAttachments,
+  buildFeedResearchMessageAttachments,
+  buildFeedResearchPrompt,
   buildVisibleMessages,
   buildVoiceConversationTitle,
   clearStaleSessionAnchors,
@@ -196,7 +196,7 @@ describe("polymarket feed to chat helpers", () => {
   }
 
   it("builds deep research prompts from original feed content instead of translated text", () => {
-    expect(buildPolymarketResearchPrompt(item)).toBe(
+    expect(buildFeedResearchPrompt(item)).toBe(
       [
         "原文：",
         "Original headline",
@@ -217,7 +217,7 @@ describe("polymarket feed to chat helpers", () => {
 
   it("deduplicates identical title and content into a single original block", () => {
     expect(
-      buildPolymarketResearchPrompt({
+      buildFeedResearchPrompt({
         ...item,
         contentMarkdown: "Original headline",
       })
@@ -240,7 +240,7 @@ describe("polymarket feed to chat helpers", () => {
 
   it("deduplicates a truncated title when the body is the longer original text", () => {
     expect(
-      buildPolymarketResearchPrompt({
+      buildFeedResearchPrompt({
         ...item,
         title: "JUST IN: “At least a dozen” military officers were missing from China’s legislative meetings,...",
         contentMarkdown:
@@ -264,7 +264,7 @@ describe("polymarket feed to chat helpers", () => {
   })
 
   it("builds remote image attachments for request payload and local preview", () => {
-    expect(buildPolymarketResearchImageAttachments(item)).toEqual([
+    expect(buildFeedResearchImageAttachments(item)).toEqual([
       {
         kind: "image_url",
         url: "https://example.com/one.png",
@@ -277,7 +277,7 @@ describe("polymarket feed to chat helpers", () => {
       },
     ])
 
-    expect(buildPolymarketResearchMessageAttachments(item)).toEqual([
+    expect(buildFeedResearchMessageAttachments(item)).toEqual([
       {
         name: "Polymarket image 1",
         kind: "image",
@@ -289,5 +289,16 @@ describe("polymarket feed to chat helpers", () => {
         previewImageUrl: "https://example.com/two.jpg",
       },
     ])
+  })
+
+  it("uses the source label when building image attachment names", () => {
+    expect(
+      buildFeedResearchImageAttachments({
+        ...item,
+        source: "kalshi" as const,
+      })[0]
+    ).toMatchObject({
+      name: "Kalshi image 1",
+    })
   })
 })

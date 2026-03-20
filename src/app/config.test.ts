@@ -8,5 +8,7 @@ describe("loadAppConfig env defaults", () => {
     expect(config.openaiApiBaseUrl).toBe("")
     expect(config.openaiTranslationModel).toBe("gpt-5.4-mini")
     expect(config.openaiApiKey).toBe("")
+    expect(config.polymarketSubscriptionEnabled).toBe(false)
+    expect(config.kalshiSubscriptionEnabled).toBe(false)
   })
 })

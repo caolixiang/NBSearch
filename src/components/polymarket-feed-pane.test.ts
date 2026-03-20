@@ -1,16 +1,16 @@
 import { describe, expect, it } from "bun:test"
 import {
-  POLYMARKET_FEED_AUTOLOAD_ROOT_MARGIN,
-  getPolymarketItemContent,
-  getPolymarketItemTitle,
-  normalizePolymarketCardText,
-  shouldAutoLoadPolymarketPage,
+  FEED_AUTOLOAD_ROOT_MARGIN,
+  getFeedItemContent,
+  getFeedItemTitle,
+  normalizeFeedCardText,
+  shouldAutoLoadFeedPage,
 } from "./polymarket-feed-pane"
 
-describe("PolymarketFeedPane auto load", () => {
+describe("FeedPane auto load", () => {
   it("auto-loads only when subscription is enabled, more items exist, and a page is not already loading", () => {
     expect(
-      shouldAutoLoadPolymarketPage({
+      shouldAutoLoadFeedPage({
         subscriptionEnabled: true,
         hasMore: true,
         isLoading: false,
@@ -18,7 +18,7 @@ describe("PolymarketFeedPane auto load", () => {
     ).toBe(true)
 
     expect(
-      shouldAutoLoadPolymarketPage({
+      shouldAutoLoadFeedPage({
         subscriptionEnabled: false,
         hasMore: true,
         isLoading: false,
@@ -26,7 +26,7 @@ describe("PolymarketFeedPane auto load", () => {
     ).toBe(false)
 
     expect(
-      shouldAutoLoadPolymarketPage({
+      shouldAutoLoadFeedPage({
         subscriptionEnabled: true,
         hasMore: false,
         isLoading: false,
@@ -34,7 +34,7 @@ describe("PolymarketFeedPane auto load", () => {
     ).toBe(false)
 
     expect(
-      shouldAutoLoadPolymarketPage({
+      shouldAutoLoadFeedPage({
         subscriptionEnabled: true,
         hasMore: true,
         isLoading: true,
@@ -43,11 +43,11 @@ describe("PolymarketFeedPane auto load", () => {
   })
 
   it("uses a generous bottom root margin so the next page begins loading before the user hard-stops at the end", () => {
-    expect(POLYMARKET_FEED_AUTOLOAD_ROOT_MARGIN).toBe("0px 0px 160px 0px")
+    expect(FEED_AUTOLOAD_ROOT_MARGIN).toBe("0px 0px 160px 0px")
   })
 
   it("normalizes card text by trimming trailing blanks and collapsing extra empty lines", () => {
-    expect(normalizePolymarketCardText("标题\n\n\n\n正文\n\n")).toBe("标题\n\n正文")
+    expect(normalizeFeedCardText("标题\n\n\n\n正文\n\n")).toBe("标题\n\n正文")
   })
 
   it("hides duplicated body text when it matches the title after normalization", () => {
@@ -70,7 +70,7 @@ describe("PolymarketFeedPane auto load", () => {
       fetchedAt: 1,
     }
 
-    expect(getPolymarketItemTitle(item)).toBe("刚刚：谷歌推出 AI vibe design 工具后，Figma 股价单日暴跌 8%。")
-    expect(getPolymarketItemContent(item)).toBe("")
+    expect(getFeedItemTitle(item)).toBe("刚刚：谷歌推出 AI vibe design 工具后，Figma 股价单日暴跌 8%。")
+    expect(getFeedItemContent(item)).toBe("")
   })
 })

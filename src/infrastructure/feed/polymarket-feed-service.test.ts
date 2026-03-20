@@ -1,15 +1,20 @@
 import { describe, expect, it } from "bun:test"
 import type { AppConfig } from "@/app/contracts"
+import type { FeedSource } from "@/domain/feed/types"
 import { MemoryAppRepository } from "@/infrastructure/storage/memory/repository"
 import type { JinaReaderClient } from "./jina-reader-client"
-import type { FeedTranslationRequest, FeedTranslationResult, FeedTranslator } from "./openai-feed-translator"
-import { PolymarketFeedService } from "./polymarket-feed-service"
+import type {
+  FeedTranslationRequest,
+  FeedTranslationResult,
+  FeedTranslator,
+} from "./openai-feed-translator"
+import { FeedSyncService } from "./polymarket-feed-service"
 
 class FakeJinaReaderClient implements JinaReaderClient {
-  constructor(private readonly payload: string) {}
+  constructor(private readonly payloadBySource: Record<FeedSource, string>) {}
 
-  async fetchPolymarketTimeline(): Promise<string> {
-    return this.payload
+  async fetchTimeline(source: FeedSource): Promise<string> {
+    return this.payloadBySource[source]
   }
 }
 
@@ -17,17 +22,17 @@ class FlakyJinaReaderClient implements JinaReaderClient {
   calls = 0
 
   constructor(
-    private readonly payload: string,
+    private readonly payloadBySource: Record<FeedSource, string>,
     private readonly failuresBeforeSuccess: number,
     private readonly errorMessage = "temporary jina failure"
   ) {}
 
-  async fetchPolymarketTimeline(): Promise<string> {
+  async fetchTimeline(source: FeedSource): Promise<string> {
     this.calls += 1
     if (this.calls <= this.failuresBeforeSuccess) {
       throw new Error(this.errorMessage)
     }
-    return this.payload
+    return this.payloadBySource[source]
   }
 }
 
@@ -64,7 +69,7 @@ class FlakyFeedTranslator implements FeedTranslator {
   }
 }
 
-const SAMPLE_TIMELINE = `Markdown Content:
+const POLYMARKET_TIMELINE = `Markdown Content:
 ## Polymarket’s posts
 
 [![Image 7: Square profile picture](https://pbs.twimg.com/profile_images/2005664281002491904/bz2ZO_nU_normal.jpg)](https://x.com/Polymarket)
@@ -76,16 +81,24 @@ BREAKING: Iceland says it could join the EU by 2028.
 JUST IN: Chinese Foreign Minister says China will continue mediating to push for a ceasefire.
 `
 
+const KALSHI_TIMELINE = `Markdown Content:
+## Kalshi’s posts
+
+[![Image 7: Square profile picture](https://pbs.twimg.com/profile_images/2026716397598867456/cTZJLMxV_normal.jpg)](https://x.com/Kalshi)
+JUST IN: North Carolina introduces bill to establish strategic Bitcoin reserve
+`
+
 function buildConfig(): AppConfig {
   return {
     apiBaseUrl: "",
     apiKey: "",
     defaultModel: "grok-4.1-fast",
-      openaiApiBaseUrl: "https://cpabak.zeabur.app/v1",
-      openaiApiKey: "",
-      openaiTranslationModel: "gpt-5.4-mini",
+    openaiApiBaseUrl: "",
+    openaiApiKey: "",
+    openaiTranslationModel: "gpt-5.4-mini",
     voiceEnabled: true,
     polymarketSubscriptionEnabled: true,
+    kalshiSubscriptionEnabled: true,
     themeMode: "light",
     fontSizeMode: "default",
     timezone: "Asia/Shanghai",
@@ -101,16 +114,18 @@ function buildConfig(): AppConfig {
   }
 }
 
-describe("PolymarketFeedService", () => {
+function buildClient(): FakeJinaReaderClient {
+  return new FakeJinaReaderClient({
+    polymarket: POLYMARKET_TIMELINE,
+    kalshi: KALSHI_TIMELINE,
+  })
+}
+
+describe("FeedSyncService", () => {
   it("syncs translated items, deduplicates and paginates feed items", async () => {
     const repository = new MemoryAppRepository()
     const translator = new FakeFeedTranslator()
-    const service = new PolymarketFeedService(
-      repository,
-      buildConfig(),
-      new FakeJinaReaderClient(SAMPLE_TIMELINE),
-      translator
-    )
+    const service = new FeedSyncService(repository, buildConfig(), buildClient(), translator)
 
     const subscription = await service.getSubscription("polymarket")
     expect(subscription.enabled).toBe(true)
@@ -144,12 +159,7 @@ describe("PolymarketFeedService", () => {
   it("backfills older failed translations on the next sync", async () => {
     const repository = new MemoryAppRepository()
     const translator = new FlakyFeedTranslator()
-    const service = new PolymarketFeedService(
-      repository,
-      buildConfig(),
-      new FakeJinaReaderClient(SAMPLE_TIMELINE),
-      translator
-    )
+    const service = new FeedSyncService(repository, buildConfig(), buildClient(), translator)
 
     await service.syncNow("polymarket")
 
@@ -176,8 +186,14 @@ describe("PolymarketFeedService", () => {
   it("retries a failed sync attempt before surfacing success", async () => {
     const repository = new MemoryAppRepository()
     const translator = new FakeFeedTranslator()
-    const client = new FlakyJinaReaderClient(SAMPLE_TIMELINE, 1)
-    const service = new PolymarketFeedService(repository, buildConfig(), client, translator, {
+    const client = new FlakyJinaReaderClient(
+      {
+        polymarket: POLYMARKET_TIMELINE,
+        kalshi: KALSHI_TIMELINE,
+      },
+      1
+    )
+    const service = new FeedSyncService(repository, buildConfig(), client, translator, {
       syncRetryMaxAttempts: 3,
       syncRetryDelayMs: 0,
     })
@@ -194,8 +210,15 @@ describe("PolymarketFeedService", () => {
   it("keeps the final error after exhausting sync retries", async () => {
     const repository = new MemoryAppRepository()
     const translator = new FakeFeedTranslator()
-    const client = new FlakyJinaReaderClient(SAMPLE_TIMELINE, 3, "jina unavailable")
-    const service = new PolymarketFeedService(repository, buildConfig(), client, translator, {
+    const client = new FlakyJinaReaderClient(
+      {
+        polymarket: POLYMARKET_TIMELINE,
+        kalshi: KALSHI_TIMELINE,
+      },
+      3,
+      "jina unavailable"
+    )
+    const service = new FeedSyncService(repository, buildConfig(), client, translator, {
       syncRetryMaxAttempts: 3,
       syncRetryDelayMs: 0,
     })
@@ -212,5 +235,23 @@ describe("PolymarketFeedService", () => {
     const subscription = await service.getSubscription("polymarket")
     expect(subscription.lastError).toBe("jina unavailable")
     expect(subscription.lastSuccessAt).toBeNull()
+  })
+
+  it("supports syncing Kalshi as an independent source", async () => {
+    const repository = new MemoryAppRepository()
+    const translator = new FakeFeedTranslator()
+    const service = new FeedSyncService(repository, buildConfig(), buildClient(), translator)
+
+    const result = await service.syncNow("kalshi")
+    expect(result.source).toBe("kalshi")
+    expect(result.insertedCount).toBe(1)
+
+    const page = await service.listItems({
+      source: "kalshi",
+      limit: 5,
+    })
+    expect(page.items).toHaveLength(1)
+    expect(page.items[0]?.source).toBe("kalshi")
+    expect(page.items[0]?.title).toContain("North Carolina")
   })
 })
