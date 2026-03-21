@@ -229,14 +229,28 @@ struct PersonalizationConfigTomlSection {
     timezone: String,
 }
 
-#[derive(Serialize, Deserialize, Default)]
+fn default_subscription_enabled() -> bool {
+    true
+}
+
+#[derive(Serialize, Deserialize)]
 struct SubscriptionsConfigTomlSection {
-    #[serde(default)]
+    #[serde(default = "default_subscription_enabled")]
     polymarket_enabled: bool,
-    #[serde(default)]
+    #[serde(default = "default_subscription_enabled")]
     kalshi_enabled: bool,
     #[serde(default)]
     custom_accounts: Vec<String>,
+}
+
+impl Default for SubscriptionsConfigTomlSection {
+    fn default() -> Self {
+        Self {
+            polymarket_enabled: true,
+            kalshi_enabled: true,
+            custom_accounts: Vec::new(),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Default)]
