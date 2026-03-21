@@ -1,6 +1,7 @@
 import type { AppConfig, AppFontSizeMode, AppThemeMode } from "./contracts"
 import { DEFAULT_APP_TIMEZONE, normalizeAppTimezone } from "./personalization"
 import { hasTauriRuntime } from "./runtime-info"
+import { normalizeFeedCustomAccounts } from "@/domain/feed/source-config"
 import {
   DEFAULT_OPENAI_COMPATIBLE_BASE_URL,
   DEFAULT_OPENAI_COMPATIBLE_MODEL,
@@ -31,6 +32,7 @@ interface GatewayConfigPayload {
   timezone?: string
   polymarketEnabled?: boolean
   kalshiEnabled?: boolean
+  customAccounts?: string[]
   streamIdleTimeoutMs?: number
   streamIdleRetryMaxAttempts?: number
   streamIdleRetryDelayMs?: number
@@ -64,6 +66,7 @@ interface PersonalizationConfigPayload {
 interface SubscriptionsConfigPayload {
   polymarketEnabled?: boolean
   kalshiEnabled?: boolean
+  customAccounts?: string[]
   configPath?: string
 }
 
@@ -114,6 +117,7 @@ function readEnvAppConfig(): AppConfig {
   const envOpenAIApiBaseUrl = import.meta.env.VITE_APP_OPENAI_API_BASE_URL?.trim() || ""
   const envOpenAIApiKey = import.meta.env.VITE_APP_OPENAI_API_KEY?.trim() || ""
   const envOpenAITranslationModel = import.meta.env.VITE_APP_OPENAI_TRANSLATION_MODEL?.trim() || ""
+  const envFeedCustomAccounts = normalizeFeedCustomAccounts(import.meta.env.VITE_APP_FEED_CUSTOM_ACCOUNTS)
   return {
     // Never embed gateway defaults in production bundles to avoid leaking local keys/endpoints.
     apiBaseUrl: useEnvGatewayDefaults ? envApiBaseUrl || "http://localhost:8787" : "",
@@ -125,6 +129,7 @@ function readEnvAppConfig(): AppConfig {
     voiceEnabled: parseBool(import.meta.env.VITE_APP_VOICE_ENABLED, true),
     polymarketSubscriptionEnabled: parseBool(import.meta.env.VITE_APP_POLYMARKET_SUBSCRIPTION_ENABLED, false),
     kalshiSubscriptionEnabled: parseBool(import.meta.env.VITE_APP_KALSHI_SUBSCRIPTION_ENABLED, false),
+    feedCustomAccounts: envFeedCustomAccounts,
     themeMode: normalizeThemeMode(import.meta.env.VITE_APP_THEME_MODE),
     fontSizeMode: normalizeFontSizeMode(import.meta.env.VITE_APP_FONT_SIZE_MODE),
     timezone: normalizeAppTimezone(import.meta.env.VITE_APP_TIMEZONE || DEFAULT_APP_TIMEZONE),
@@ -276,6 +281,7 @@ export async function savePersonalizationConfigToToml(input: {
 export async function saveSubscriptionsConfigToToml(input: {
   polymarketEnabled: boolean
   kalshiEnabled: boolean
+  customAccounts: string[]
 }): Promise<SubscriptionsConfigPayload | null> {
   if (!hasTauriRuntime()) {
     return null
@@ -285,6 +291,7 @@ export async function saveSubscriptionsConfigToToml(input: {
     return await invoke<SubscriptionsConfigPayload>("save_subscriptions_config", {
       polymarketEnabled: input.polymarketEnabled,
       kalshiEnabled: input.kalshiEnabled,
+      customAccounts: normalizeFeedCustomAccounts(input.customAccounts),
     })
   } catch {
     return null
@@ -310,6 +317,8 @@ export async function loadAppConfig(): Promise<AppConfig> {
     typeof fileConfig?.kalshiEnabled === "boolean"
       ? fileConfig.kalshiEnabled
       : envConfig.kalshiSubscriptionEnabled
+  const fileCustomAccounts = normalizeFeedCustomAccounts(fileConfig?.customAccounts)
+  const hasFileCustomAccounts = Array.isArray(fileConfig?.customAccounts)
   const fileStreamIdleTimeoutMs = normalizeIntegerInRange(
     fileConfig?.streamIdleTimeoutMs,
     envConfig.streamIdleTimeoutMs ?? DEFAULT_STREAM_IDLE_TIMEOUT_MS,
@@ -383,6 +392,7 @@ export async function loadAppConfig(): Promise<AppConfig> {
     timezone: hasFileTimezone ? fileTimezone : envConfig.timezone,
     polymarketSubscriptionEnabled: filePolymarketEnabled,
     kalshiSubscriptionEnabled: fileKalshiEnabled,
+    feedCustomAccounts: hasFileCustomAccounts ? fileCustomAccounts : envConfig.feedCustomAccounts,
     streamIdleTimeoutMs: fileStreamIdleTimeoutMs,
     streamIdleRetryMaxAttempts: fileStreamIdleRetryMaxAttempts,
     streamIdleRetryDelayMs: fileStreamIdleRetryDelayMs,

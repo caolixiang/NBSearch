@@ -3,7 +3,7 @@
 mod tray_icon_rgba;
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fs,
     io::Write,
     path::{Path, PathBuf},
@@ -235,6 +235,8 @@ struct SubscriptionsConfigTomlSection {
     polymarket_enabled: bool,
     #[serde(default)]
     kalshi_enabled: bool,
+    #[serde(default)]
+    custom_accounts: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -272,6 +274,7 @@ struct GatewayConfigPayload {
     timezone: String,
     polymarket_enabled: bool,
     kalshi_enabled: bool,
+    custom_accounts: Vec<String>,
     stream_idle_timeout_ms: u64,
     stream_idle_retry_max_attempts: u32,
     stream_idle_retry_delay_ms: u64,
@@ -313,6 +316,7 @@ struct PersonalizationConfigPayload {
 struct SubscriptionsConfigPayload {
     polymarket_enabled: bool,
     kalshi_enabled: bool,
+    custom_accounts: Vec<String>,
     config_path: String,
 }
 
@@ -417,6 +421,21 @@ fn write_gateway_config_toml(path: &Path, config: &GatewayConfigToml) -> Result<
         toml::to_string_pretty(config).map_err(|e| format!("encode config.toml failed: {e}"))?;
     fs::write(path, encoded).map_err(|e| format!("write config.toml failed: {e}"))?;
     Ok(())
+}
+
+fn normalize_custom_accounts(accounts: &[String]) -> Vec<String> {
+    let mut seen = HashSet::new();
+    let mut normalized = Vec::new();
+    for value in accounts {
+        let account = value.trim().trim_start_matches('@').to_ascii_lowercase();
+        if account.is_empty() || account == "polymarket" || account == "kalshi" {
+            continue;
+        }
+        if seen.insert(account.clone()) {
+            normalized.push(account);
+        }
+    }
+    normalized
 }
 
 fn normalize_theme_mode(value: &str) -> String {
@@ -1183,6 +1202,7 @@ fn read_gateway_config(app: tauri::AppHandle) -> Result<GatewayConfigPayload, St
         timezone: normalize_timezone(parsed.personalization.timezone.as_str()),
         polymarket_enabled: parsed.subscriptions.polymarket_enabled,
         kalshi_enabled: parsed.subscriptions.kalshi_enabled,
+        custom_accounts: normalize_custom_accounts(&parsed.subscriptions.custom_accounts),
         stream_idle_timeout_ms,
         stream_idle_retry_max_attempts,
         stream_idle_retry_delay_ms,
@@ -1243,6 +1263,7 @@ fn save_gateway_config(
         Some(turn_recovery_poll_in_progress_delay_ms);
     parsed.recovery.turn_in_progress_retry_max_attempts = Some(turn_in_progress_retry_max_attempts);
     parsed.recovery.turn_in_progress_retry_delay_ms = Some(turn_in_progress_retry_delay_ms);
+    parsed.subscriptions.custom_accounts = normalize_custom_accounts(&parsed.subscriptions.custom_accounts);
     write_gateway_config_toml(&config_path, &parsed)?;
 
     Ok(GatewayConfigPayload {
@@ -1258,6 +1279,7 @@ fn save_gateway_config(
         timezone: normalize_timezone(parsed.personalization.timezone.as_str()),
         polymarket_enabled: parsed.subscriptions.polymarket_enabled,
         kalshi_enabled: parsed.subscriptions.kalshi_enabled,
+        custom_accounts: parsed.subscriptions.custom_accounts.clone(),
         stream_idle_timeout_ms,
         stream_idle_retry_max_attempts,
         stream_idle_retry_delay_ms,
@@ -1334,16 +1356,19 @@ fn save_subscriptions_config(
     app: tauri::AppHandle,
     polymarket_enabled: bool,
     kalshi_enabled: bool,
+    custom_accounts: Vec<String>,
 ) -> Result<SubscriptionsConfigPayload, String> {
     let config_path = resolve_app_config_toml_path(&app)?;
     let mut parsed = read_gateway_config_toml(&config_path).unwrap_or_default();
     parsed.subscriptions.polymarket_enabled = polymarket_enabled;
     parsed.subscriptions.kalshi_enabled = kalshi_enabled;
+    parsed.subscriptions.custom_accounts = normalize_custom_accounts(&custom_accounts);
     write_gateway_config_toml(&config_path, &parsed)?;
 
     Ok(SubscriptionsConfigPayload {
         polymarket_enabled: parsed.subscriptions.polymarket_enabled,
         kalshi_enabled: parsed.subscriptions.kalshi_enabled,
+        custom_accounts: parsed.subscriptions.custom_accounts.clone(),
         config_path: config_path.to_string_lossy().to_string(),
     })
 }

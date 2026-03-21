@@ -80,14 +80,17 @@ export function applyPersonalizationConfigToRuntime(next: { timezone: string }):
 export function applySubscriptionsConfigToRuntime(next: {
   polymarketSubscriptionEnabled: boolean
   kalshiSubscriptionEnabled: boolean
+  customAccounts: string[]
 }): void {
   if (!runtimeSingleton) {
     return
   }
   runtimeSingleton.config.polymarketSubscriptionEnabled = next.polymarketSubscriptionEnabled
   runtimeSingleton.config.kalshiSubscriptionEnabled = next.kalshiSubscriptionEnabled
+  runtimeSingleton.config.feedCustomAccounts = next.customAccounts
   runtimeSingleton.services.feeds.applyConfig({
     polymarketEnabled: next.polymarketSubscriptionEnabled,
     kalshiEnabled: next.kalshiSubscriptionEnabled,
+    customAccounts: next.customAccounts,
   })
 }

@@ -2,7 +2,7 @@
 
 import type { ComponentType } from "react"
 import { useEffect, useMemo, useRef } from "react"
-import { FEED_SOURCES, getFeedSourceConfig } from "@/domain/feed/source-config"
+import { getFeedSourceConfig } from "@/domain/feed/source-config"
 import type { FeedItemRecord, FeedSource, FeedSubscriptionRecord } from "@/domain/feed/types"
 import { openExternalUrl } from "@/lib/open-external-url"
 import { Button } from "@/components/ui/button"
@@ -148,6 +148,7 @@ function FeedSourceLabel({
 }
 
 interface FeedPaneProps {
+  sources: FeedSource[]
   source: FeedSource
   subscription: FeedSubscriptionRecord | null
   items: FeedItemRecord[]
@@ -162,6 +163,7 @@ interface FeedPaneProps {
 }
 
 export function FeedPane({
+  sources,
   source,
   subscription,
   items,
@@ -239,7 +241,7 @@ export function FeedPane({
       <div className="rounded-[28px] border border-border/80 bg-card/80 px-5 py-5 shadow-sm shadow-black/[0.03]">
         <div className="-mx-1 overflow-x-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <div className="inline-flex w-max min-w-full items-center gap-2 rounded-[24px] border border-border/80 bg-background/80 p-2 shadow-sm shadow-black/[0.03] sm:min-w-0">
-            {FEED_SOURCES.map((candidateSource) => {
+            {sources.map((candidateSource) => {
               const candidateConfig = getFeedSourceConfig(candidateSource)
               const isActiveSource = candidateSource === source
               return (

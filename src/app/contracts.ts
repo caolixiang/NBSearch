@@ -17,6 +17,7 @@ export interface AppConfig {
   voiceEnabled: boolean
   polymarketSubscriptionEnabled?: boolean
   kalshiSubscriptionEnabled?: boolean
+  feedCustomAccounts?: string[]
   themeMode: AppThemeMode
   fontSizeMode: AppFontSizeMode
   timezone?: string

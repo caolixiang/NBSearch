@@ -96,6 +96,16 @@ const KALSHI_POSTS: FeedFetchPost[] = [
   },
 ]
 
+const ELON_POSTS: FeedFetchPost[] = [
+  {
+    postId: "2034991514116661465",
+    content: "DOGE will go to Mars",
+    mediaUrls: [],
+    canonicalUrl: "https://x.com/elonmusk/status/2034991514116661465",
+    publishedAt: 1779000000000,
+  },
+]
+
 function buildConfig(): AppConfig {
   return {
     apiBaseUrl: "",
@@ -107,6 +117,7 @@ function buildConfig(): AppConfig {
     voiceEnabled: true,
     polymarketSubscriptionEnabled: true,
     kalshiSubscriptionEnabled: true,
+    feedCustomAccounts: [],
     themeMode: "light",
     fontSizeMode: "default",
     timezone: "Asia/Shanghai",
@@ -262,6 +273,38 @@ describe("FeedSyncService", () => {
     expect(page.items).toHaveLength(1)
     expect(page.items[0]?.source).toBe("kalshi")
     expect(page.items[0]?.title).toContain("North Carolina")
+  })
+
+  it("syncs configured custom X accounts without hardcoding a new source id", async () => {
+    const source = "x:elonmusk"
+    const repository = new MemoryAppRepository()
+    const translator = new FakeFeedTranslator()
+    const client = new FakeFeedFetchClient({
+      polymarket: POLYMARKET_POSTS,
+      kalshi: KALSHI_POSTS,
+      [source]: ELON_POSTS,
+    })
+    const service = new FeedSyncService(
+      repository,
+      {
+        ...buildConfig(),
+        feedCustomAccounts: ["elonmusk"],
+      },
+      client,
+      translator
+    )
+
+    const subscription = await service.getSubscription(source)
+    expect(subscription.enabled).toBe(true)
+
+    const result = await service.syncNow(source)
+    expect(result.insertedCount).toBe(1)
+
+    const page = await service.listItems({
+      source,
+      limit: 5,
+    })
+    expect(page.items[0]?.canonicalUrl).toBe("https://x.com/elonmusk/status/2034991514116661465")
   })
 
   it("deduplicates by post id even when the fetched content changes later", async () => {

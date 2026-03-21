@@ -1,6 +1,11 @@
 import type { AppConfig } from "@/app/contracts"
 import { hasTauriRuntime } from "@/app/runtime-info"
-import { FEED_SOURCES, getFeedSourceConfig } from "@/domain/feed/source-config"
+import {
+  getFeedSourceConfig,
+  isFeedSourceEnabledInConfig,
+  normalizeFeedCustomAccounts,
+  resolveConfiguredFeedSources,
+} from "@/domain/feed/source-config"
 import type {
   FeedRuntimeState,
   FeedService,
@@ -92,10 +97,7 @@ function createDefaultSourceState(): FeedSourceState {
 }
 
 function createSourceStateMap(): Record<FeedSource, FeedSourceState> {
-  return {
-    polymarket: createDefaultSourceState(),
-    kalshi: createDefaultSourceState(),
-  }
+  return {}
 }
 
 export class FeedSyncService implements FeedService {
@@ -121,19 +123,24 @@ export class FeedSyncService implements FeedService {
       return
     }
     this.started = true
-    void Promise.all(FEED_SOURCES.map((source) => this.getSubscription(source))).catch(() => {})
+    for (const source of this.getConfiguredSources()) {
+      this.getOrCreateSourceState(source)
+    }
+    void Promise.all(this.getConfiguredSources().map((source) => this.getSubscription(source))).catch(() => {})
     void this.maybeCleanupExpiredFeedItems(true).catch(() => {})
     this.initializeScheduling()
   }
 
   async getSubscription(source: FeedSource): Promise<FeedSubscriptionRecord> {
+    const desiredEnabled = this.resolveEnabled(source)
     const existing = await this.repository.getFeedSubscription(source)
     if (existing) {
-      if (existing.pollIntervalMinutes === POLL_INTERVAL_MINUTES) {
+      if (existing.pollIntervalMinutes === POLL_INTERVAL_MINUTES && existing.enabled === desiredEnabled) {
         return existing
       }
       const normalized: FeedSubscriptionRecord = {
         ...existing,
+        enabled: desiredEnabled,
         pollIntervalMinutes: POLL_INTERVAL_MINUTES,
         updatedAt: Date.now(),
       }
@@ -151,6 +158,7 @@ export class FeedSyncService implements FeedService {
     source: FeedSource
     enabled: boolean
   }): Promise<FeedSubscriptionRecord> {
+    this.getOrCreateSourceState(input.source)
     const current = await this.getSubscription(input.source)
     const next: FeedSubscriptionRecord = {
       ...current,
@@ -158,12 +166,6 @@ export class FeedSyncService implements FeedService {
       updatedAt: Date.now(),
     }
     await this.repository.upsertFeedSubscription(next)
-    this.applyConfig({
-      polymarketEnabled:
-        input.source === "polymarket" ? next.enabled : this.config.polymarketSubscriptionEnabled === true,
-      kalshiEnabled:
-        input.source === "kalshi" ? next.enabled : this.config.kalshiSubscriptionEnabled === true,
-    })
     this.emit({
       type: "subscription_updated",
       source: input.source,
@@ -180,10 +182,7 @@ export class FeedSyncService implements FeedService {
   }
 
   syncNow(source: FeedSource): Promise<FeedSyncResult> {
-    const state = this.sourceStateBySource[source]
-    if (!state) {
-      return Promise.reject(new Error(`Unsupported feed source: ${source}`))
-    }
+    const state = this.getOrCreateSourceState(source)
     if (state.inFlight) {
       return state.inFlight
     }
@@ -200,7 +199,7 @@ export class FeedSyncService implements FeedService {
   }
 
   getRuntimeState(source: FeedSource): FeedRuntimeState {
-    const state = this.sourceStateBySource[source] || createDefaultSourceState()
+    const state = this.getOrCreateSourceState(source)
     return {
       source,
       isSyncing: state.isSyncing,
@@ -219,9 +218,14 @@ export class FeedSyncService implements FeedService {
   applyConfig(input: {
     polymarketEnabled: boolean
     kalshiEnabled: boolean
+    customAccounts: string[]
   }): void {
     this.config.polymarketSubscriptionEnabled = input.polymarketEnabled
     this.config.kalshiSubscriptionEnabled = input.kalshiEnabled
+    this.config.feedCustomAccounts = normalizeFeedCustomAccounts(input.customAccounts)
+    for (const source of this.getConfiguredSources()) {
+      this.getOrCreateSourceState(source)
+    }
   }
 
   private emit(event: FeedServiceEvent): void {
@@ -235,9 +239,21 @@ export class FeedSyncService implements FeedService {
   }
 
   private resolveEnabled(source: FeedSource): boolean {
-    return source === "polymarket"
-      ? this.config.polymarketSubscriptionEnabled === true
-      : this.config.kalshiSubscriptionEnabled === true
+    return isFeedSourceEnabledInConfig(source, this.config)
+  }
+
+  private getConfiguredSources(): FeedSource[] {
+    return resolveConfiguredFeedSources(this.config)
+  }
+
+  private getOrCreateSourceState(source: FeedSource): FeedSourceState {
+    const existing = this.sourceStateBySource[source]
+    if (existing) {
+      return existing
+    }
+    const created = createDefaultSourceState()
+    this.sourceStateBySource[source] = created
+    return created
   }
 
   private initializeScheduling(): void {
@@ -289,7 +305,7 @@ export class FeedSyncService implements FeedService {
   private async syncDueSources(): Promise<void> {
     await Promise.allSettled([
       this.maybeCleanupExpiredFeedItems(),
-      ...FEED_SOURCES.map((source) => this.syncDueSource(source)),
+      ...this.getConfiguredSources().map((source) => this.syncDueSource(source)),
     ])
   }
 
@@ -373,7 +389,7 @@ export class FeedSyncService implements FeedService {
   private async runSync(source: FeedSource): Promise<FeedSyncResult> {
     await this.maybeCleanupExpiredFeedItems()
     const subscription = await this.getSubscription(source)
-    const state = this.sourceStateBySource[source]
+    const state = this.getOrCreateSourceState(source)
     state.isSyncing = true
     this.emit({ type: "sync_started", source })
 

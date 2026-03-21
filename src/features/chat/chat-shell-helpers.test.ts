@@ -180,31 +180,16 @@ describe("chat-shell voice resume helpers", () => {
 
 describe("chat-shell unified feed sidebar", () => {
   it("falls back to polymarket when no feed source is active yet", () => {
-    expect(resolvePrimaryFeedSource(null)).toBe("polymarket")
-    expect(resolvePrimaryFeedSource("kalshi")).toBe("kalshi")
+    expect(resolvePrimaryFeedSource(null, ["polymarket", "kalshi"])).toBe("polymarket")
+    expect(resolvePrimaryFeedSource("kalshi", ["polymarket", "kalshi"])).toBe("kalshi")
+    expect(resolvePrimaryFeedSource("x:elonmusk", ["polymarket", "kalshi"])).toBe("polymarket")
   })
 
-  it("builds a single X / Twitter sidebar item from per-source status", () => {
-    expect(
-      buildUnifiedFeedSidebarItem({
-        bySource: {
-          polymarket: { enabled: true, isSyncing: false },
-          kalshi: { enabled: true, isSyncing: false },
-        },
-      })
-    ).toEqual({
+  it("builds a single X / Twitter sidebar item", () => {
+    expect(buildUnifiedFeedSidebarItem()).toEqual({
       id: FEED_SIDEBAR_ID,
       title: "X / Twitter",
     })
-
-    expect(
-      buildUnifiedFeedSidebarItem({
-        bySource: {
-          polymarket: { enabled: false, isSyncing: false },
-          kalshi: { enabled: false, isSyncing: false },
-        },
-      }).description
-    ).toBeUndefined()
   })
 })
 

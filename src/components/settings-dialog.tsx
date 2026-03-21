@@ -20,11 +20,12 @@ import {
 import { DEFAULT_APP_TIMEZONE, resolveAppTimezoneOptions } from "@/app/personalization"
 import { getRuntimeInfo, hasTauriRuntime } from "@/app/runtime-info"
 import { checkForAppUpdate, installAppUpdate } from "@/app/updater"
+import { normalizeFeedAccountHandle } from "@/domain/feed/source-config"
 import { cn } from "@/lib/utils"
 import { getGatewaySaveButtonState } from "./settings-dialog-gateway-save"
 import { OpenAILogo } from "./openai-logo"
 import { testOpenAICompatibleConnection } from "@/infrastructure/llm/openai-compatible-client"
-import { Bell, Clock3, Database, Eye, EyeOff, Globe, Key, Palette, RadioTower, Shield, SlidersHorizontal } from "lucide-react"
+import { Bell, Clock3, Database, Eye, EyeOff, Globe, Key, Palette, Plus, RadioTower, Shield, SlidersHorizontal, Trash2 } from "lucide-react"
 
 interface SettingsDialogProps {
   open: boolean
@@ -45,6 +46,7 @@ interface SettingsDialogProps {
   onSubscriptionsConfigChange: (next: {
     polymarketSubscriptionEnabled: boolean
     kalshiSubscriptionEnabled: boolean
+    customAccounts: string[]
   }) => void
 }
 
@@ -132,6 +134,10 @@ function SubscriptionToggleCard({
   )
 }
 
+function areStringListsEqual(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((item, index) => item === right[index])
+}
+
 export function SettingsDialog({
   open,
   onOpenChange,
@@ -177,6 +183,9 @@ export function SettingsDialog({
   const [savedPolymarketEnabled, setSavedPolymarketEnabled] = useState(false)
   const [kalshiEnabled, setKalshiEnabled] = useState(false)
   const [savedKalshiEnabled, setSavedKalshiEnabled] = useState(false)
+  const [customAccountInput, setCustomAccountInput] = useState("")
+  const [customAccounts, setCustomAccounts] = useState<string[]>([])
+  const [savedCustomAccounts, setSavedCustomAccounts] = useState<string[]>([])
   const [subscriptionsBusy, setSubscriptionsBusy] = useState(false)
   const [subscriptionsMessage, setSubscriptionsMessage] = useState("")
   const [imageCacheStats, setImageCacheStats] = useState<ImageCacheStats | null>(null)
@@ -265,6 +274,10 @@ export function SettingsDialog({
     setSavedPolymarketEnabled(runtime.config.polymarketSubscriptionEnabled === true)
     setKalshiEnabled(runtime.config.kalshiSubscriptionEnabled === true)
     setSavedKalshiEnabled(runtime.config.kalshiSubscriptionEnabled === true)
+    const nextCustomAccounts = runtime.config.feedCustomAccounts || []
+    setCustomAccountInput("")
+    setCustomAccounts(nextCustomAccounts)
+    setSavedCustomAccounts(nextCustomAccounts)
     setShowApiKey(false)
     setShowOpenAIApiKey(false)
     setGatewayMessage("")
@@ -288,6 +301,7 @@ export function SettingsDialog({
     runtime.config.timezone,
     runtime.config.polymarketSubscriptionEnabled,
     runtime.config.kalshiSubscriptionEnabled,
+    runtime.config.feedCustomAccounts,
   ])
 
   const gatewaySaveButtonState = useMemo(
@@ -316,7 +330,9 @@ export function SettingsDialog({
       ? "保存"
       : "已保存"
   const subscriptionsHasChanges =
-    polymarketEnabled !== savedPolymarketEnabled || kalshiEnabled !== savedKalshiEnabled
+    polymarketEnabled !== savedPolymarketEnabled ||
+    kalshiEnabled !== savedKalshiEnabled ||
+    !areStringListsEqual(customAccounts, savedCustomAccounts)
   const subscriptionsButtonLabel = subscriptionsBusy
     ? "保存中..."
     : subscriptionsHasChanges
@@ -391,6 +407,7 @@ export function SettingsDialog({
         const saved = await saveSubscriptionsConfigToToml({
           polymarketEnabled,
           kalshiEnabled,
+          customAccounts,
         })
         if (!saved) {
           throw new Error("persist_subscriptions_config_failed")
@@ -399,18 +416,50 @@ export function SettingsDialog({
       const resolved = await loadAppConfig()
       const nextEnabled = resolved.polymarketSubscriptionEnabled === true
       const nextKalshiEnabled = resolved.kalshiSubscriptionEnabled === true
+      const nextCustomAccounts = resolved.feedCustomAccounts || []
       setPolymarketEnabled(nextEnabled)
       setSavedPolymarketEnabled(nextEnabled)
       setKalshiEnabled(nextKalshiEnabled)
       setSavedKalshiEnabled(nextKalshiEnabled)
+      setCustomAccounts(nextCustomAccounts)
+      setSavedCustomAccounts(nextCustomAccounts)
       onSubscriptionsConfigChange({
         polymarketSubscriptionEnabled: nextEnabled,
         kalshiSubscriptionEnabled: nextKalshiEnabled,
+        customAccounts: nextCustomAccounts,
       })
     } catch {
       setSubscriptionsMessage("保存失败，请重试")
     } finally {
       setSubscriptionsBusy(false)
+    }
+  }
+
+  const addCustomAccount = () => {
+    const normalizedHandle = normalizeFeedAccountHandle(customAccountInput)
+    if (!normalizedHandle) {
+      setSubscriptionsMessage("请输入有效的 X 账号，支持 @handle、handle 或 https://x.com/handle")
+      return
+    }
+    if (normalizedHandle === "polymarket" || normalizedHandle === "kalshi") {
+      setSubscriptionsMessage("Polymarket 和 Kalshi 已是内置来源，不需要重复添加")
+      return
+    }
+    if (customAccounts.includes(normalizedHandle)) {
+      setSubscriptionsMessage(`@${normalizedHandle} 已存在`)
+      return
+    }
+    setCustomAccounts((previous) => [...previous, normalizedHandle])
+    setCustomAccountInput("")
+    if (subscriptionsMessage) {
+      setSubscriptionsMessage("")
+    }
+  }
+
+  const removeCustomAccount = (handle: string) => {
+    setCustomAccounts((previous) => previous.filter((item) => item !== handle))
+    if (subscriptionsMessage) {
+      setSubscriptionsMessage("")
     }
   }
 
@@ -1131,6 +1180,77 @@ export function SettingsDialog({
                       }
                     }}
                   />
+
+                  <div className="rounded-xl border border-input p-4">
+                    <div>
+                      <p className="text-sm font-medium text-foreground">自定义 X 账号</p>
+                      <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                        支持 `@handle`、`handle` 或 `https://x.com/handle`。新增账号会出现在 feed source rail 中，并按同样的 30 分钟节奏同步。
+                      </p>
+                    </div>
+
+                    <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                      <input
+                        value={customAccountInput}
+                        onChange={(event) => {
+                          setCustomAccountInput(event.target.value)
+                          if (subscriptionsMessage) {
+                            setSubscriptionsMessage("")
+                          }
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key !== "Enter") {
+                            return
+                          }
+                          event.preventDefault()
+                          addCustomAccount()
+                        }}
+                        placeholder="@elonmusk 或 https://x.com/elonmusk"
+                        className="h-10 flex-1 rounded-full border border-input bg-background px-4 text-sm text-foreground outline-none transition focus:border-foreground/30"
+                      />
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={addCustomAccount}
+                        className="h-10 rounded-full px-4"
+                      >
+                        <Plus className="mr-1 size-4" />
+                        添加账号
+                      </Button>
+                    </div>
+
+                    <div className="mt-3 rounded-xl border border-border/70 bg-muted/20">
+                      {customAccounts.length === 0 ? (
+                        <div className="px-4 py-4 text-sm text-muted-foreground">
+                          还没有自定义账号。添加后会以列表形式出现在这里。
+                        </div>
+                      ) : (
+                        <div className="divide-y divide-border/70">
+                          {customAccounts.map((handle) => (
+                            <div key={handle} className="flex items-center justify-between gap-3 px-4 py-3">
+                              <div className="min-w-0">
+                                <p className="text-sm font-medium text-foreground">@{handle}</p>
+                                <p className="truncate text-xs text-muted-foreground">https://x.com/{handle}</p>
+                              </div>
+                              <Button
+                                type="button"
+                                size="icon"
+                                variant="ghost"
+                                onClick={() => {
+                                  removeCustomAccount(handle)
+                                }}
+                                className="size-8 rounded-full text-muted-foreground hover:text-destructive"
+                                aria-label={`移除 @${handle}`}
+                              >
+                                <Trash2 className="size-4" />
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
 
                   {subscriptionsMessage ? (
                     <p className="text-xs text-muted-foreground">{subscriptionsMessage}</p>

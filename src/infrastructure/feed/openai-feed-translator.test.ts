@@ -12,6 +12,8 @@ function buildConfig(overrides?: Partial<AppConfig>): AppConfig {
     openaiTranslationModel: "gpt-5.4-mini",
     voiceEnabled: true,
     polymarketSubscriptionEnabled: true,
+    kalshiSubscriptionEnabled: true,
+    feedCustomAccounts: [],
     themeMode: "light",
     fontSizeMode: "default",
     timezone: "Asia/Shanghai",

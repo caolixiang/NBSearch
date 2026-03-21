@@ -1,4 +1,4 @@
-export type FeedSource = "polymarket" | "kalshi"
+export type FeedSource = string
 export type FeedItemTranslationStatus = "translated" | "skipped" | "failed"
 
 export interface FeedSubscriptionRecord {

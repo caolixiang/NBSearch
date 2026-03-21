@@ -8,7 +8,7 @@ import {
   applyPersonalizationConfigToRuntime,
   applySubscriptionsConfigToRuntime,
 } from "@/app/runtime"
-import { FEED_SOURCES } from "@/domain/feed/source-config"
+import { resolveConfiguredFeedSources } from "@/domain/feed/source-config"
 import type {
   ChatAnchors,
   ChatAttachment,
@@ -109,6 +109,19 @@ function createInitialFeedViewState(source: FeedSource, runtime: AppRuntime): Fe
   }
 }
 
+function buildInitialFeedViewBySource(
+  sources: FeedSource[],
+  runtime: AppRuntime
+): Record<FeedSource, FeedViewState> {
+  return sources.reduce(
+    (result, source) => {
+      result[source] = createInitialFeedViewState(source, runtime)
+      return result
+    },
+    {} as Record<FeedSource, FeedViewState>
+  )
+}
+
 export function ChatShell({ runtime }: { runtime: AppRuntime }) {
   const repository = runtime.services.repository
   const chatService = runtime.services.chat
@@ -117,10 +130,10 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
   const [conversations, setConversations] = useState<ConversationRecord[]>([])
   const [activeMainView, setActiveMainView] = useState<"chat" | "feed">("chat")
   const [activeFeedSource, setActiveFeedSource] = useState<FeedSource | null>(null)
-  const [feedViewBySource, setFeedViewBySource] = useState<Record<FeedSource, FeedViewState>>({
-    polymarket: createInitialFeedViewState("polymarket", runtime),
-    kalshi: createInitialFeedViewState("kalshi", runtime),
-  })
+  const [feedSources, setFeedSources] = useState<FeedSource[]>(() => resolveConfiguredFeedSources(runtime.config))
+  const [feedViewBySource, setFeedViewBySource] = useState<Record<FeedSource, FeedViewState>>(() =>
+    buildInitialFeedViewBySource(resolveConfiguredFeedSources(runtime.config), runtime)
+  )
   const {
     hasDraftConversation,
     draftConversationUpdatedAt,
@@ -184,6 +197,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
 
   const abortControllerByConversationIdRef = useRef<Record<string, AbortController>>({})
   const activeConversationIdRef = useRef<string | null>(null)
+  const activeFeedSourceRef = useRef<FeedSource | null>(null)
   const feedViewBySourceRef = useRef(feedViewBySource)
   const messagesByConversationIdRef = useRef(messagesByConversationId)
   const streamingStateByConversationIdRef = useRef(streamingStateByConversationId)
@@ -211,6 +225,10 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
   useEffect(() => {
     activeConversationIdRef.current = activeConversationId
   }, [activeConversationId])
+
+  useEffect(() => {
+    activeFeedSourceRef.current = activeFeedSource
+  }, [activeFeedSource])
 
   useEffect(() => {
     feedViewBySourceRef.current = feedViewBySource
@@ -480,14 +498,38 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     applyPersonalizationConfigToRuntime(next)
   }, [])
 
+  const ensureFeedSources = useCallback(
+    (sources: FeedSource[]) => {
+      setFeedSources((previous) => {
+        if (previous.length === sources.length && previous.every((source, index) => source === sources[index])) {
+          return previous
+        }
+        return sources
+      })
+      setFeedViewBySource((previous) => {
+        let changed = false
+        const next = { ...previous }
+        for (const source of sources) {
+          if (next[source]) {
+            continue
+          }
+          next[source] = createInitialFeedViewState(source, runtime)
+          changed = true
+        }
+        return changed ? next : previous
+      })
+    },
+    [runtime]
+  )
+
   const updateFeedView = useCallback(
     (source: FeedSource, updater: (current: FeedViewState) => FeedViewState) => {
       setFeedViewBySource((previous) => ({
         ...previous,
-        [source]: updater(previous[source]),
+        [source]: updater(previous[source] || createInitialFeedViewState(source, runtime)),
       }))
     },
-    []
+    [runtime]
   )
 
   const loadFeedSubscription = useCallback(
@@ -515,7 +557,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
         const page = await feedService.listItems({
           source,
           limit: 20,
-          cursor: input.append ? input.cursor ?? feedViewBySourceRef.current[source].cursor : null,
+          cursor: input.append ? input.cursor ?? feedViewBySourceRef.current[source]?.cursor ?? null : null,
         })
         updateFeedView(source, (current) => ({
           ...current,
@@ -538,19 +580,31 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     (next: {
       polymarketSubscriptionEnabled: boolean
       kalshiSubscriptionEnabled: boolean
+      customAccounts: string[]
     }) => {
+      const nextSources = resolveConfiguredFeedSources({
+        polymarketSubscriptionEnabled: next.polymarketSubscriptionEnabled,
+        kalshiSubscriptionEnabled: next.kalshiSubscriptionEnabled,
+        feedCustomAccounts: next.customAccounts,
+      })
       applySubscriptionsConfigToRuntime(next)
-      for (const source of FEED_SOURCES) {
+      ensureFeedSources(nextSources)
+      const nextActiveSource = resolvePrimaryFeedSource(activeFeedSourceRef.current, nextSources)
+      if (activeFeedSourceRef.current !== nextActiveSource) {
+        setActiveFeedSource(nextActiveSource)
+      }
+      for (const source of nextSources) {
         void loadFeedSubscription(source)
       }
 
-      const enabledBySource: Record<FeedSource, boolean> = {
-        polymarket: next.polymarketSubscriptionEnabled,
-        kalshi: next.kalshiSubscriptionEnabled,
-      }
-
-      for (const source of FEED_SOURCES) {
-        if (!enabledBySource[source]) {
+      for (const source of nextSources) {
+        const enabled =
+          source === "polymarket"
+            ? next.polymarketSubscriptionEnabled
+            : source === "kalshi"
+              ? next.kalshiSubscriptionEnabled
+              : true
+        if (!enabled) {
           continue
         }
         void feedService
@@ -558,8 +612,11 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
           .then(() => loadFeedItems(source))
           .catch(() => {})
       }
+      if (activeMainView === "feed") {
+        void loadFeedItems(nextActiveSource)
+      }
     },
-    [feedService, loadFeedItems, loadFeedSubscription]
+    [activeMainView, ensureFeedSources, feedService, loadFeedItems, loadFeedSubscription]
   )
 
   const refreshConversations = useCallback(async (): Promise<ConversationRecord[]> => {
@@ -995,7 +1052,9 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
 
     const initialize = async () => {
       const list = await refreshConversations()
-      await Promise.all(FEED_SOURCES.map((source) => loadFeedSubscription(source)))
+      const configuredSources = resolveConfiguredFeedSources(runtime.config)
+      ensureFeedSources(configuredSources)
+      await Promise.all(configuredSources.map((source) => loadFeedSubscription(source)))
       if (!mounted) {
         return
       }
@@ -1017,7 +1076,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       }
       abortControllerByConversationIdRef.current = {}
     }
-  }, [loadFeedSubscription, loadMessages, refreshConversations])
+  }, [ensureFeedSources, loadFeedSubscription, loadMessages, refreshConversations, runtime.config])
 
   useEffect(() => {
     const unsubscribe = feedService.subscribe((event) => {
@@ -1035,14 +1094,14 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       }
     })
 
-    for (const source of FEED_SOURCES) {
+    for (const source of feedSources) {
       updateFeedView(source, (current) => ({
         ...current,
         runtimeState: feedService.getRuntimeState(source),
       }))
     }
     return unsubscribe
-  }, [feedService, loadFeedItems, loadFeedSubscription, updateFeedView])
+  }, [feedService, feedSources, loadFeedItems, loadFeedSubscription, updateFeedView])
 
   useEffect(() => {
     if (!activeConversationId || activeConversationId === DRAFT_CONVERSATION_ID) {
@@ -1981,19 +2040,8 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     ]
   )
 
-  const activeFeedView = activeFeedSource ? feedViewBySource[activeFeedSource] : null
-  const unifiedFeedSidebarItem = buildUnifiedFeedSidebarItem({
-    bySource: {
-      polymarket: {
-        enabled: feedViewBySource.polymarket.subscription?.enabled === true,
-        isSyncing: feedViewBySource.polymarket.runtimeState.isSyncing,
-      },
-      kalshi: {
-        enabled: feedViewBySource.kalshi.subscription?.enabled === true,
-        isSyncing: feedViewBySource.kalshi.runtimeState.isSyncing,
-      },
-    },
-  })
+  const activeFeedView = activeFeedSource ? (feedViewBySource[activeFeedSource] ?? null) : null
+  const unifiedFeedSidebarItem = buildUnifiedFeedSidebarItem()
   const activeSidebarId = activeMainView === "feed" ? FEED_SIDEBAR_ID : activeConversationId
 
   return (
@@ -2005,7 +2053,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
           activeId={activeSidebarId}
           onSelect={(id) => void handleSelectConversation(id)}
           onSelectFeed={() => {
-            void handleSelectFeed(resolvePrimaryFeedSource(activeFeedSource))
+            void handleSelectFeed(resolvePrimaryFeedSource(activeFeedSource, feedSources))
           }}
           onNew={() => void handleNewConversation()}
           onRename={(id, title) => void handleRenameConversation(id, title)}
@@ -2087,6 +2135,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
 
         {activeMainView === "feed" && activeFeedSource && activeFeedView ? (
           <FeedPane
+            sources={feedSources}
             source={activeFeedSource}
             subscription={activeFeedView.subscription}
             items={activeFeedView.items}

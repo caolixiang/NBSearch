@@ -5,7 +5,7 @@ import type {
   ChatReasoningEventDetail,
   RemoteChatAttachmentInput,
 } from "@/domain/chat/types"
-import { FEED_SOURCES, getFeedSourceConfig } from "@/domain/feed/source-config"
+import { DEFAULT_PRIMARY_FEED_SOURCE, getFeedSourceConfig } from "@/domain/feed/source-config"
 import type { FeedItemRecord, FeedSource } from "@/domain/feed/types"
 import type { ConversationRecord } from "@/domain/storage/repository"
 import type { RenderChatMessage } from "@/components/chat-message"
@@ -16,13 +16,17 @@ import { hasAnyThinkTag, hasOpenThinkTag } from "./chat-stream-runtime"
 const DEFAULT_VOICE_CONVERSATION_TITLE_TIMEZONE = "Asia/Shanghai"
 export const FEED_SIDEBAR_ID = "feed_x_twitter"
 
-export function resolvePrimaryFeedSource(activeSource: FeedSource | null | undefined): FeedSource {
-  return activeSource && FEED_SOURCES.includes(activeSource) ? activeSource : "polymarket"
+export function resolvePrimaryFeedSource(
+  activeSource: FeedSource | null | undefined,
+  sources: FeedSource[]
+): FeedSource {
+  if (activeSource && sources.includes(activeSource)) {
+    return activeSource
+  }
+  return sources[0] || DEFAULT_PRIMARY_FEED_SOURCE
 }
 
-export function buildUnifiedFeedSidebarItem(_input: {
-  bySource: Record<FeedSource, { enabled: boolean; isSyncing: boolean }>
-}): {
+export function buildUnifiedFeedSidebarItem(): {
   id: string
   title: string
   description?: string

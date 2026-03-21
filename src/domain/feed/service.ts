@@ -45,5 +45,6 @@ export interface FeedService {
   applyConfig(input: {
     polymarketEnabled: boolean
     kalshiEnabled: boolean
+    customAccounts: string[]
   }): void
 }

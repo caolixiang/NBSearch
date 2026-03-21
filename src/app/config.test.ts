@@ -10,5 +10,6 @@ describe("loadAppConfig env defaults", () => {
     expect(config.openaiApiKey).toBe("")
     expect(config.polymarketSubscriptionEnabled).toBe(false)
     expect(config.kalshiSubscriptionEnabled).toBe(false)
+    expect(config.feedCustomAccounts).toEqual([])
   })
 })

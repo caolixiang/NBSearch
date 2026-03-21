@@ -13,6 +13,7 @@ function buildConfig(): AppConfig {
     voiceEnabled: false,
     polymarketSubscriptionEnabled: true,
     kalshiSubscriptionEnabled: true,
+    feedCustomAccounts: [],
     themeMode: "light",
     fontSizeMode: "default",
   }
@@ -28,6 +29,13 @@ describe("grok feed client prompt", () => {
     expect(prompt).toContain("extra_with_media")
     expect(prompt).toContain("最近 24 小时内")
     expect(prompt).toContain("不要输出 Markdown 代码块")
+  })
+
+  it("supports derived custom X accounts without adding a new hardcoded source", () => {
+    const prompt = buildFeedFetchPrompt("x:elonmusk")
+
+    expect(prompt).toContain("https://x.com/elonmusk")
+    expect(prompt).toContain('account 必须精确写成 "@elonmusk"')
   })
 })
 
@@ -152,6 +160,23 @@ describe("parseFeedGatewayPosts", () => {
         "polymarket"
       )
     ).toThrow("错误账号")
+  })
+
+  it("parses custom account payloads into the derived x.com canonical url", () => {
+    const posts = parseFeedGatewayPosts(
+      '{"account":"@elonmusk","latest_posts":[{"id":"1","timestamp":"2026-03-20T13:52:39Z","content":"post","engagement":{"likes":0,"reposts":0,"quotes":0,"replies":0,"views":0},"has_media":false}],"extra_with_media":[],"note":"ok"}',
+      "x:elonmusk"
+    )
+
+    expect(posts).toEqual([
+      {
+        postId: "1",
+        content: "post",
+        mediaUrls: [],
+        canonicalUrl: "https://x.com/elonmusk/status/1",
+        publishedAt: Date.parse("2026-03-20T13:52:39Z"),
+      },
+    ])
   })
 })
 
