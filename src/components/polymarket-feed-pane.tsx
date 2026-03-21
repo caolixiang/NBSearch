@@ -91,6 +91,10 @@ function FeedSourceWordmark({ source, className }: { source: FeedSource; classNa
   return <PolymarketWordmark className={className} />
 }
 
+function hasFeedSourceWordmark(source: FeedSource): boolean {
+  return source === "polymarket" || source === "kalshi"
+}
+
 interface FeedPaneProps {
   source: FeedSource
   subscription: FeedSubscriptionRecord | null
@@ -122,6 +126,7 @@ export function FeedPane({
   const autoLoadSentinelRef = useRef<HTMLDivElement | null>(null)
   const autoLoadRequestedRef = useRef(false)
   const sourceConfig = getFeedSourceConfig(source)
+  const showSourceHandle = !hasFeedSourceWordmark(source)
   const statusLabel = useMemo(() => {
     if (isSyncing) {
       return "同步中..."
@@ -221,9 +226,11 @@ export function FeedPane({
                 className={cn("w-auto", source === "kalshi" ? "h-[18px]" : "h-5")}
               />
             </h2>
-            <span className="rounded-full border border-border bg-secondary/40 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
-              @{sourceConfig.accountHandle}
-            </span>
+            {showSourceHandle ? (
+              <span className="rounded-full border border-border bg-secondary/40 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                @{sourceConfig.accountHandle}
+              </span>
+            ) : null}
           </div>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <p
