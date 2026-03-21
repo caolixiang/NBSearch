@@ -181,67 +181,71 @@ export function FeedPane({
   return (
     <div className="mx-auto flex h-full w-full max-w-[72rem] flex-col px-6 py-6">
       <div className="rounded-[28px] border border-border/80 bg-card/80 px-5 py-5 shadow-sm shadow-black/[0.03]">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="inline-flex min-w-0 flex-1 flex-wrap items-center gap-2 rounded-[24px] border border-border/80 bg-background/80 p-2 shadow-sm shadow-black/[0.03]">
-            {FEED_SOURCES.map((candidateSource) => {
-              const candidateConfig = getFeedSourceConfig(candidateSource)
-              const isActiveSource = candidateSource === source
-              return (
-                <button
-                  key={candidateSource}
-                  type="button"
-                  onClick={() => onSelectSource(candidateSource)}
-                  aria-pressed={isActiveSource}
-                  title={candidateConfig.label}
+        <div className="inline-flex min-w-0 w-full flex-wrap items-center gap-2 rounded-[24px] border border-border/80 bg-background/80 p-2 shadow-sm shadow-black/[0.03]">
+          {FEED_SOURCES.map((candidateSource) => {
+            const candidateConfig = getFeedSourceConfig(candidateSource)
+            const isActiveSource = candidateSource === source
+            return (
+              <button
+                key={candidateSource}
+                type="button"
+                onClick={() => onSelectSource(candidateSource)}
+                aria-pressed={isActiveSource}
+                title={candidateConfig.label}
+                className={cn(
+                  "group inline-flex h-12 min-w-[10.5rem] flex-1 items-center justify-center rounded-[18px] border px-4 transition-all sm:flex-none",
+                  isActiveSource
+                    ? "border-border bg-card text-foreground shadow-sm shadow-black/[0.06]"
+                    : "border-transparent bg-transparent text-muted-foreground hover:border-border/80 hover:bg-card/70 hover:text-foreground"
+                )}
+              >
+                <span className="sr-only">{candidateConfig.label}</span>
+                <FeedSourceWordmark
+                  source={candidateSource}
                   className={cn(
-                    "group inline-flex h-12 min-w-[10.5rem] flex-1 items-center justify-center rounded-[18px] border px-4 transition-all sm:flex-none",
-                    isActiveSource
-                      ? "border-border bg-card text-foreground shadow-sm shadow-black/[0.06]"
-                      : "border-transparent bg-transparent text-muted-foreground hover:border-border/80 hover:bg-card/70 hover:text-foreground"
+                    "w-auto transition-transform duration-200 group-hover:scale-[1.01]",
+                    candidateSource === "kalshi" ? "h-[18px]" : "h-5"
                   )}
-                >
-                  <span className="sr-only">{candidateConfig.label}</span>
-                  <FeedSourceWordmark
-                    source={candidateSource}
-                    className={cn(
-                      "w-auto transition-transform duration-200 group-hover:scale-[1.01]",
-                      candidateSource === "kalshi" ? "h-[18px]" : "h-5"
-                    )}
-                  />
-                </button>
-              )
-            })}
-          </div>
-          <Button size="sm" variant="outline" onClick={onRefresh} disabled={isSyncing} className="rounded-full px-4">
-            <RefreshCcw className={cn("mr-1 size-3.5", isSyncing ? "animate-spin" : "")} />
-            {refreshLabel}
-          </Button>
+                />
+              </button>
+            )
+          })}
         </div>
 
-        <div className="mt-5">
-          <div className="flex flex-wrap items-center gap-2">
-            <h2 className="inline-flex items-center rounded-2xl border border-border/80 bg-background/80 px-3 py-2 text-foreground shadow-sm shadow-black/[0.03]">
-              <span className="sr-only">{sourceConfig.label}</span>
-              <FeedSourceWordmark
-                source={source}
-                className={cn("w-auto", source === "kalshi" ? "h-[18px]" : "h-5")}
-              />
-            </h2>
-            <span className="rounded-full border border-border bg-secondary/40 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
-              @{sourceConfig.accountHandle}
-            </span>
+        <div className="mt-5 flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="inline-flex items-center rounded-2xl border border-border/80 bg-background/80 px-3 py-2 text-foreground shadow-sm shadow-black/[0.03]">
+                <span className="sr-only">{sourceConfig.label}</span>
+                <FeedSourceWordmark
+                  source={source}
+                  className={cn("w-auto", source === "kalshi" ? "h-[18px]" : "h-5")}
+                />
+              </h2>
+              <span className="rounded-full border border-border bg-secondary/40 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                @{sourceConfig.accountHandle}
+              </span>
+            </div>
+            <p
+              className={cn(
+                "mt-2 text-xs",
+                subscription?.lastError ? "text-destructive" : "text-muted-foreground"
+              )}
+            >
+              {statusLabel}
+            </p>
           </div>
-          <p className="mt-2 text-sm text-muted-foreground">
-            同步 X 上的最新动态。应用运行期间每 30 分钟自动同步一次。
-          </p>
-          <p
-            className={cn(
-              "mt-2 text-xs",
-              subscription?.lastError ? "text-destructive" : "text-muted-foreground"
-            )}
+          <Button
+            size="icon"
+            variant="outline"
+            onClick={onRefresh}
+            disabled={isSyncing}
+            aria-label={refreshLabel}
+            title={refreshLabel}
+            className="size-10 rounded-full"
           >
-            {statusLabel}
-          </p>
+            <RefreshCcw className={cn("size-4", isSyncing ? "animate-spin" : "")} />
+          </Button>
         </div>
       </div>
 
