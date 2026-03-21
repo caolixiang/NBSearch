@@ -690,4 +690,14 @@ export class SqliteAppRepository implements AppRepository {
     }
     return inserted
   }
+
+  async deleteFeedItemsOlderThan(cutoffMs: number): Promise<number> {
+    const db = await getDatabase()
+    const result = await db.execute(
+      `DELETE FROM feed_items
+       WHERE discovered_at < $1`,
+      [cutoffMs]
+    )
+    return result.rowsAffected
+  }
 }

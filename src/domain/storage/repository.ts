@@ -83,4 +83,6 @@ export interface AppRepository {
   }>): Promise<number>
 
   insertFeedItems(items: FeedItemRecord[]): Promise<number>
+
+  deleteFeedItemsOlderThan(cutoffMs: number): Promise<number>
 }

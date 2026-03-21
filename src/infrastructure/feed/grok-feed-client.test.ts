@@ -26,6 +26,7 @@ describe("grok feed client prompt", () => {
     expect(prompt).toContain('"account":"@Account"')
     expect(prompt).toContain("latest_posts")
     expect(prompt).toContain("extra_with_media")
+    expect(prompt).toContain("最近 24 小时内")
     expect(prompt).toContain("不要输出 Markdown 代码块")
   })
 })

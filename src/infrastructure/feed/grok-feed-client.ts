@@ -217,7 +217,7 @@ export function buildFeedFetchPrompt(source: FeedSource): string {
     `查询 ${config.profileUrl} 的最新公开 X 帖子，并只输出一个合法 JSON 对象。`,
     "不要输出 Markdown 代码块，不要输出解释文字，不要在 JSON 前后补充任何说明。",
     `account 必须精确写成 "${config.accountTag}"。`,
-    `latest_posts 必须包含最新 ${FEED_LATEST_POST_LIMIT} 条主帖，按时间从新到旧排序，忽略置顶和重复项。`,
+    `latest_posts 优先返回最近 24 小时内的主帖，按时间从新到旧排序，忽略置顶和重复项；如果 24 小时内不足 ${FEED_LATEST_POST_LIMIT} 条，再按时间补足到 ${FEED_LATEST_POST_LIMIT} 条。`,
     `extra_with_media 最多返回 ${FEED_EXTRA_MEDIA_POST_LIMIT} 条不在 latest_posts 里的较新旧帖，但必须带媒体。`,
     "每条帖子都必须包含：id、timestamp、content、engagement、has_media；如果有媒体，再补 media_urls。",
     "timestamp 使用 ISO 8601 UTC 格式，例如 2026-03-20T13:52:39Z。",

@@ -4,6 +4,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import type { SqlMigration } from "./migrations"
+import { SQLITE_MIGRATIONS } from "./migrations"
 import { ensureSqliteMigrations, type SqliteMigrationDatabase } from "./migration-runtime"
 
 const LEGACY_FIXTURE_SQL = readFileSync(
@@ -88,7 +89,7 @@ describe("ensureSqliteMigrations", () => {
     const versions = db
       .query("SELECT version FROM schema_migrations ORDER BY version ASC")
       .all() as Array<{ version: number }>
-    expect(versions.map((row) => row.version)).toEqual([1, 2, 4, 5])
+    expect(versions.map((row) => row.version)).toEqual([1, 2, 4, 5, 6])
 
     db.close()
   })
@@ -169,7 +170,66 @@ describe("ensureSqliteMigrations", () => {
       { version: 3, name: "repair_conversation_starred_after_version_conflict" },
       { version: 4, name: "add_feed_subscription_tables" },
       { version: 5, name: "add_feed_item_translation_fields" },
+      { version: 6, name: "reset_legacy_feed_items_for_gateway_schema" },
     ])
+
+    db.close()
+  })
+
+  it("clears legacy feed items and resets polling when upgrading to migration 6", async () => {
+    const db = createTempDb()
+    const adapter = new BunSqliteMigrationAdapter(db)
+
+    await ensureSqliteMigrations(adapter, {
+      migrations: SQLITE_MIGRATIONS.filter((migration) => migration.version <= 5),
+      now: () => 1779000000000,
+    })
+
+    db.query(
+      "INSERT INTO feed_subscriptions(id, source, enabled, poll_interval_minutes, last_polled_at, last_success_at, last_error, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    ).run("feed_sub_polymarket", "polymarket", 1, 10, 1000, 1000, "old error", 1, 1)
+    db.query(
+      "INSERT INTO feed_items(id, subscription_id, source, content_hash, title, content_markdown, title_zh, content_markdown_zh, translation_status, translation_model, translated_at, media_json, canonical_url, published_at, discovered_at, fetched_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    ).run(
+      "feed_item_polymarket_1",
+      "feed_sub_polymarket",
+      "polymarket",
+      "hash_1",
+      "Old title",
+      "Old body",
+      "",
+      "",
+      "skipped",
+      "",
+      null,
+      "[]",
+      "https://x.com/Polymarket/status/1",
+      1,
+      1,
+      1
+    )
+
+    await ensureSqliteMigrations(adapter, {
+      now: () => 1780000000000,
+    })
+
+    const feedCount = db.query("SELECT COUNT(*) AS count FROM feed_items").get() as { count: number }
+    const subscription = db.query(
+      "SELECT poll_interval_minutes, last_polled_at, last_success_at, last_error FROM feed_subscriptions WHERE source = ?"
+    ).get("polymarket") as {
+      poll_interval_minutes: number
+      last_polled_at: number | null
+      last_success_at: number | null
+      last_error: string
+    }
+
+    expect(feedCount.count).toBe(0)
+    expect(subscription).toEqual({
+      poll_interval_minutes: 30,
+      last_polled_at: null,
+      last_success_at: null,
+      last_error: "",
+    })
 
     db.close()
   })

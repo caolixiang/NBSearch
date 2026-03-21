@@ -100,4 +100,16 @@ export const SQLITE_MIGRATIONS: SqlMigration[] = [
        ADD COLUMN translated_at INTEGER`,
     ],
   },
+  {
+    version: 6,
+    name: "reset_legacy_feed_items_for_gateway_schema",
+    statements: [
+      `DELETE FROM feed_items`,
+      `UPDATE feed_subscriptions
+       SET poll_interval_minutes = 30,
+           last_polled_at = NULL,
+           last_success_at = NULL,
+           last_error = ''`,
+    ],
+  },
 ]

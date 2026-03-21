@@ -121,4 +121,56 @@ describe("MemoryAppRepository", () => {
     expect(insertedFirst).toBe(1)
     expect(insertedSecond).toBe(0)
   })
+
+  it("deletes feed items by local discoveredAt retention cutoff", async () => {
+    const repository = new MemoryAppRepository()
+    await repository.insertFeedItems([
+      {
+        id: "feed_old",
+        subscriptionId: "feed_sub_kalshi",
+        source: "kalshi",
+        contentHash: "hash_old",
+        title: "Old",
+        contentMarkdown: "Old body",
+        titleZh: "",
+        contentMarkdownZh: "",
+        translationStatus: "skipped",
+        translationModel: "",
+        translatedAt: null,
+        mediaUrls: [],
+        canonicalUrl: "https://x.com/Kalshi/status/old",
+        publishedAt: 1,
+        discoveredAt: 100,
+        fetchedAt: 100,
+      },
+      {
+        id: "feed_new",
+        subscriptionId: "feed_sub_kalshi",
+        source: "kalshi",
+        contentHash: "hash_new",
+        title: "New",
+        contentMarkdown: "New body",
+        titleZh: "",
+        contentMarkdownZh: "",
+        translationStatus: "skipped",
+        translationModel: "",
+        translatedAt: null,
+        mediaUrls: [],
+        canonicalUrl: "https://x.com/Kalshi/status/new",
+        publishedAt: 2,
+        discoveredAt: 200,
+        fetchedAt: 200,
+      },
+    ])
+
+    const deleted = await repository.deleteFeedItemsOlderThan(150)
+    const page = await repository.listFeedItems({
+      source: "kalshi",
+      limit: 10,
+    })
+
+    expect(deleted).toBe(1)
+    expect(page.items).toHaveLength(1)
+    expect(page.items[0]?.id).toBe("feed_new")
+  })
 })

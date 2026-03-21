@@ -240,4 +240,14 @@ export class MemoryAppRepository implements AppRepository {
     }
     return inserted
   }
+
+  async deleteFeedItemsOlderThan(cutoffMs: number): Promise<number> {
+    let deleted = 0
+    for (const [source, items] of this.feedItems.entries()) {
+      const nextItems = items.filter((item) => item.discoveredAt >= cutoffMs)
+      deleted += items.length - nextItems.length
+      this.feedItems.set(source, nextItems)
+    }
+    return deleted
+  }
 }

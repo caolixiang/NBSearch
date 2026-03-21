@@ -297,4 +297,41 @@ describe("FeedSyncService", () => {
     expect(secondSync.insertedCount).toBe(0)
     expect(translator.calls).toHaveLength(1)
   })
+
+  it("cleans up feed items older than 48 hours by local discoveredAt", async () => {
+    const repository = new MemoryAppRepository()
+    const translator = new FakeFeedTranslator()
+    const now = Date.now()
+    await repository.insertFeedItems([
+      {
+        id: "feed_item_polymarket_stale",
+        subscriptionId: "feed_sub_polymarket",
+        source: "polymarket",
+        contentHash: "hash_stale",
+        title: "Stale",
+        contentMarkdown: "Stale body",
+        titleZh: "",
+        contentMarkdownZh: "",
+        translationStatus: "skipped",
+        translationModel: "",
+        translatedAt: null,
+        mediaUrls: [],
+        canonicalUrl: "https://x.com/Polymarket/status/stale",
+        publishedAt: now - 7 * 24 * 60 * 60 * 1000,
+        discoveredAt: now - 49 * 60 * 60 * 1000,
+        fetchedAt: now - 49 * 60 * 60 * 1000,
+      },
+    ])
+
+    const service = new FeedSyncService(repository, buildConfig(), buildClient(), translator)
+    await service.syncNow("polymarket")
+
+    const page = await service.listItems({
+      source: "polymarket",
+      limit: 10,
+    })
+
+    expect(page.items.some((item) => item.id === "feed_item_polymarket_stale")).toBe(false)
+    expect(page.items).toHaveLength(2)
+  })
 })

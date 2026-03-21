@@ -24,6 +24,8 @@ import {
 } from "./openai-feed-translator"
 
 const POLL_INTERVAL_MINUTES = 30
+const FEED_RETENTION_MS = 48 * 60 * 60 * 1000
+const FEED_CLEANUP_INTERVAL_MS = 30 * 60 * 1000
 const STARTUP_SYNC_DELAY_MS = 10_000
 const SCHEDULER_TICK_INTERVAL_MS = 60_000
 const TRANSLATION_BACKFILL_LIMIT = 20
@@ -104,6 +106,7 @@ export class FeedSyncService implements FeedService {
   private nativeTickUnlisten: (() => void) | null = null
   private nativeTickReady = false
   private started = false
+  private lastFeedCleanupAt = 0
 
   constructor(
     private readonly repository: AppRepository,
@@ -119,13 +122,24 @@ export class FeedSyncService implements FeedService {
     }
     this.started = true
     void Promise.all(FEED_SOURCES.map((source) => this.getSubscription(source))).catch(() => {})
+    void this.maybeCleanupExpiredFeedItems(true).catch(() => {})
     this.initializeScheduling()
   }
 
   async getSubscription(source: FeedSource): Promise<FeedSubscriptionRecord> {
     const existing = await this.repository.getFeedSubscription(source)
     if (existing) {
-      return existing
+      if (existing.pollIntervalMinutes === POLL_INTERVAL_MINUTES) {
+        return existing
+      }
+      const normalized: FeedSubscriptionRecord = {
+        ...existing,
+        pollIntervalMinutes: POLL_INTERVAL_MINUTES,
+        updatedAt: Date.now(),
+      }
+      await this.repository.upsertFeedSubscription(normalized)
+      this.emit({ type: "subscription_updated", source })
+      return normalized
     }
     const created = createDefaultSubscription(source, this.resolveEnabled(source))
     await this.repository.upsertFeedSubscription(created)
@@ -273,7 +287,19 @@ export class FeedSyncService implements FeedService {
   }
 
   private async syncDueSources(): Promise<void> {
-    await Promise.allSettled(FEED_SOURCES.map((source) => this.syncDueSource(source)))
+    await Promise.allSettled([
+      this.maybeCleanupExpiredFeedItems(),
+      ...FEED_SOURCES.map((source) => this.syncDueSource(source)),
+    ])
+  }
+
+  private async maybeCleanupExpiredFeedItems(force = false): Promise<void> {
+    const now = Date.now()
+    if (!force && this.lastFeedCleanupAt > 0 && now - this.lastFeedCleanupAt < FEED_CLEANUP_INTERVAL_MS) {
+      return
+    }
+    await this.repository.deleteFeedItemsOlderThan(now - FEED_RETENTION_MS)
+    this.lastFeedCleanupAt = now
   }
 
   private async syncDueSource(source: FeedSource): Promise<void> {
@@ -345,6 +371,7 @@ export class FeedSyncService implements FeedService {
   }
 
   private async runSync(source: FeedSource): Promise<FeedSyncResult> {
+    await this.maybeCleanupExpiredFeedItems()
     const subscription = await this.getSubscription(source)
     const state = this.sourceStateBySource[source]
     state.isSyncing = true
