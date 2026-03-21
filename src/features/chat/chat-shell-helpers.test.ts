@@ -229,7 +229,7 @@ describe("polymarket feed to chat helpers", () => {
         "原帖链接：",
         "https://x.com/polymarket/status/1",
         "",
-        "图片链接：",
+        "媒体链接：",
         "https://example.com/one.png",
         "https://example.com/two.jpg",
         "",
@@ -252,7 +252,7 @@ describe("polymarket feed to chat helpers", () => {
         "原帖链接：",
         "https://x.com/polymarket/status/1",
         "",
-        "图片链接：",
+        "媒体链接：",
         "https://example.com/one.png",
         "https://example.com/two.jpg",
         "",
@@ -277,7 +277,7 @@ describe("polymarket feed to chat helpers", () => {
         "原帖链接：",
         "https://x.com/polymarket/status/1",
         "",
-        "图片链接：",
+        "媒体链接：",
         "https://example.com/one.png",
         "https://example.com/two.jpg",
         "",
@@ -310,6 +310,40 @@ describe("polymarket feed to chat helpers", () => {
         name: "Polymarket image 2",
         kind: "image",
         previewImageUrl: "https://example.com/two.jpg",
+      },
+    ])
+  })
+
+  it("keeps video urls in prompt context but excludes them from image attachments", () => {
+    const mixedMediaItem = {
+      ...item,
+      mediaUrls: [
+        "https://example.com/one.png",
+        "https://video.twimg.com/amplify_video/2034774911852359680/vid/avc1/468x270/example.mp4",
+      ],
+    }
+
+    expect(buildFeedResearchPrompt(mixedMediaItem)).toContain(
+      [
+        "媒体链接：",
+        "https://example.com/one.png",
+        "https://video.twimg.com/amplify_video/2034774911852359680/vid/avc1/468x270/example.mp4",
+      ].join("\n")
+    )
+
+    expect(buildFeedResearchImageAttachments(mixedMediaItem)).toEqual([
+      {
+        kind: "image_url",
+        url: "https://example.com/one.png",
+        name: "Polymarket image 1",
+      },
+    ])
+
+    expect(buildFeedResearchMessageAttachments(mixedMediaItem)).toEqual([
+      {
+        name: "Polymarket image 1",
+        kind: "image",
+        previewImageUrl: "https://example.com/one.png",
       },
     ])
   })

@@ -2,6 +2,7 @@
 
 import type { ComponentType } from "react"
 import { useEffect, useMemo, useRef } from "react"
+import { getRenderableFeedImageUrls } from "@/domain/feed/media"
 import { getFeedSourceConfig } from "@/domain/feed/source-config"
 import type { FeedItemRecord, FeedSource, FeedSubscriptionRecord } from "@/domain/feed/types"
 import { openExternalUrl } from "@/lib/open-external-url"
@@ -55,6 +56,10 @@ export function getFeedItemContent(item: FeedItemRecord): string {
     return ""
   }
   return content
+}
+
+export function getFeedItemRenderableMediaUrls(item: FeedItemRecord): string[] {
+  return getRenderableFeedImageUrls(item.mediaUrls)
 }
 
 function PolymarketWordmark({ className }: { className?: string }) {
@@ -318,57 +323,62 @@ export function FeedPane({
           </div>
         ) : (
           <div className="space-y-4">
-            {items.map((item) => (
-              <article key={item.id} className="rounded-2xl border border-border bg-card p-4 shadow-sm">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="min-w-0">
-                    <h3 className="line-clamp-2 text-sm font-semibold leading-6 text-foreground">{getFeedItemTitle(item)}</h3>
-                    <p className="mt-1 text-xs text-muted-foreground">{formatItemTime(item)}</p>
+            {items.map((item) => {
+              const content = getFeedItemContent(item)
+              const renderableMediaUrls = getFeedItemRenderableMediaUrls(item)
+
+              return (
+                <article key={item.id} className="rounded-2xl border border-border bg-card p-4 shadow-sm">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="min-w-0">
+                      <h3 className="line-clamp-2 text-sm font-semibold leading-6 text-foreground">{getFeedItemTitle(item)}</h3>
+                      <p className="mt-1 text-xs text-muted-foreground">{formatItemTime(item)}</p>
+                    </div>
                   </div>
-                </div>
 
-                {getFeedItemContent(item) ? (
-                  <p className="mt-3 whitespace-pre-wrap text-sm leading-7 text-foreground">
-                    {getFeedItemContent(item)}
-                  </p>
-                ) : null}
+                  {content ? (
+                    <p className="mt-3 whitespace-pre-wrap text-sm leading-7 text-foreground">
+                      {content}
+                    </p>
+                  ) : null}
 
-                {item.mediaUrls.length > 0 ? (
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {item.mediaUrls.map((mediaUrl) => (
-                      <button
-                        key={mediaUrl}
-                        type="button"
-                        onClick={() => {
-                          void openExternalUrl(mediaUrl)
-                        }}
-                        className="relative h-[88px] w-[88px] overflow-hidden rounded-xl border border-border/70 bg-secondary/30"
-                      >
-                        <img src={mediaUrl} alt="" className="h-full w-full object-cover" loading="lazy" />
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
+                  {renderableMediaUrls.length > 0 ? (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {renderableMediaUrls.map((mediaUrl) => (
+                        <button
+                          key={mediaUrl}
+                          type="button"
+                          onClick={() => {
+                            void openExternalUrl(mediaUrl)
+                          }}
+                          className="relative h-[88px] w-[88px] overflow-hidden rounded-xl border border-border/70 bg-secondary/30"
+                        >
+                          <img src={mediaUrl} alt="" className="h-full w-full object-cover" loading="lazy" />
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
 
-                <div
-                  className={cn(
-                    "flex items-center justify-end",
-                    item.mediaUrls.length > 0 || getFeedItemContent(item) ? "mt-3" : "mt-2"
-                  )}
-                >
-                  <Button
-                    size="sm"
-                    className="rounded-full px-3.5"
-                    onClick={() => {
-                      onDeepResearch(item)
-                    }}
-                    disabled={Boolean(researchingItemId)}
+                  <div
+                    className={cn(
+                      "flex items-center justify-end",
+                      renderableMediaUrls.length > 0 || content ? "mt-3" : "mt-2"
+                    )}
                   >
-                    {researchingItemId === item.id ? "发送中..." : "继续深入调研"}
-                  </Button>
-                </div>
-              </article>
-            ))}
+                    <Button
+                      size="sm"
+                      className="rounded-full px-3.5"
+                      onClick={() => {
+                        onDeepResearch(item)
+                      }}
+                      disabled={Boolean(researchingItemId)}
+                    >
+                      {researchingItemId === item.id ? "发送中..." : "继续深入调研"}
+                    </Button>
+                  </div>
+                </article>
+              )
+            })}
             <div ref={autoLoadSentinelRef} aria-hidden="true" className="h-1 w-full" />
           </div>
         )}

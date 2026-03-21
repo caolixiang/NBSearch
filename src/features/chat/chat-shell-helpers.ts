@@ -5,6 +5,7 @@ import type {
   ChatReasoningEventDetail,
   RemoteChatAttachmentInput,
 } from "@/domain/chat/types"
+import { getRenderableFeedImageUrls } from "@/domain/feed/media"
 import { getFeedSourceConfig } from "@/domain/feed/source-config"
 import type { FeedItemRecord, FeedSource } from "@/domain/feed/types"
 import type { ConversationRecord } from "@/domain/storage/repository"
@@ -181,7 +182,7 @@ export function buildFeedResearchPrompt(item: FeedItemRecord): string {
     sections.push(`原帖链接：\n${canonicalUrl}`)
   }
   if (mediaUrls.length > 0) {
-    sections.push(`图片链接：\n${mediaUrls.join("\n")}`)
+    sections.push(`媒体链接：\n${mediaUrls.join("\n")}`)
   }
 
   sections.push("继续深入调研")
@@ -190,9 +191,7 @@ export function buildFeedResearchPrompt(item: FeedItemRecord): string {
 
 export function buildFeedResearchImageAttachments(item: FeedItemRecord): RemoteChatAttachmentInput[] {
   const sourceLabel = getFeedSourceConfig(item.source).label
-  return item.mediaUrls
-    .map((url) => url.trim())
-    .filter((url) => url.length > 0)
+  return getRenderableFeedImageUrls(item.mediaUrls)
     .map((url, index) => ({
       kind: "image_url" as const,
       url,
@@ -202,9 +201,7 @@ export function buildFeedResearchImageAttachments(item: FeedItemRecord): RemoteC
 
 export function buildFeedResearchMessageAttachments(item: FeedItemRecord): ChatAttachment[] {
   const sourceLabel = getFeedSourceConfig(item.source).label
-  return item.mediaUrls
-    .map((url) => url.trim())
-    .filter((url) => url.length > 0)
+  return getRenderableFeedImageUrls(item.mediaUrls)
     .map((url, index) => ({
       name: `${sourceLabel} image ${index + 1}`,
       kind: "image" as const,

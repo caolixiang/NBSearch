@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test"
 import {
   FEED_AUTOLOAD_ROOT_MARGIN,
   getFeedItemContent,
+  getFeedItemRenderableMediaUrls,
   getFeedSourceHandleLabel,
   getFeedItemTitle,
   hasFeedSourceWordmark,
@@ -80,5 +81,31 @@ describe("FeedPane auto load", () => {
     expect(hasFeedSourceWordmark("polymarket")).toBe(true)
     expect(hasFeedSourceWordmark("kalshi")).toBe(true)
     expect(getFeedSourceHandleLabel("elonmusk")).toBe("@elonmusk")
+  })
+
+  it("filters video media urls out of feed card rendering", () => {
+    expect(
+      getFeedItemRenderableMediaUrls({
+        id: "feed_video_1",
+        subscriptionId: "sub_1",
+        source: "polymarket" as const,
+        contentHash: "hash_1",
+        title: "Video item",
+        contentMarkdown: "",
+        titleZh: "带视频的帖子",
+        contentMarkdownZh: "",
+        translationStatus: "translated" as const,
+        translationModel: "gpt-5.4-mini",
+        translatedAt: 1,
+        mediaUrls: [
+          "https://pbs.twimg.com/media/HDx0YM3bsAAGglu.jpg",
+          "https://video.twimg.com/amplify_video/2034774911852359680/vid/avc1/468x270/ZrEQ6lFG_uB4vuqa.mp4",
+        ],
+        canonicalUrl: "",
+        publishedAt: 1,
+        discoveredAt: 1,
+        fetchedAt: 1,
+      })
+    ).toEqual(["https://pbs.twimg.com/media/HDx0YM3bsAAGglu.jpg"])
   })
 })
