@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useRef } from "react"
-import { getFeedSourceConfig } from "@/domain/feed/source-config"
+import { FEED_SOURCES, getFeedSourceConfig } from "@/domain/feed/source-config"
 import type { FeedItemRecord, FeedSource, FeedSubscriptionRecord } from "@/domain/feed/types"
 import { openExternalUrl } from "@/lib/open-external-url"
 import { Button } from "@/components/ui/button"
@@ -67,6 +67,7 @@ interface FeedPaneProps {
   onRefresh: () => void
   onLoadMore: () => void
   onOpenSettings: () => void
+  onSelectSource: (source: FeedSource) => void
   onDeepResearch: (item: FeedItemRecord) => void
 }
 
@@ -81,6 +82,7 @@ export function FeedPane({
   onRefresh,
   onLoadMore,
   onOpenSettings,
+  onSelectSource,
   onDeepResearch,
 }: FeedPaneProps) {
   const scrollContainerRef = useRef<HTMLDivElement | null>(null)
@@ -152,6 +154,27 @@ export function FeedPane({
             <span className="rounded-full border border-border bg-secondary/40 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
               @{sourceConfig.accountHandle}
             </span>
+          </div>
+          <div className="mt-3 inline-flex flex-wrap items-center gap-1 rounded-full border border-border bg-secondary/30 p-1">
+            {FEED_SOURCES.map((candidateSource) => {
+              const candidateConfig = getFeedSourceConfig(candidateSource)
+              const isActiveSource = candidateSource === source
+              return (
+                <button
+                  key={candidateSource}
+                  type="button"
+                  onClick={() => onSelectSource(candidateSource)}
+                  className={cn(
+                    "rounded-full px-3 py-1.5 text-xs font-medium transition-colors",
+                    isActiveSource
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:bg-background/70 hover:text-foreground"
+                  )}
+                >
+                  {candidateConfig.label}
+                </button>
+              )
+            })}
           </div>
           <p className="mt-1 text-sm text-muted-foreground">
             同步 X 上的最新动态。应用运行期间每 30 分钟自动同步一次。

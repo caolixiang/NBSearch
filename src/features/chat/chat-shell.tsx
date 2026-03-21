@@ -41,6 +41,7 @@ import { useChatConversationStore } from "./chat-conversation-store"
 import { resolveFastModelId, resolveThinkerModelId } from "./model-selection"
 import { createChatStreamRuntime, persistCompletedReasoning } from "./chat-stream-runtime"
 import {
+  buildUnifiedFeedSidebarItem,
   buildAssistantRoundByMessageId,
   buildFeedResearchImageAttachments,
   buildFeedResearchMessageAttachments,
@@ -55,9 +56,11 @@ import {
   buildUserMessageContent,
   buildVisibleMessages,
   extractRetryableUserText,
+  FEED_SIDEBAR_ID,
   findLatestAssistantMessageId,
   getLastPendingUserMessage,
   newConversationId,
+  resolvePrimaryFeedSource,
   resolveVoiceResumeConversationId,
   resolveSendAnchors,
   shouldDeferPendingRecovery,
@@ -79,7 +82,6 @@ import {
 } from "./voice-assistant-stream"
 
 const DRAFT_CONVERSATION_ID = "draft_new_conversation"
-const FEED_ID_PREFIX = "feed_"
 const PENDING_RECOVERY_POLL_INTERVAL_MS = 2500
 const PENDING_RECOVERY_NONE_RESULT_MAX_RETRIES = 24
 
@@ -105,15 +107,6 @@ function createInitialFeedViewState(source: FeedSource, runtime: AppRuntime): Fe
     researchingItemId: null,
     runtimeState: runtime.services.feeds.getRuntimeState(source),
   }
-}
-
-function resolveFeedSidebarId(source: FeedSource): string {
-  return `${FEED_ID_PREFIX}${source}`
-}
-
-function resolveFeedSourceFromSidebarId(value: string): FeedSource | null {
-  const normalized = value.startsWith(FEED_ID_PREFIX) ? value.slice(FEED_ID_PREFIX.length) : ""
-  return FEED_SOURCES.find((source) => source === normalized) || null
 }
 
 export function ChatShell({ runtime }: { runtime: AppRuntime }) {
@@ -1990,37 +1983,30 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
 
   const activeFeedView = activeFeedSource ? feedViewBySource[activeFeedSource] : null
   const activeFeedConfig = activeFeedSource ? getFeedSourceConfig(activeFeedSource) : null
-  const activeSidebarId =
-    activeMainView === "feed" && activeFeedSource
-      ? resolveFeedSidebarId(activeFeedSource)
-      : activeConversationId
+  const unifiedFeedSidebarItem = buildUnifiedFeedSidebarItem({
+    bySource: {
+      polymarket: {
+        enabled: feedViewBySource.polymarket.subscription?.enabled === true,
+        isSyncing: feedViewBySource.polymarket.runtimeState.isSyncing,
+      },
+      kalshi: {
+        enabled: feedViewBySource.kalshi.subscription?.enabled === true,
+        isSyncing: feedViewBySource.kalshi.runtimeState.isSyncing,
+      },
+    },
+  })
+  const activeSidebarId = activeMainView === "feed" ? FEED_SIDEBAR_ID : activeConversationId
 
   return (
     <main className="flex h-dvh min-h-0 overflow-hidden bg-background">
       <div className="shrink-0">
         <ChatSidebar
-          feedItems={FEED_SOURCES.map((source) => {
-            const feedView = feedViewBySource[source]
-            const sourceConfig = getFeedSourceConfig(source)
-            return {
-              id: resolveFeedSidebarId(source),
-              title: sourceConfig.label,
-              description: feedView.subscription?.enabled
-                ? feedView.runtimeState.isSyncing
-                  ? "同步中..."
-                  : "最新动态"
-                : "未开启",
-            }
-          })}
+          feedItems={[unifiedFeedSidebarItem]}
           conversations={sidebarConversations}
           activeId={activeSidebarId}
           onSelect={(id) => void handleSelectConversation(id)}
-          onSelectFeed={(id) => {
-            const source = resolveFeedSourceFromSidebarId(id)
-            if (!source) {
-              return
-            }
-            void handleSelectFeed(source)
+          onSelectFeed={() => {
+            void handleSelectFeed(resolvePrimaryFeedSource(activeFeedSource))
           }}
           onNew={() => void handleNewConversation()}
           onRename={(id, title) => void handleRenameConversation(id, title)}
@@ -2139,6 +2125,9 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
                 })
               }}
               onOpenSettings={() => openSettings("subscriptions")}
+              onSelectSource={(nextSource) => {
+                void handleSelectFeed(nextSource)
+              }}
               onDeepResearch={(item) => {
                 void handleDeepResearchFeedItem(item)
               }}

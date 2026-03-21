@@ -5,8 +5,8 @@ import type {
   ChatReasoningEventDetail,
   RemoteChatAttachmentInput,
 } from "@/domain/chat/types"
-import { getFeedSourceConfig } from "@/domain/feed/source-config"
-import type { FeedItemRecord } from "@/domain/feed/types"
+import { FEED_SOURCES, getFeedSourceConfig } from "@/domain/feed/source-config"
+import type { FeedItemRecord, FeedSource } from "@/domain/feed/types"
 import type { ConversationRecord } from "@/domain/storage/repository"
 import type { RenderChatMessage } from "@/components/chat-message"
 import type { ConversationStreamingState } from "./conversation-streaming-state"
@@ -14,6 +14,37 @@ import { buildConversationPdfFileName } from "./export-message-pdf"
 import { hasAnyThinkTag, hasOpenThinkTag } from "./chat-stream-runtime"
 
 const DEFAULT_VOICE_CONVERSATION_TITLE_TIMEZONE = "Asia/Shanghai"
+export const FEED_SIDEBAR_ID = "feed_x_twitter"
+
+export function resolvePrimaryFeedSource(activeSource: FeedSource | null | undefined): FeedSource {
+  return activeSource && FEED_SOURCES.includes(activeSource) ? activeSource : "polymarket"
+}
+
+export function buildUnifiedFeedSidebarItem(input: {
+  bySource: Record<FeedSource, { enabled: boolean; isSyncing: boolean }>
+}): {
+  id: string
+  title: string
+  description: string
+} {
+  const enabledSources = FEED_SOURCES.filter((source) => input.bySource[source]?.enabled)
+  const isSyncing = FEED_SOURCES.some((source) => input.bySource[source]?.isSyncing)
+
+  let description = "未开启"
+  if (isSyncing) {
+    description = "同步中..."
+  } else if (enabledSources.length === 1) {
+    description = `${getFeedSourceConfig(enabledSources[0]).label} · 最新动态`
+  } else if (enabledSources.length > 1) {
+    description = enabledSources.map((source) => getFeedSourceConfig(source).label).join(" / ")
+  }
+
+  return {
+    id: FEED_SIDEBAR_ID,
+    title: "X / Twitter",
+    description,
+  }
+}
 
 export function newConversationId(): string {
   return `conv_${crypto.randomUUID()}`

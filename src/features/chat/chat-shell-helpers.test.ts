@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test"
 import {
+  buildUnifiedFeedSidebarItem,
   buildSidebarConversationItems,
   buildFeedResearchImageAttachments,
   buildFeedResearchMessageAttachments,
@@ -7,7 +8,9 @@ import {
   buildVisibleMessages,
   buildVoiceConversationTitle,
   clearStaleSessionAnchors,
+  FEED_SIDEBAR_ID,
   getLastPendingUserMessage,
+  resolvePrimaryFeedSource,
   resolveVoiceResumeConversationId,
   shouldDeferPendingRecovery,
   shouldShowPendingRecoveryWarmup,
@@ -172,6 +175,46 @@ describe("chat-shell voice resume helpers", () => {
       ["conv_star_1", true],
       ["conv_today_1", false],
     ])
+  })
+})
+
+describe("chat-shell unified feed sidebar", () => {
+  it("falls back to polymarket when no feed source is active yet", () => {
+    expect(resolvePrimaryFeedSource(null)).toBe("polymarket")
+    expect(resolvePrimaryFeedSource("kalshi")).toBe("kalshi")
+  })
+
+  it("builds a single X / Twitter sidebar item from per-source status", () => {
+    expect(
+      buildUnifiedFeedSidebarItem({
+        bySource: {
+          polymarket: { enabled: true, isSyncing: false },
+          kalshi: { enabled: true, isSyncing: false },
+        },
+      })
+    ).toEqual({
+      id: FEED_SIDEBAR_ID,
+      title: "X / Twitter",
+      description: "Polymarket / Kalshi",
+    })
+
+    expect(
+      buildUnifiedFeedSidebarItem({
+        bySource: {
+          polymarket: { enabled: false, isSyncing: false },
+          kalshi: { enabled: false, isSyncing: false },
+        },
+      }).description
+    ).toBe("未开启")
+
+    expect(
+      buildUnifiedFeedSidebarItem({
+        bySource: {
+          polymarket: { enabled: true, isSyncing: false },
+          kalshi: { enabled: false, isSyncing: true },
+        },
+      }).description
+    ).toBe("同步中...")
   })
 })
 

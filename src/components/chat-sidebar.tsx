@@ -11,7 +11,6 @@ import {
   Trash2,
   Check,
   X,
-  RadioTower,
 } from "lucide-react"
 import { GrokLottieIcon, HoverAnimationProvider } from "./grok-lottie"
 import { cn } from "@/lib/utils"
@@ -72,6 +71,14 @@ function NewConversationButton({
         <span className="sr-only">新建对话</span>
       </Button>
     </HoverAnimationProvider>
+  )
+}
+
+function XTwitterIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className={className} fill="currentColor">
+      <path d="M21.742 21.75l-7.563-11.179 7.056-8.321h-2.456l-5.691 6.714-4.54-6.714H2.359l7.29 10.776L2.25 21.75h2.456l6.035-7.118 4.818 7.118h6.191-.008zM7.739 3.818L18.81 20.182h-2.447L5.29 3.818h2.447z" />
+    </svg>
   )
 }
 
@@ -171,7 +178,8 @@ export function ChatSidebar({
               activeId === item.id ? "bg-sidebar-accent" : ""
             )}
           >
-            <RadioTower className="size-4" />
+            <XTwitterIcon className="size-4" />
+            <span className="sr-only">{item.title}</span>
           </Button>
         ))}
       </div>
@@ -191,7 +199,7 @@ export function ChatSidebar({
       )}
     >
       <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full border border-sidebar-border/70 bg-sidebar/80">
-        <RadioTower className="size-3.5" />
+        <XTwitterIcon className="size-3.5" />
       </span>
       <span className="min-w-0">
         <span className="block truncate text-sm font-medium">{item.title}</span>
