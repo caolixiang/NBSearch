@@ -56,14 +56,6 @@ export function getFeedItemContent(item: FeedItemRecord): string {
   return content
 }
 
-function XTwitterIcon({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" className={className} fill="currentColor">
-      <path d="M21.742 21.75l-7.563-11.179 7.056-8.321h-2.456l-5.691 6.714-4.54-6.714H2.359l7.29 10.776L2.25 21.75h2.456l6.035-7.118 4.818 7.118h6.191-.008zM7.739 3.818L18.81 20.182h-2.447L5.29 3.818h2.447z" />
-    </svg>
-  )
-}
-
 function PolymarketWordmark({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 911 168" aria-hidden="true" className={className} fill="none">
@@ -190,46 +182,35 @@ export function FeedPane({
     <div className="mx-auto flex h-full w-full max-w-[72rem] flex-col px-6 py-6">
       <div className="rounded-[28px] border border-border/80 bg-card/80 px-5 py-5 shadow-sm shadow-black/[0.03]">
         <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3">
-            <div className="inline-flex h-12 items-center gap-3 rounded-[22px] border border-border/80 bg-background/80 px-4 shadow-sm shadow-black/[0.03]">
-              <span className="inline-flex size-7 items-center justify-center rounded-full border border-border bg-secondary/30 text-foreground">
-                <XTwitterIcon className="size-3.5" />
-              </span>
-              <div className="leading-none">
-                <p className="text-sm font-semibold text-foreground">X / Twitter</p>
-                <p className="mt-1 text-[11px] font-medium text-muted-foreground">消息源</p>
-              </div>
-            </div>
-            <div className="inline-flex min-w-0 flex-1 flex-wrap items-center gap-2 rounded-[24px] border border-border/80 bg-background/80 p-2 shadow-sm shadow-black/[0.03]">
-              {FEED_SOURCES.map((candidateSource) => {
-                const candidateConfig = getFeedSourceConfig(candidateSource)
-                const isActiveSource = candidateSource === source
-                return (
-                  <button
-                    key={candidateSource}
-                    type="button"
-                    onClick={() => onSelectSource(candidateSource)}
-                    aria-pressed={isActiveSource}
-                    title={candidateConfig.label}
+          <div className="inline-flex min-w-0 flex-1 flex-wrap items-center gap-2 rounded-[24px] border border-border/80 bg-background/80 p-2 shadow-sm shadow-black/[0.03]">
+            {FEED_SOURCES.map((candidateSource) => {
+              const candidateConfig = getFeedSourceConfig(candidateSource)
+              const isActiveSource = candidateSource === source
+              return (
+                <button
+                  key={candidateSource}
+                  type="button"
+                  onClick={() => onSelectSource(candidateSource)}
+                  aria-pressed={isActiveSource}
+                  title={candidateConfig.label}
+                  className={cn(
+                    "group inline-flex h-12 min-w-[10.5rem] flex-1 items-center justify-center rounded-[18px] border px-4 transition-all sm:flex-none",
+                    isActiveSource
+                      ? "border-border bg-card text-foreground shadow-sm shadow-black/[0.06]"
+                      : "border-transparent bg-transparent text-muted-foreground hover:border-border/80 hover:bg-card/70 hover:text-foreground"
+                  )}
+                >
+                  <span className="sr-only">{candidateConfig.label}</span>
+                  <FeedSourceWordmark
+                    source={candidateSource}
                     className={cn(
-                      "group inline-flex h-12 min-w-[10.5rem] flex-1 items-center justify-center rounded-[18px] border px-4 transition-all sm:flex-none",
-                      isActiveSource
-                        ? "border-border bg-card text-foreground shadow-sm shadow-black/[0.06]"
-                        : "border-transparent bg-transparent text-muted-foreground hover:border-border/80 hover:bg-card/70 hover:text-foreground"
+                      "w-auto transition-transform duration-200 group-hover:scale-[1.01]",
+                      candidateSource === "kalshi" ? "h-[18px]" : "h-5"
                     )}
-                  >
-                    <span className="sr-only">{candidateConfig.label}</span>
-                    <FeedSourceWordmark
-                      source={candidateSource}
-                      className={cn(
-                        "w-auto transition-transform duration-200 group-hover:scale-[1.01]",
-                        candidateSource === "kalshi" ? "h-[18px]" : "h-5"
-                      )}
-                    />
-                  </button>
-                )
-              })}
-            </div>
+                  />
+                </button>
+              )
+            })}
           </div>
           <Button size="sm" variant="outline" onClick={onRefresh} disabled={isSyncing} className="rounded-full px-4">
             <RefreshCcw className={cn("mr-1 size-3.5", isSyncing ? "animate-spin" : "")} />
