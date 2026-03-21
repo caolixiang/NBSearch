@@ -25,7 +25,7 @@ import { cn } from "@/lib/utils"
 import { getGatewaySaveButtonState } from "./settings-dialog-gateway-save"
 import { OpenAILogo } from "./openai-logo"
 import { testOpenAICompatibleConnection } from "@/infrastructure/llm/openai-compatible-client"
-import { Bell, Clock3, Database, Eye, EyeOff, Globe, Key, Palette, Plus, RadioTower, Shield, SlidersHorizontal, Trash2 } from "lucide-react"
+import { Bell, Clock3, Database, Eye, EyeOff, Globe, Key, Palette, Plus, Shield, SlidersHorizontal, Trash2 } from "lucide-react"
 
 interface SettingsDialogProps {
   open: boolean
@@ -50,6 +50,14 @@ interface SettingsDialogProps {
   }) => void
 }
 
+function XTwitterIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className={className} fill="currentColor">
+      <path d="M21.742 21.75l-7.563-11.179 7.056-8.321h-2.456l-5.691 6.714-4.54-6.714H2.359l7.29 10.776L2.25 21.75h2.456l6.035-7.118 4.818 7.118h6.191-.008zM7.739 3.818L18.81 20.182h-2.447L5.29 3.818h2.447z" />
+    </svg>
+  )
+}
+
 const tabs = [
   { id: "gateway", label: "网关", icon: Globe },
   { id: "openai", label: "OpenAI", icon: OpenAILogo },
@@ -57,7 +65,7 @@ const tabs = [
   { id: "notifications", label: "通知", icon: Bell },
   { id: "privacy", label: "隐私与安全", icon: Shield },
   { id: "personalization", label: "个性化配置", icon: SlidersHorizontal },
-  { id: "subscriptions", label: "订阅", icon: RadioTower },
+  { id: "subscriptions", label: "X 订阅", icon: XTwitterIcon },
   { id: "data", label: "数据管理", icon: Database },
 ] as const
 
@@ -1150,7 +1158,7 @@ export function SettingsDialog({
             {activeTab === "subscriptions" && (
               <div className="space-y-5">
                 <div>
-                  <h3 className="text-sm font-medium text-foreground">订阅设置</h3>
+                  <h3 className="text-sm font-medium text-foreground">X 订阅</h3>
                   <p className="mt-0.5 text-xs text-muted-foreground">
                     通过网关 `grok fast` 拉取 X 上的最新动态。应用运行期间每 30 分钟同步一次，隐藏到 tray 后仍会继续同步。
                   </p>

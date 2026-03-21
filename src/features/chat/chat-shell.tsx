@@ -122,6 +122,21 @@ function buildInitialFeedViewBySource(
   )
 }
 
+function FeedSourcesEmptyState() {
+  return (
+    <div className="mx-auto flex h-full w-full max-w-[72rem] flex-col px-6 py-6">
+      <div className="flex min-h-[14rem] items-center justify-center rounded-[28px] border border-dashed border-border/80 bg-card/60 px-6 py-10 text-center shadow-sm shadow-black/[0.03]">
+        <div className="max-w-md space-y-2">
+          <p className="text-base font-medium text-foreground">当前没有启用的 X 订阅源</p>
+          <p className="text-sm leading-6 text-muted-foreground">
+            在设置的“X 订阅”里启用 Polymarket、Kalshi，或添加任意 X 账号后，这里会立即显示对应消息源。
+          </p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function ChatShell({ runtime }: { runtime: AppRuntime }) {
   const repository = runtime.services.repository
   const chatService = runtime.services.chat
@@ -229,6 +244,16 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
   useEffect(() => {
     activeFeedSourceRef.current = activeFeedSource
   }, [activeFeedSource])
+
+  useEffect(() => {
+    if (!activeFeedSource) {
+      return
+    }
+    if (feedSources.includes(activeFeedSource)) {
+      return
+    }
+    setActiveFeedSource(resolvePrimaryFeedSource(activeFeedSource, feedSources))
+  }, [activeFeedSource, feedSources])
 
   useEffect(() => {
     feedViewBySourceRef.current = feedViewBySource
@@ -612,7 +637,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
           .then(() => loadFeedItems(source))
           .catch(() => {})
       }
-      if (activeMainView === "feed") {
+      if (activeMainView === "feed" && nextActiveSource) {
         void loadFeedItems(nextActiveSource)
       }
     },
@@ -2040,9 +2065,13 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
     ]
   )
 
-  const activeFeedView = activeFeedSource ? (feedViewBySource[activeFeedSource] ?? null) : null
+  const activeFeedView =
+    activeFeedSource && feedSources.includes(activeFeedSource)
+      ? (feedViewBySource[activeFeedSource] ?? null)
+      : null
   const unifiedFeedSidebarItem = buildUnifiedFeedSidebarItem()
   const activeSidebarId = activeMainView === "feed" ? FEED_SIDEBAR_ID : activeConversationId
+  const hasEnabledFeedSources = feedSources.length > 0
 
   return (
     <main className="flex h-dvh min-h-0 overflow-hidden bg-background">
@@ -2053,7 +2082,13 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
           activeId={activeSidebarId}
           onSelect={(id) => void handleSelectConversation(id)}
           onSelectFeed={() => {
-            void handleSelectFeed(resolvePrimaryFeedSource(activeFeedSource, feedSources))
+            const nextSource = resolvePrimaryFeedSource(activeFeedSource, feedSources)
+            setActiveMainView("feed")
+            if (!nextSource) {
+              setActiveFeedSource(null)
+              return
+            }
+            void handleSelectFeed(nextSource)
           }}
           onNew={() => void handleNewConversation()}
           onRename={(id, title) => void handleRenameConversation(id, title)}
@@ -2133,38 +2168,42 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
           </header>
         ) : null}
 
-        {activeMainView === "feed" && activeFeedSource && activeFeedView ? (
-          <FeedPane
-            sources={feedSources}
-            source={activeFeedSource}
-            subscription={activeFeedView.subscription}
-            items={activeFeedView.items}
-            isLoading={activeFeedView.isLoading}
-            isSyncing={activeFeedView.runtimeState.isSyncing}
-            hasMore={activeFeedView.hasMore}
-            researchingItemId={activeFeedView.researchingItemId}
-            onRefresh={() => {
-              void feedService
-                .syncNow(activeFeedSource)
-                .then(() => loadFeedItems(activeFeedSource))
-                .catch(() => {})
-            }}
-            onLoadMore={() => {
-              if (!activeFeedView.hasMore || activeFeedView.isLoading) {
-                return
-              }
-              void loadFeedItems(activeFeedSource, {
-                append: true,
-                cursor: activeFeedView.cursor,
-              })
-            }}
-            onSelectSource={(nextSource) => {
-              void handleSelectFeed(nextSource)
-            }}
-            onDeepResearch={(item) => {
-              void handleDeepResearchFeedItem(item)
-            }}
-          />
+        {activeMainView === "feed" ? (
+          hasEnabledFeedSources && activeFeedSource && activeFeedView ? (
+            <FeedPane
+              sources={feedSources}
+              source={activeFeedSource}
+              subscription={activeFeedView.subscription}
+              items={activeFeedView.items}
+              isLoading={activeFeedView.isLoading}
+              isSyncing={activeFeedView.runtimeState.isSyncing}
+              hasMore={activeFeedView.hasMore}
+              researchingItemId={activeFeedView.researchingItemId}
+              onRefresh={() => {
+                void feedService
+                  .syncNow(activeFeedSource)
+                  .then(() => loadFeedItems(activeFeedSource))
+                  .catch(() => {})
+              }}
+              onLoadMore={() => {
+                if (!activeFeedView.hasMore || activeFeedView.isLoading) {
+                  return
+                }
+                void loadFeedItems(activeFeedSource, {
+                  append: true,
+                  cursor: activeFeedView.cursor,
+                })
+              }}
+              onSelectSource={(nextSource) => {
+                void handleSelectFeed(nextSource)
+              }}
+              onDeepResearch={(item) => {
+                void handleDeepResearchFeedItem(item)
+              }}
+            />
+          ) : (
+            <FeedSourcesEmptyState />
+          )
         ) : (
           <div
             ref={messagesScrollRef}

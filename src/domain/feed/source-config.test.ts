@@ -25,14 +25,24 @@ describe("feed source config", () => {
     ).toEqual(["elonmusk"])
   })
 
-  it("builds configured sources from branded defaults plus custom accounts", () => {
+  it("builds configured sources from enabled branded sources plus custom accounts", () => {
     expect(
       resolveConfiguredFeedSources({
         polymarketSubscriptionEnabled: true,
         kalshiSubscriptionEnabled: false,
         feedCustomAccounts: ["@elonmusk", "https://x.com/sama"],
       })
-    ).toEqual(["polymarket", "kalshi", "x:elonmusk", "x:sama"])
+    ).toEqual(["polymarket", "x:elonmusk", "x:sama"])
+  })
+
+  it("returns an empty list when no built-in or custom source is enabled", () => {
+    expect(
+      resolveConfiguredFeedSources({
+        polymarketSubscriptionEnabled: false,
+        kalshiSubscriptionEnabled: false,
+        feedCustomAccounts: [],
+      })
+    ).toEqual([])
   })
 
   it("derives custom source metadata from the source id", () => {

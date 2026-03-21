@@ -5,7 +5,7 @@ import type {
   ChatReasoningEventDetail,
   RemoteChatAttachmentInput,
 } from "@/domain/chat/types"
-import { DEFAULT_PRIMARY_FEED_SOURCE, getFeedSourceConfig } from "@/domain/feed/source-config"
+import { getFeedSourceConfig } from "@/domain/feed/source-config"
 import type { FeedItemRecord, FeedSource } from "@/domain/feed/types"
 import type { ConversationRecord } from "@/domain/storage/repository"
 import type { RenderChatMessage } from "@/components/chat-message"
@@ -19,11 +19,11 @@ export const FEED_SIDEBAR_ID = "feed_x_twitter"
 export function resolvePrimaryFeedSource(
   activeSource: FeedSource | null | undefined,
   sources: FeedSource[]
-): FeedSource {
+): FeedSource | null {
   if (activeSource && sources.includes(activeSource)) {
     return activeSource
   }
-  return sources[0] || DEFAULT_PRIMARY_FEED_SOURCE
+  return sources[0] || null
 }
 
 export function buildUnifiedFeedSidebarItem(): {

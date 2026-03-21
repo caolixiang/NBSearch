@@ -179,10 +179,15 @@ describe("chat-shell voice resume helpers", () => {
 })
 
 describe("chat-shell unified feed sidebar", () => {
-  it("falls back to polymarket when no feed source is active yet", () => {
+  it("falls back to the first enabled source when no feed source is active yet", () => {
     expect(resolvePrimaryFeedSource(null, ["polymarket", "kalshi"])).toBe("polymarket")
     expect(resolvePrimaryFeedSource("kalshi", ["polymarket", "kalshi"])).toBe("kalshi")
     expect(resolvePrimaryFeedSource("x:elonmusk", ["polymarket", "kalshi"])).toBe("polymarket")
+  })
+
+  it("returns null when there are no enabled feed sources", () => {
+    expect(resolvePrimaryFeedSource(null, [])).toBeNull()
+    expect(resolvePrimaryFeedSource("polymarket", [])).toBeNull()
   })
 
   it("builds a single X / Twitter sidebar item", () => {

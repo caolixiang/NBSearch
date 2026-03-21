@@ -128,10 +128,17 @@ export function isFeedSourceEnabledInConfig(source: FeedSource, config: FeedSour
 }
 
 export function resolveConfiguredFeedSources(config: FeedSourceListConfig): FeedSource[] {
+  const builtInSources: FeedSource[] = []
+  if (config.polymarketSubscriptionEnabled === true) {
+    builtInSources.push("polymarket")
+  }
+  if (config.kalshiSubscriptionEnabled === true) {
+    builtInSources.push("kalshi")
+  }
   const customSources = normalizeFeedCustomAccounts(config.feedCustomAccounts)
     .map((handle) => createCustomFeedSource(handle))
     .filter((source): source is FeedSource => source.length > 0)
-  return [...BUILT_IN_FEED_SOURCES, ...customSources]
+  return [...builtInSources, ...customSources]
 }
 
 export function getFeedSourceConfig(source: FeedSource): FeedSourceConfig {
