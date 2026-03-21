@@ -2,7 +2,9 @@ import { describe, expect, it } from "bun:test"
 import {
   FEED_AUTOLOAD_ROOT_MARGIN,
   getFeedItemContent,
+  getFeedSourceHandleLabel,
   getFeedItemTitle,
+  hasFeedSourceWordmark,
   normalizeFeedCardText,
   shouldAutoLoadFeedPage,
 } from "./polymarket-feed-pane"
@@ -72,5 +74,11 @@ describe("FeedPane auto load", () => {
 
     expect(getFeedItemTitle(item)).toBe("刚刚：谷歌推出 AI vibe design 工具后，Figma 股价单日暴跌 8%。")
     expect(getFeedItemContent(item)).toBe("")
+  })
+
+  it("keeps branded sources on the wordmark path and formats non-branded sources as @handles", () => {
+    expect(hasFeedSourceWordmark("polymarket")).toBe(true)
+    expect(hasFeedSourceWordmark("kalshi")).toBe(true)
+    expect(getFeedSourceHandleLabel("elonmusk")).toBe("@elonmusk")
   })
 })

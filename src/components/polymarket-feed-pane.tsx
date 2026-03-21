@@ -1,5 +1,6 @@
 "use client"
 
+import type { ComponentType } from "react"
 import { useEffect, useMemo, useRef } from "react"
 import { FEED_SOURCES, getFeedSourceConfig } from "@/domain/feed/source-config"
 import type { FeedItemRecord, FeedSource, FeedSubscriptionRecord } from "@/domain/feed/types"
@@ -84,15 +85,66 @@ function KalshiWordmark({ className }: { className?: string }) {
   )
 }
 
-function FeedSourceWordmark({ source, className }: { source: FeedSource; className?: string }) {
-  if (source === "kalshi") {
-    return <KalshiWordmark className={className} />
-  }
-  return <PolymarketWordmark className={className} />
+const FEED_SOURCE_WORDMARKS: Partial<Record<FeedSource, ComponentType<{ className?: string }>>> = {
+  polymarket: PolymarketWordmark,
+  kalshi: KalshiWordmark,
 }
 
-function hasFeedSourceWordmark(source: FeedSource): boolean {
-  return source === "polymarket" || source === "kalshi"
+type FeedSourceLabelVariant = "rail-active" | "rail-inactive" | "title"
+
+function getFeedSourceWordmark(source: FeedSource) {
+  return FEED_SOURCE_WORDMARKS[source] ?? null
+}
+
+export function hasFeedSourceWordmark(source: FeedSource): boolean {
+  return getFeedSourceWordmark(source) !== null
+}
+
+export function getFeedSourceHandleLabel(accountHandle: string): string {
+  return `@${accountHandle}`
+}
+
+function FeedSourceLabel({
+  source,
+  variant,
+}: {
+  source: FeedSource
+  variant: FeedSourceLabelVariant
+}) {
+  const sourceConfig = getFeedSourceConfig(source)
+  const Wordmark = getFeedSourceWordmark(source)
+
+  if (Wordmark) {
+    const wordmarkClassName =
+      variant === "rail-active"
+        ? source === "kalshi"
+          ? "h-7"
+          : "h-6"
+        : variant === "rail-inactive"
+          ? source === "kalshi"
+            ? "h-5"
+            : "h-[18px]"
+          : source === "kalshi"
+            ? "h-[18px]"
+            : "h-5"
+
+    return <Wordmark className={cn("w-auto", wordmarkClassName)} />
+  }
+
+  return (
+    <span
+      className={cn(
+        "whitespace-nowrap font-medium",
+        variant === "rail-active"
+          ? "text-base text-foreground"
+          : variant === "rail-inactive"
+            ? "text-sm text-current"
+            : "text-sm text-foreground"
+      )}
+    >
+      {getFeedSourceHandleLabel(sourceConfig.accountHandle)}
+    </span>
+  )
 }
 
 interface FeedPaneProps {
@@ -126,7 +178,6 @@ export function FeedPane({
   const autoLoadSentinelRef = useRef<HTMLDivElement | null>(null)
   const autoLoadRequestedRef = useRef(false)
   const sourceConfig = getFeedSourceConfig(source)
-  const showSourceHandle = !hasFeedSourceWordmark(source)
   const statusLabel = useMemo(() => {
     if (isSyncing) {
       return "同步中..."
@@ -186,51 +237,39 @@ export function FeedPane({
   return (
     <div className="mx-auto flex h-full w-full max-w-[72rem] flex-col px-6 py-6">
       <div className="rounded-[28px] border border-border/80 bg-card/80 px-5 py-5 shadow-sm shadow-black/[0.03]">
-        <div className="inline-flex min-w-0 w-full flex-wrap items-center gap-2 rounded-[24px] border border-border/80 bg-background/80 p-2 shadow-sm shadow-black/[0.03]">
-          {FEED_SOURCES.map((candidateSource) => {
-            const candidateConfig = getFeedSourceConfig(candidateSource)
-            const isActiveSource = candidateSource === source
-            return (
-              <button
-                key={candidateSource}
-                type="button"
-                onClick={() => onSelectSource(candidateSource)}
-                aria-pressed={isActiveSource}
-                title={candidateConfig.label}
-                className={cn(
-                  "group inline-flex h-12 min-w-[10.5rem] flex-1 items-center justify-center rounded-[18px] border px-4 transition-all sm:flex-none",
-                  isActiveSource
-                    ? "border-border bg-card text-foreground shadow-sm shadow-black/[0.06]"
-                    : "border-transparent bg-transparent text-muted-foreground hover:border-border/80 hover:bg-card/70 hover:text-foreground"
-                )}
-              >
-                <span className="sr-only">{candidateConfig.label}</span>
-                <FeedSourceWordmark
-                  source={candidateSource}
+        <div className="-mx-1 overflow-x-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <div className="inline-flex w-max min-w-full items-center gap-2 rounded-[24px] border border-border/80 bg-background/80 p-2 shadow-sm shadow-black/[0.03] sm:min-w-0">
+            {FEED_SOURCES.map((candidateSource) => {
+              const candidateConfig = getFeedSourceConfig(candidateSource)
+              const isActiveSource = candidateSource === source
+              return (
+                <button
+                  key={candidateSource}
+                  type="button"
+                  onClick={() => onSelectSource(candidateSource)}
+                  aria-pressed={isActiveSource}
+                  title={candidateConfig.label}
                   className={cn(
-                    "w-auto transition-transform duration-200 group-hover:scale-[1.01]",
-                    candidateSource === "kalshi" ? "h-[18px]" : "h-5"
+                    "group inline-flex shrink-0 items-center justify-center rounded-[20px] border transition-all",
+                    isActiveSource
+                      ? "h-14 min-w-[12rem] border-border bg-card px-5 text-foreground shadow-sm shadow-black/[0.06]"
+                      : "h-10 min-w-fit border-transparent bg-transparent px-3.5 text-muted-foreground hover:border-border/80 hover:bg-card/70 hover:text-foreground"
                   )}
-                />
-              </button>
-            )
-          })}
+                >
+                  <span className="sr-only">{candidateConfig.label}</span>
+                  <FeedSourceLabel source={candidateSource} variant={isActiveSource ? "rail-active" : "rail-inactive"} />
+                </button>
+              )
+            })}
+          </div>
         </div>
 
         <div className="mt-5">
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="inline-flex items-center rounded-2xl border border-border/80 bg-background/80 px-3 py-2 text-foreground shadow-sm shadow-black/[0.03]">
-              <span className="sr-only">{sourceConfig.label}</span>
-              <FeedSourceWordmark
-                source={source}
-                className={cn("w-auto", source === "kalshi" ? "h-[18px]" : "h-5")}
-              />
+              <span className="sr-only">{getFeedSourceConfig(source).label}</span>
+              <FeedSourceLabel source={source} variant="title" />
             </h2>
-            {showSourceHandle ? (
-              <span className="rounded-full border border-border bg-secondary/40 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
-                @{sourceConfig.accountHandle}
-              </span>
-            ) : null}
           </div>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <p
