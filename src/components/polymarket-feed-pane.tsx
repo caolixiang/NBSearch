@@ -56,6 +56,14 @@ export function getFeedItemContent(item: FeedItemRecord): string {
   return content
 }
 
+function XTwitterIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className={className} fill="currentColor">
+      <path d="M21.742 21.75l-7.563-11.179 7.056-8.321h-2.456l-5.691 6.714-4.54-6.714H2.359l7.29 10.776L2.25 21.75h2.456l6.035-7.118 4.818 7.118h6.191-.008zM7.739 3.818L18.81 20.182h-2.447L5.29 3.818h2.447z" />
+    </svg>
+  )
+}
+
 interface FeedPaneProps {
   source: FeedSource
   subscription: FeedSubscriptionRecord | null
@@ -66,7 +74,6 @@ interface FeedPaneProps {
   researchingItemId?: string | null
   onRefresh: () => void
   onLoadMore: () => void
-  onOpenSettings: () => void
   onSelectSource: (source: FeedSource) => void
   onDeepResearch: (item: FeedItemRecord) => void
 }
@@ -81,7 +88,6 @@ export function FeedPane({
   researchingItemId,
   onRefresh,
   onLoadMore,
-  onOpenSettings,
   onSelectSource,
   onDeepResearch,
 }: FeedPaneProps) {
@@ -147,15 +153,15 @@ export function FeedPane({
 
   return (
     <div className="mx-auto flex h-full w-full max-w-[72rem] flex-col px-6 py-6">
-      <div className="flex flex-wrap items-start justify-between gap-4 border-b border-border pb-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <h2 className="text-lg font-semibold text-foreground">{sourceConfig.label}</h2>
-            <span className="rounded-full border border-border bg-secondary/40 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
-              @{sourceConfig.accountHandle}
+      <div className="rounded-[28px] border border-border/80 bg-card/80 px-5 py-5 shadow-sm shadow-black/[0.03]">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="inline-flex flex-wrap items-center gap-2 rounded-full border border-border bg-background/80 p-1.5">
+            <span className="inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold text-foreground">
+              <span className="inline-flex size-6 items-center justify-center rounded-full border border-border bg-secondary/30">
+                <XTwitterIcon className="size-3.5" />
+              </span>
+              X / Twitter
             </span>
-          </div>
-          <div className="mt-3 inline-flex flex-wrap items-center gap-1 rounded-full border border-border bg-secondary/30 p-1">
             {FEED_SOURCES.map((candidateSource) => {
               const candidateConfig = getFeedSourceConfig(candidateSource)
               const isActiveSource = candidateSource === source
@@ -165,10 +171,10 @@ export function FeedPane({
                   type="button"
                   onClick={() => onSelectSource(candidateSource)}
                   className={cn(
-                    "rounded-full px-3 py-1.5 text-xs font-medium transition-colors",
+                    "rounded-full px-3.5 py-2 text-xs font-medium transition-colors",
                     isActiveSource
-                      ? "bg-background text-foreground shadow-sm"
-                      : "text-muted-foreground hover:bg-background/70 hover:text-foreground"
+                      ? "bg-foreground text-background shadow-sm"
+                      : "text-muted-foreground hover:bg-secondary hover:text-foreground"
                   )}
                 >
                   {candidateConfig.label}
@@ -176,7 +182,20 @@ export function FeedPane({
               )
             })}
           </div>
-          <p className="mt-1 text-sm text-muted-foreground">
+          <Button size="sm" variant="outline" onClick={onRefresh} disabled={isSyncing} className="rounded-full px-4">
+            <RefreshCcw className={cn("mr-1 size-3.5", isSyncing ? "animate-spin" : "")} />
+            {refreshLabel}
+          </Button>
+        </div>
+
+        <div className="mt-5">
+          <div className="flex items-center gap-2">
+            <h2 className="text-xl font-semibold text-foreground">{sourceConfig.label}</h2>
+            <span className="rounded-full border border-border bg-secondary/40 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+              @{sourceConfig.accountHandle}
+            </span>
+          </div>
+          <p className="mt-2 text-sm text-muted-foreground">
             同步 X 上的最新动态。应用运行期间每 30 分钟自动同步一次。
           </p>
           <p
@@ -188,27 +207,14 @@ export function FeedPane({
             {statusLabel}
           </p>
         </div>
-
-        <div className="flex items-center gap-2">
-          <Button size="sm" variant="outline" onClick={onOpenSettings}>
-            订阅设置
-          </Button>
-          <Button size="sm" variant="outline" onClick={onRefresh} disabled={isSyncing}>
-            <RefreshCcw className={cn("mr-1 size-3.5", isSyncing ? "animate-spin" : "")} />
-            {refreshLabel}
-          </Button>
-        </div>
       </div>
 
       {!subscription?.enabled ? (
         <div className="mt-6 rounded-2xl border border-dashed border-border bg-secondary/20 p-6">
-          <p className="text-sm font-medium text-foreground">订阅尚未开启</p>
+          <p className="text-sm font-medium text-foreground">当前消息源尚未开启</p>
           <p className="mt-1 text-sm leading-6 text-muted-foreground">
-            开启后会在应用运行期间自动拉取 {sourceConfig.label} 的最新动态，并保存在本地，支持后续“加载更多”。
+            {sourceConfig.label} 暂时不会自动同步。你仍然可以切换到其他消息源，或在全局设置里开启订阅。
           </p>
-          <Button size="sm" className="mt-4" onClick={onOpenSettings}>
-            去开启订阅
-          </Button>
         </div>
       ) : null}
 

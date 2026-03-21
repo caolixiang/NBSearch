@@ -195,7 +195,6 @@ describe("chat-shell unified feed sidebar", () => {
     ).toEqual({
       id: FEED_SIDEBAR_ID,
       title: "X / Twitter",
-      description: "Polymarket / Kalshi",
     })
 
     expect(
@@ -205,16 +204,7 @@ describe("chat-shell unified feed sidebar", () => {
           kalshi: { enabled: false, isSyncing: false },
         },
       }).description
-    ).toBe("未开启")
-
-    expect(
-      buildUnifiedFeedSidebarItem({
-        bySource: {
-          polymarket: { enabled: true, isSyncing: false },
-          kalshi: { enabled: false, isSyncing: true },
-        },
-      }).description
-    ).toBe("同步中...")
+    ).toBeUndefined()
   })
 })
 

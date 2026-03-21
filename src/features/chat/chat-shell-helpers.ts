@@ -20,29 +20,16 @@ export function resolvePrimaryFeedSource(activeSource: FeedSource | null | undef
   return activeSource && FEED_SOURCES.includes(activeSource) ? activeSource : "polymarket"
 }
 
-export function buildUnifiedFeedSidebarItem(input: {
+export function buildUnifiedFeedSidebarItem(_input: {
   bySource: Record<FeedSource, { enabled: boolean; isSyncing: boolean }>
 }): {
   id: string
   title: string
-  description: string
+  description?: string
 } {
-  const enabledSources = FEED_SOURCES.filter((source) => input.bySource[source]?.enabled)
-  const isSyncing = FEED_SOURCES.some((source) => input.bySource[source]?.isSyncing)
-
-  let description = "未开启"
-  if (isSyncing) {
-    description = "同步中..."
-  } else if (enabledSources.length === 1) {
-    description = `${getFeedSourceConfig(enabledSources[0]).label} · 最新动态`
-  } else if (enabledSources.length > 1) {
-    description = enabledSources.map((source) => getFeedSourceConfig(source).label).join(" / ")
-  }
-
   return {
     id: FEED_SIDEBAR_ID,
     title: "X / Twitter",
-    description,
   }
 }
 

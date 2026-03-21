@@ -8,7 +8,7 @@ import {
   applyPersonalizationConfigToRuntime,
   applySubscriptionsConfigToRuntime,
 } from "@/app/runtime"
-import { FEED_SOURCES, getFeedSourceConfig } from "@/domain/feed/source-config"
+import { FEED_SOURCES } from "@/domain/feed/source-config"
 import type {
   ChatAnchors,
   ChatAttachment,
@@ -1982,7 +1982,6 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
   )
 
   const activeFeedView = activeFeedSource ? feedViewBySource[activeFeedSource] : null
-  const activeFeedConfig = activeFeedSource ? getFeedSourceConfig(activeFeedSource) : null
   const unifiedFeedSidebarItem = buildUnifiedFeedSidebarItem({
     bySource: {
       polymarket: {
@@ -2020,17 +2019,8 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
       </div>
 
       <div data-chat-main-pane="true" className="flex min-h-0 flex-1 flex-col overflow-hidden">
-        <header className="flex items-center justify-between border-b border-border px-4 py-2.5">
-          {activeMainView === "feed" && activeFeedConfig ? (
-            <div className="min-w-0">
-              <p className="text-sm font-semibold text-foreground">{activeFeedConfig.label}</p>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                {activeFeedView?.subscription?.enabled
-                  ? "X 订阅流"
-                  : "在设置中开启后，每 30 分钟同步一次"}
-              </p>
-            </div>
-          ) : (
+        {activeMainView !== "feed" ? (
+          <header className="flex items-center justify-between border-b border-border px-4 py-2.5">
             <ModelSelector
               models={modelOptions}
               selectedModel={selectedModel}
@@ -2044,142 +2034,143 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
               refreshStatusMessage={modelSyncNotice?.message}
               refreshStatusTone={modelSyncNotice?.tone}
             />
-          )}
-          <div className="flex min-w-0 items-center gap-2">
-            {readyUpdateVersion ? (
-              <button
-                type="button"
-                onClick={() => {
-                  void installReadyUpdate()
-                }}
-                disabled={isInstallingPreparedUpdate}
-                className="inline-flex h-9 shrink-0 items-center justify-center rounded-full border border-emerald-200 bg-emerald-50 px-4 text-sm font-medium text-emerald-700 transition-colors hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-300 dark:hover:bg-emerald-950/60"
-              >
-                {isInstallingPreparedUpdate ? "更新中..." : "立即更新"}
-              </button>
-            ) : null}
-            {shouldShowHeaderNewConversationButton ? (
-              <div className="group/new-chat relative ms-1">
-                <span className="pointer-events-none absolute top-[calc(100%+8px)] right-0 z-20 -translate-y-1 whitespace-nowrap rounded-[16px] border border-black/10 bg-background/96 px-4 py-1 text-sm leading-6 text-foreground opacity-0 shadow-sm backdrop-blur transition-all duration-200 ease-in-out group-hover/new-chat:translate-y-0 group-hover/new-chat:opacity-100 group-focus-within/new-chat:translate-y-0 group-focus-within/new-chat:opacity-100">
-                  新建聊天
-                </span>
+            <div className="flex min-w-0 items-center gap-2">
+              {readyUpdateVersion ? (
                 <button
                   type="button"
-                  onClick={handleNewConversation}
-                  aria-label="新建对话"
-                  className="inline-flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border border-border/80 bg-background p-2 text-foreground transition-colors duration-100 hover:bg-secondary"
+                  onClick={() => {
+                    void installReadyUpdate()
+                  }}
+                  disabled={isInstallingPreparedUpdate}
+                  className="inline-flex h-9 shrink-0 items-center justify-center rounded-full border border-emerald-200 bg-emerald-50 px-4 text-sm font-medium text-emerald-700 transition-colors hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-300 dark:hover:bg-emerald-950/60"
                 >
-                  <svg
-                    width="20"
-                    height="20"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    xmlns="http://www.w3.org/2000/svg"
-                    className="stroke-[2]"
-                    strokeWidth="2"
-                  >
-                    <path
-                      d="M10 4V4C8.13623 4 7.20435 4 6.46927 4.30448C5.48915 4.71046 4.71046 5.48915 4.30448 6.46927C4 7.20435 4 8.13623 4 10V13.6C4 15.8402 4 16.9603 4.43597 17.816C4.81947 18.5686 5.43139 19.1805 6.18404 19.564C7.03968 20 8.15979 20 10.4 20H14C15.8638 20 16.7956 20 17.5307 19.6955C18.5108 19.2895 19.2895 18.5108 19.6955 17.5307C20 16.7956 20 15.8638 20 14V14"
-                      stroke="currentColor"
-                      strokeLinecap="square"
-                    />
-                    <path
-                      d="M12.4393 14.5607L19.5 7.5C20.3284 6.67157 20.3284 5.32843 19.5 4.5C18.6716 3.67157 17.3284 3.67157 16.5 4.5L9.43934 11.5607C9.15804 11.842 9 12.2235 9 12.6213V15H11.3787C11.7765 15 12.158 14.842 12.4393 14.5607Z"
-                      stroke="currentColor"
-                      strokeLinecap="square"
-                    />
-                  </svg>
+                  {isInstallingPreparedUpdate ? "更新中..." : "立即更新"}
                 </button>
-              </div>
-            ) : null}
-          </div>
-        </header>
-
-        <div
-          ref={messagesScrollRef}
-          onScroll={handleMessagesScroll}
-          className="flex-1 min-h-0 overflow-y-auto overscroll-y-none"
-        >
-          {activeMainView === "feed" && activeFeedSource && activeFeedView ? (
-            <FeedPane
-              source={activeFeedSource}
-              subscription={activeFeedView.subscription}
-              items={activeFeedView.items}
-              isLoading={activeFeedView.isLoading}
-              isSyncing={activeFeedView.runtimeState.isSyncing}
-              hasMore={activeFeedView.hasMore}
-              researchingItemId={activeFeedView.researchingItemId}
-              onRefresh={() => {
-                void feedService
-                  .syncNow(activeFeedSource)
-                  .then(() => loadFeedItems(activeFeedSource))
-                  .catch(() => {})
-              }}
-              onLoadMore={() => {
-                if (!activeFeedView.hasMore || activeFeedView.isLoading) {
-                  return
-                }
-                void loadFeedItems(activeFeedSource, {
-                  append: true,
-                  cursor: activeFeedView.cursor,
-                })
-              }}
-              onOpenSettings={() => openSettings("subscriptions")}
-              onSelectSource={(nextSource) => {
-                void handleSelectFeed(nextSource)
-              }}
-              onDeepResearch={(item) => {
-                void handleDeepResearchFeedItem(item)
-              }}
-            />
-          ) : visibleMessages.length === 0 ? (
-            <WelcomeScreen />
-          ) : (
-            <div
-              className="mx-auto w-full max-w-full transition-[max-width] duration-200 ease-out xl:max-w-[min(78%,64rem)]"
-            >
-              {visibleMessages.map((message) => (
-                <div key={message.id} data-message-id={message.id}>
-                  {/*
-                    Keep actions visible for the latest assistant response.
-                    Older assistant responses only reveal actions on hover/focus.
-                  */}
-                  <ChatMessage
-                    message={message}
-                    regenerateDisabled={isActiveConversationStreaming}
-                    actionsAlwaysVisible={
-                      message.role === "assistant" &&
-                      message.id !== "streaming_assistant" &&
-                      message.id === latestAssistantMessageId
-                    }
-                    pdfExportMeta={
-                      message.role === "assistant" && message.id !== "streaming_assistant"
-                        ? pdfExportMetaByMessageId[message.id]
-                        : undefined
-                    }
-                    onRegenerate={(target) => {
-                      void handleRegenerateMessage(target)
-                    }}
-                  />
-                </div>
-              ))}
-              {activePendingRecoveryPreview ? (
-                <div data-message-id="pending_recovery_preview" className="px-6 py-2">
-                  <div className="w-fit max-w-[min(92%,56rem)] rounded-3xl bg-secondary/40 px-4 py-3 text-sm leading-7 text-foreground whitespace-pre-wrap">
-                    {activePendingRecoveryPreview}
-                  </div>
+              ) : null}
+              {shouldShowHeaderNewConversationButton ? (
+                <div className="group/new-chat relative ms-1">
+                  <span className="pointer-events-none absolute top-[calc(100%+8px)] right-0 z-20 -translate-y-1 whitespace-nowrap rounded-[16px] border border-black/10 bg-background/96 px-4 py-1 text-sm leading-6 text-foreground opacity-0 shadow-sm backdrop-blur transition-all duration-200 ease-in-out group-hover/new-chat:translate-y-0 group-hover/new-chat:opacity-100 group-focus-within/new-chat:translate-y-0 group-focus-within/new-chat:opacity-100">
+                    新建聊天
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleNewConversation}
+                    aria-label="新建对话"
+                    className="inline-flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border border-border/80 bg-background p-2 text-foreground transition-colors duration-100 hover:bg-secondary"
+                  >
+                    <svg
+                      width="20"
+                      height="20"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      xmlns="http://www.w3.org/2000/svg"
+                      className="stroke-[2]"
+                      strokeWidth="2"
+                    >
+                      <path
+                        d="M10 4V4C8.13623 4 7.20435 4 6.46927 4.30448C5.48915 4.71046 4.71046 5.48915 4.30448 6.46927C4 7.20435 4 8.13623 4 10V13.6C4 15.8402 4 16.9603 4.43597 17.816C4.81947 18.5686 5.43139 19.1805 6.18404 19.564C7.03968 20 8.15979 20 10.4 20H14C15.8638 20 16.7956 20 17.5307 19.6955C18.5108 19.2895 19.2895 18.5108 19.6955 17.5307C20 16.7956 20 15.8638 20 14V14"
+                        stroke="currentColor"
+                        strokeLinecap="square"
+                      />
+                      <path
+                        d="M12.4393 14.5607L19.5 7.5C20.3284 6.67157 20.3284 5.32843 19.5 4.5C18.6716 3.67157 17.3284 3.67157 16.5 4.5L9.43934 11.5607C9.15804 11.842 9 12.2235 9 12.6213V15H11.3787C11.7765 15 12.158 14.842 12.4393 14.5607Z"
+                        stroke="currentColor"
+                        strokeLinecap="square"
+                      />
+                    </svg>
+                  </button>
                 </div>
               ) : null}
-              {shouldShowPendingRecoveryWarmupIndicator ? (
-                <TypingIndicator label="同步中" />
-              ) : null}
-              {shouldShowThinkingWarmup ? (
-                <TypingIndicator elapsedSeconds={activeStreamingReasoningDurationSeconds} />
-              ) : null}
-              <div style={{ height: `${messageBottomSpacerPx}px` }} />
             </div>
-          )}
-        </div>
+          </header>
+        ) : null}
+
+        {activeMainView === "feed" && activeFeedSource && activeFeedView ? (
+          <FeedPane
+            source={activeFeedSource}
+            subscription={activeFeedView.subscription}
+            items={activeFeedView.items}
+            isLoading={activeFeedView.isLoading}
+            isSyncing={activeFeedView.runtimeState.isSyncing}
+            hasMore={activeFeedView.hasMore}
+            researchingItemId={activeFeedView.researchingItemId}
+            onRefresh={() => {
+              void feedService
+                .syncNow(activeFeedSource)
+                .then(() => loadFeedItems(activeFeedSource))
+                .catch(() => {})
+            }}
+            onLoadMore={() => {
+              if (!activeFeedView.hasMore || activeFeedView.isLoading) {
+                return
+              }
+              void loadFeedItems(activeFeedSource, {
+                append: true,
+                cursor: activeFeedView.cursor,
+              })
+            }}
+            onSelectSource={(nextSource) => {
+              void handleSelectFeed(nextSource)
+            }}
+            onDeepResearch={(item) => {
+              void handleDeepResearchFeedItem(item)
+            }}
+          />
+        ) : (
+          <div
+            ref={messagesScrollRef}
+            onScroll={handleMessagesScroll}
+            className="flex-1 min-h-0 overflow-y-auto overscroll-y-none"
+          >
+            {visibleMessages.length === 0 ? (
+              <WelcomeScreen />
+            ) : (
+              <div
+                className="mx-auto w-full max-w-full transition-[max-width] duration-200 ease-out xl:max-w-[min(78%,64rem)]"
+              >
+                {visibleMessages.map((message) => (
+                  <div key={message.id} data-message-id={message.id}>
+                    {/*
+                      Keep actions visible for the latest assistant response.
+                      Older assistant responses only reveal actions on hover/focus.
+                    */}
+                    <ChatMessage
+                      message={message}
+                      regenerateDisabled={isActiveConversationStreaming}
+                      actionsAlwaysVisible={
+                        message.role === "assistant" &&
+                        message.id !== "streaming_assistant" &&
+                        message.id === latestAssistantMessageId
+                      }
+                      pdfExportMeta={
+                        message.role === "assistant" && message.id !== "streaming_assistant"
+                          ? pdfExportMetaByMessageId[message.id]
+                          : undefined
+                      }
+                      onRegenerate={(target) => {
+                        void handleRegenerateMessage(target)
+                      }}
+                    />
+                  </div>
+                ))}
+                {activePendingRecoveryPreview ? (
+                  <div data-message-id="pending_recovery_preview" className="px-6 py-2">
+                    <div className="w-fit max-w-[min(92%,56rem)] rounded-3xl bg-secondary/40 px-4 py-3 text-sm leading-7 text-foreground whitespace-pre-wrap">
+                      {activePendingRecoveryPreview}
+                    </div>
+                  </div>
+                ) : null}
+                {shouldShowPendingRecoveryWarmupIndicator ? (
+                  <TypingIndicator label="同步中" />
+                ) : null}
+                {shouldShowThinkingWarmup ? (
+                  <TypingIndicator elapsedSeconds={activeStreamingReasoningDurationSeconds} />
+                ) : null}
+                <div style={{ height: `${messageBottomSpacerPx}px` }} />
+              </div>
+            )}
+          </div>
+        )}
 
         {activeMainView === "chat" ? (
           <div className="shrink-0">
