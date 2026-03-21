@@ -1,5 +1,22 @@
 import { describe, expect, it } from "bun:test"
-import { buildFeedFetchPrompt, parseFeedGatewayPosts } from "./grok-feed-client"
+import type { AppConfig } from "@/app/contracts"
+import { buildFeedFetchPrompt, parseFeedGatewayPosts, RuntimeGrokFeedClient } from "./grok-feed-client"
+
+function buildConfig(): AppConfig {
+  return {
+    apiBaseUrl: "http://127.0.0.1:8787",
+    apiKey: "test-key",
+    defaultModel: "grok-4.1-fast",
+    openaiApiBaseUrl: "",
+    openaiApiKey: "",
+    openaiTranslationModel: "gpt-5.4-mini",
+    voiceEnabled: false,
+    polymarketSubscriptionEnabled: true,
+    kalshiSubscriptionEnabled: true,
+    themeMode: "light",
+    fontSizeMode: "default",
+  }
+}
 
 describe("grok feed client prompt", () => {
   it("pins the account URL, output schema, and JSON-only contract", () => {
@@ -134,5 +151,56 @@ describe("parseFeedGatewayPosts", () => {
         "polymarket"
       )
     ).toThrow("错误账号")
+  })
+})
+
+describe("RuntimeGrokFeedClient", () => {
+  it("sends session_id and client_turn_id for gateway requests", async () => {
+    const client = new RuntimeGrokFeedClient(buildConfig())
+    const requests: Array<{
+      headers: HeadersInit | undefined
+      body: Record<string, unknown>
+    }> = []
+
+    const mockedFetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({
+        headers: init?.headers,
+        body: JSON.parse(typeof init?.body === "string" ? init.body : "{}") as Record<string, unknown>,
+      })
+      return new Response(
+        JSON.stringify({
+          output: [
+            {
+              type: "message",
+              content: [
+                {
+                  type: "output_text",
+                  text: '{"account":"@Kalshi","latest_posts":[{"id":"2034991514116661465","timestamp":"2026-03-20T13:52:39Z","content":"post","engagement":{"likes":0,"reposts":0,"quotes":0,"replies":0,"views":0},"has_media":false}],"extra_with_media":[],"note":"ok"}',
+                },
+              ],
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }
+      )
+    }) as unknown as typeof fetch
+
+    ;(client as unknown as { runtimeFetch: typeof fetch }).runtimeFetch = mockedFetch
+
+    await client.fetchPosts("kalshi")
+
+    expect(requests).toHaveLength(1)
+    expect(typeof requests[0]?.body["session_id"]).toBe("string")
+    expect((requests[0]?.body["session_id"] as string).startsWith("sess_")).toBe(true)
+    expect(typeof requests[0]?.body["client_turn_id"]).toBe("string")
+    expect((requests[0]?.body["client_turn_id"] as string).startsWith("turn_")).toBe(true)
+    const headers = new Headers(requests[0]?.headers)
+    expect(headers.get("Authorization")).toBe("Bearer test-key")
+    expect(headers.get("Idempotency-Key")).toBe(requests[0]?.body["client_turn_id"] as string)
   })
 })

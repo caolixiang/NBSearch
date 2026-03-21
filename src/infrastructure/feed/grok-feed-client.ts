@@ -192,6 +192,25 @@ function extractGatewayOutputText(raw: string): string {
   }
 }
 
+function createUuid(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID()
+  }
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (char) => {
+    const random = Math.floor(Math.random() * 16)
+    const value = char === "x" ? random : (random & 0x3) | 0x8
+    return value.toString(16)
+  })
+}
+
+function createGatewaySessionId(): string {
+  return `sess_${createUuid()}`
+}
+
+function createGatewayClientTurnId(): string {
+  return `turn_${createUuid()}`
+}
+
 export function buildFeedFetchPrompt(source: FeedSource): string {
   const config = getFeedSourceConfig(source)
   return [
@@ -239,16 +258,21 @@ export class RuntimeGrokFeedClient implements FeedFetchClient {
     const timeout = globalThis.setTimeout(() => controller.abort(), FEED_FETCH_TIMEOUT_MS)
     const forwardAbort = () => controller.abort()
     signal?.addEventListener("abort", forwardAbort, { once: true })
+    const sessionId = createGatewaySessionId()
+    const clientTurnId = createGatewayClientTurnId()
 
     try {
       const response = await this.runtimeFetch(this.apiUrl, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          "Idempotency-Key": clientTurnId,
           ...(this.config.apiKey ? { Authorization: `Bearer ${this.config.apiKey}` } : {}),
         },
         body: JSON.stringify({
           model: FEED_FETCH_MODEL,
+          session_id: sessionId,
+          client_turn_id: clientTurnId,
           stream: false,
           instructions: "You extract recent X posts into valid JSON and must return JSON only.",
           input: [
