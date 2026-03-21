@@ -109,7 +109,7 @@ function SubscriptionToggleCard({
   onToggle,
 }: {
   title: string
-  description: string
+  description?: string
   enabled: boolean
   onToggle: () => void
 }) {
@@ -118,7 +118,9 @@ function SubscriptionToggleCard({
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <p className="text-sm font-medium text-foreground">{title}</p>
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">{description}</p>
+          {description ? (
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">{description}</p>
+          ) : null}
         </div>
         <button
           type="button"
@@ -1167,7 +1169,6 @@ export function SettingsDialog({
                 <div className="space-y-4">
                   <SubscriptionToggleCard
                     title="订阅 Polymarket 最新动态"
-                    description="关闭窗口到状态栏时会继续同步；彻底退出应用后暂停，下次启动时会做一次补抓。"
                     enabled={polymarketEnabled}
                     onToggle={() => {
                       setPolymarketEnabled((prev) => !prev)
@@ -1179,7 +1180,6 @@ export function SettingsDialog({
 
                   <SubscriptionToggleCard
                     title="订阅 Kalshi 最新动态"
-                    description="规则与 Polymarket 一致：运行中每 30 分钟同步一次，隐藏到 tray 后继续同步。"
                     enabled={kalshiEnabled}
                     onToggle={() => {
                       setKalshiEnabled((prev) => !prev)
@@ -1193,7 +1193,7 @@ export function SettingsDialog({
                     <div>
                       <p className="text-sm font-medium text-foreground">自定义 X 账号</p>
                       <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                        支持 `@handle`、`handle` 或 `https://x.com/handle`。新增账号会出现在 feed source rail 中，并按同样的 30 分钟节奏同步。
+                        支持 `@handle`、`handle` 或 `https://x.com/handle`。添加后，你就可以在应用里直接查看这个账号的最新动态。
                       </p>
                     </div>
 
