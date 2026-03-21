@@ -192,13 +192,13 @@ export function ChatSidebar({
       type="button"
       onClick={() => onSelectFeed?.(item.id)}
       className={cn(
-        "flex h-auto w-full items-start gap-2 rounded-xl px-2 py-2 text-left transition-colors",
+        "flex min-h-12 w-full items-center gap-2 rounded-xl px-2 py-2 text-left transition-colors",
         activeId === item.id
           ? "bg-sidebar-accent text-sidebar-accent-foreground"
           : "text-sidebar-foreground hover:bg-sidebar-accent/50"
       )}
     >
-      <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full border border-sidebar-border/70 bg-sidebar/80">
+      <span className="flex size-7 shrink-0 items-center justify-center rounded-full border border-sidebar-border/70 bg-sidebar/80">
         <XTwitterIcon className="size-3.5" />
       </span>
       <span className="min-w-0">
