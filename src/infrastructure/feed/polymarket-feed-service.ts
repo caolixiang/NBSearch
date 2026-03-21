@@ -15,16 +15,15 @@ import type {
   FeedSyncResult,
 } from "@/domain/feed/types"
 import type { AppRepository } from "@/domain/storage/repository"
-import type { JinaReaderClient } from "./jina-reader-client"
-import { RuntimeJinaReaderClient } from "./jina-reader-client"
 import { listenToNativeFeedSyncTick } from "./native-feed-sync"
+import type { FeedFetchClient } from "./grok-feed-client"
+import { RuntimeGrokFeedClient } from "./grok-feed-client"
 import {
   OpenAIFeedTranslator,
   type FeedTranslator,
 } from "./openai-feed-translator"
-import { parseXTimeline } from "./polymarket-timeline-parser"
 
-const POLL_INTERVAL_MINUTES = 10
+const POLL_INTERVAL_MINUTES = 30
 const STARTUP_SYNC_DELAY_MS = 10_000
 const SCHEDULER_TICK_INTERVAL_MS = 60_000
 const TRANSLATION_BACKFILL_LIMIT = 20
@@ -109,7 +108,7 @@ export class FeedSyncService implements FeedService {
   constructor(
     private readonly repository: AppRepository,
     private readonly config: AppConfig,
-    private readonly client: JinaReaderClient = new RuntimeJinaReaderClient(),
+    private readonly client: FeedFetchClient = new RuntimeGrokFeedClient(config),
     private readonly translator: FeedTranslator = new OpenAIFeedTranslator(config),
     private readonly options: FeedSyncServiceOptions = {}
   ) {}
@@ -405,23 +404,23 @@ export class FeedSyncService implements FeedService {
     subscription: FeedSubscriptionRecord
   ): Promise<FeedSyncResult> {
     const fetchedAt = Date.now()
-    const raw = await this.client.fetchTimeline(source)
-    const parsed = parseXTimeline(raw, source)
+    const posts = await this.client.fetchPosts(source)
     const items = await Promise.all(
-      parsed.map(async (item, index) => {
-        const normalizedTitle = item.title.trim() || getFeedSourceConfig(source).fallbackTitle
-        const normalizedMarkdown = item.contentMarkdown.trim()
-        const normalizedMediaUrls = Array.from(new Set(item.mediaUrls))
-        const contentHash = await sha256Hex(
-          [
-            normalizedTitle,
-            normalizedMarkdown,
-            normalizedMediaUrls.join("|"),
-            item.canonicalUrl.trim(),
-          ].join("\n")
-        )
+      posts.map(async (post, index) => {
+        const normalizedMarkdown = post.content.trim()
+        const firstLine = normalizedMarkdown
+          .split(/\r?\n/)
+          .find((line) => line.trim().length > 0)
+          ?.trim()
+        const normalizedTitle = firstLine
+          ? firstLine.length > 96
+            ? `${firstLine.slice(0, 93)}...`
+            : firstLine
+          : getFeedSourceConfig(source).fallbackTitle
+        const normalizedMediaUrls = Array.from(new Set(post.mediaUrls))
+        const contentHash = await sha256Hex(`${source}:${post.postId}`)
         return {
-          id: `feed_item_${contentHash.slice(0, 24)}`,
+          id: `feed_item_${source}_${post.postId}`,
           subscriptionId: subscription.id,
           source,
           contentHash,
@@ -433,8 +432,8 @@ export class FeedSyncService implements FeedService {
           translationModel: "",
           translatedAt: null,
           mediaUrls: normalizedMediaUrls,
-          canonicalUrl: item.canonicalUrl.trim(),
-          publishedAt: item.publishedAt,
+          canonicalUrl: post.canonicalUrl.trim(),
+          publishedAt: post.publishedAt,
           discoveredAt: fetchedAt - index,
           fetchedAt,
         } satisfies FeedItemRecord
@@ -487,7 +486,7 @@ export class FeedSyncService implements FeedService {
       source,
       fetchedAt,
       insertedCount,
-      parsedCount: parsed.length,
+      parsedCount: posts.length,
     }
   }
 }

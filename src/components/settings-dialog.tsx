@@ -1103,7 +1103,7 @@ export function SettingsDialog({
                 <div>
                   <h3 className="text-sm font-medium text-foreground">订阅设置</h3>
                   <p className="mt-0.5 text-xs text-muted-foreground">
-                    通过 Jina 拉取 X 上的最新动态。应用运行期间每 10 分钟同步一次，隐藏到 tray 后仍会继续同步。
+                    通过网关 `grok fast` 拉取 X 上的最新动态。应用运行期间每 30 分钟同步一次，隐藏到 tray 后仍会继续同步。
                   </p>
                 </div>
 
@@ -1122,7 +1122,7 @@ export function SettingsDialog({
 
                   <SubscriptionToggleCard
                     title="订阅 Kalshi 最新动态"
-                    description="规则与 Polymarket 一致：运行中每 10 分钟同步一次，隐藏到 tray 后继续同步。"
+                    description="规则与 Polymarket 一致：运行中每 30 分钟同步一次，隐藏到 tray 后继续同步。"
                     enabled={kalshiEnabled}
                     onToggle={() => {
                       setKalshiEnabled((prev) => !prev)

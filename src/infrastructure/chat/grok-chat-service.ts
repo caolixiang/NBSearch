@@ -14,6 +14,7 @@ import { createRuntimeFetch } from "../http/runtime-fetch"
 import { StreamIdleTimeoutError, normalizeTurnRecoverySetting } from "./gateway-session-recovery"
 import { type RenewedAssetUrlPayload } from "./gateway-media-assets"
 import { refreshMessagesWithGeneratedMediaAssets } from "./gateway-media-workflows"
+import { normalizeGatewayBaseUrl, normalizeGatewayResponsesUrl } from "./gateway-url"
 import { buildCompletedGatewayTurn } from "./gateway-turn-completion"
 import { GatewayStreamAccumulator } from "./gateway-stream-accumulator"
 import { executeGatewayStreamTransport } from "./gateway-stream-transport"
@@ -31,42 +32,6 @@ import {
   createGatewayRecoveryRuntime,
   type GatewayRecoveryRuntime,
 } from "./gateway-recovery-runtime"
-
-function normalizeApiBaseUrl(input: string): string {
-  const trimmed = input.trim().replace(/\/+$/, "")
-  if (!trimmed) {
-    return "http://localhost:8787/v1/responses"
-  }
-  if (trimmed.endsWith("/v1/responses")) {
-    return trimmed
-  }
-  if (trimmed.endsWith("/v1")) {
-    return `${trimmed}/responses`
-  }
-  return `${trimmed}/v1/responses`
-}
-
-/**
- * Normalize the API base URL to the /v1 path (for model catalog etc.)
- */
-export function normalizeGatewayBaseUrl(input: string): string {
-  const trimmed = input.trim().replace(/\/+$/, "")
-  if (!trimmed) {
-    return "http://localhost:8787/v1"
-  }
-  if (trimmed.endsWith("/v1")) {
-    return trimmed
-  }
-  if (trimmed.endsWith("/v1/responses")) {
-    return trimmed.slice(0, -"/responses".length)
-  }
-  if (trimmed.endsWith("/responses")) {
-    return trimmed.slice(0, -"/responses".length)
-  }
-  return `${trimmed}/v1`
-}
-
-
 
 const STREAM_IDLE_TIMEOUT_MS_DEFAULT = 20_000
 const STREAM_IDLE_TIMEOUT_MS_MAX = 120_000
@@ -111,7 +76,7 @@ export class GrokChatService implements ChatService {
     private readonly repository: AppRepository,
     config: AppConfig
   ) {
-    this.apiUrl = normalizeApiBaseUrl(config.apiBaseUrl)
+    this.apiUrl = normalizeGatewayResponsesUrl(config.apiBaseUrl)
     this.apiKey = config.apiKey || ""
     this.runtimeFetch = createRuntimeFetch(fetch)
     this.gatewayBaseUrl = normalizeGatewayBaseUrl(this.apiUrl)

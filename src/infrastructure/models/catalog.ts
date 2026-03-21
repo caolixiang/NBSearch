@@ -1,6 +1,6 @@
 import type { AppConfig } from "../../app/contracts"
 import type { ModelOption, ModelVisualKind } from "../../domain/models/types"
-import { normalizeGatewayBaseUrl } from "../chat/grok-chat-service"
+import { normalizeGatewayBaseUrl } from "../chat/gateway-url"
 import { runtimeFetch } from "../http/runtime-fetch"
 
 const MODEL_OPTIONS_STORAGE_KEY = "chat-app:model-options:v1"

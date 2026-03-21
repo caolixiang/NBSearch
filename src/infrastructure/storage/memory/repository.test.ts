@@ -72,4 +72,53 @@ describe("MemoryAppRepository", () => {
     })
     expect(afterUpdate).toHaveLength(0)
   })
+
+  it("treats the same feed item id as a duplicate even when contentHash changes", async () => {
+    const repository = new MemoryAppRepository()
+
+    const insertedFirst = await repository.insertFeedItems([
+      {
+        id: "feed_item_kalshi_1",
+        subscriptionId: "feed_sub_kalshi",
+        source: "kalshi",
+        contentHash: "hash_a",
+        title: "Title A",
+        contentMarkdown: "Body A",
+        titleZh: "",
+        contentMarkdownZh: "",
+        translationStatus: "skipped",
+        translationModel: "",
+        translatedAt: null,
+        mediaUrls: [],
+        canonicalUrl: "https://x.com/Kalshi/status/1",
+        publishedAt: 1,
+        discoveredAt: 1,
+        fetchedAt: 1,
+      },
+    ])
+
+    const insertedSecond = await repository.insertFeedItems([
+      {
+        id: "feed_item_kalshi_1",
+        subscriptionId: "feed_sub_kalshi",
+        source: "kalshi",
+        contentHash: "hash_b",
+        title: "Title B",
+        contentMarkdown: "Body B",
+        titleZh: "",
+        contentMarkdownZh: "",
+        translationStatus: "skipped",
+        translationModel: "",
+        translatedAt: null,
+        mediaUrls: [],
+        canonicalUrl: "https://x.com/Kalshi/status/1",
+        publishedAt: 2,
+        discoveredAt: 2,
+        fetchedAt: 2,
+      },
+    ])
+
+    expect(insertedFirst).toBe(1)
+    expect(insertedSecond).toBe(0)
+  })
 })

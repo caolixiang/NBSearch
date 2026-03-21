@@ -231,11 +231,7 @@ export class MemoryAppRepository implements AppRepository {
     let inserted = 0
     for (const item of items) {
       const current = this.feedItems.get(item.source) || []
-      const exists = current.some(
-        (candidate) =>
-          candidate.subscriptionId === item.subscriptionId &&
-          candidate.contentHash === item.contentHash
-      )
+      const exists = current.some((candidate) => candidate.id === item.id || candidate.contentHash === item.contentHash)
       if (exists) {
         continue
       }

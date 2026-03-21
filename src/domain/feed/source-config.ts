@@ -4,7 +4,8 @@ export interface FeedSourceConfig {
   source: FeedSource
   label: string
   accountHandle: string
-  readerUrl: string
+  accountTag: string
+  profileUrl: string
   fallbackTitle: string
 }
 
@@ -15,14 +16,16 @@ export const FEED_SOURCE_CONFIG: Record<FeedSource, FeedSourceConfig> = {
     source: "polymarket",
     label: "Polymarket",
     accountHandle: "Polymarket",
-    readerUrl: "https://r.jina.ai/http://x.com/Polymarket",
+    accountTag: "@Polymarket",
+    profileUrl: "https://x.com/Polymarket",
     fallbackTitle: "Polymarket 更新",
   },
   kalshi: {
     source: "kalshi",
     label: "Kalshi",
     accountHandle: "Kalshi",
-    readerUrl: "https://r.jina.ai/http://x.com/Kalshi",
+    accountTag: "@Kalshi",
+    profileUrl: "https://x.com/Kalshi",
     fallbackTitle: "Kalshi 更新",
   },
 }

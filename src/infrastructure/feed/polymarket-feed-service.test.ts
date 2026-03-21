@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test"
 import type { AppConfig } from "@/app/contracts"
 import type { FeedSource } from "@/domain/feed/types"
 import { MemoryAppRepository } from "@/infrastructure/storage/memory/repository"
-import type { JinaReaderClient } from "./jina-reader-client"
+import type { FeedFetchClient, FeedFetchPost } from "./grok-feed-client"
 import type {
   FeedTranslationRequest,
   FeedTranslationResult,
@@ -10,24 +10,24 @@ import type {
 } from "./openai-feed-translator"
 import { FeedSyncService } from "./polymarket-feed-service"
 
-class FakeJinaReaderClient implements JinaReaderClient {
-  constructor(private readonly payloadBySource: Record<FeedSource, string>) {}
+class FakeFeedFetchClient implements FeedFetchClient {
+  constructor(private readonly payloadBySource: Record<FeedSource, FeedFetchPost[]>) {}
 
-  async fetchTimeline(source: FeedSource): Promise<string> {
+  async fetchPosts(source: FeedSource): Promise<FeedFetchPost[]> {
     return this.payloadBySource[source]
   }
 }
 
-class FlakyJinaReaderClient implements JinaReaderClient {
+class FlakyFeedFetchClient implements FeedFetchClient {
   calls = 0
 
   constructor(
-    private readonly payloadBySource: Record<FeedSource, string>,
+    private readonly payloadBySource: Record<FeedSource, FeedFetchPost[]>,
     private readonly failuresBeforeSuccess: number,
-    private readonly errorMessage = "temporary jina failure"
+    private readonly errorMessage = "temporary feed fetch failure"
   ) {}
 
-  async fetchTimeline(source: FeedSource): Promise<string> {
+  async fetchPosts(source: FeedSource): Promise<FeedFetchPost[]> {
     this.calls += 1
     if (this.calls <= this.failuresBeforeSuccess) {
       throw new Error(this.errorMessage)
@@ -69,24 +69,32 @@ class FlakyFeedTranslator implements FeedTranslator {
   }
 }
 
-const POLYMARKET_TIMELINE = `Markdown Content:
-## Polymarket’s posts
+const POLYMARKET_POSTS: FeedFetchPost[] = [
+  {
+    postId: "2034396261223440480",
+    content: "BREAKING: Iceland says it could join the EU by 2028.",
+    mediaUrls: ["https://pbs.twimg.com/media/HDugnRdWYAAiISC?format=jpg&name=small"],
+    canonicalUrl: "https://x.com/Polymarket/status/2034396261223440480",
+    publishedAt: 1779000000000,
+  },
+  {
+    postId: "2034396000000000000",
+    content: "JUST IN: Chinese Foreign Minister says China will continue mediating to push for a ceasefire.",
+    mediaUrls: [],
+    canonicalUrl: "https://x.com/Polymarket/status/2034396000000000000",
+    publishedAt: 1778999999000,
+  },
+]
 
-[![Image 7: Square profile picture](https://pbs.twimg.com/profile_images/2005664281002491904/bz2ZO_nU_normal.jpg)](https://x.com/Polymarket)
-BREAKING: Iceland says it could join the EU by 2028.
-
-[![Image 14: Image](https://pbs.twimg.com/media/HDugnRdWYAAiISC?format=jpg&name=small)](https://x.com/Polymarket/status/2034396261223440480/photo/1)
-
-[![Image 8: Square profile picture](https://pbs.twimg.com/profile_images/2005664281002491904/bz2ZO_nU_normal.jpg)](https://x.com/Polymarket)
-JUST IN: Chinese Foreign Minister says China will continue mediating to push for a ceasefire.
-`
-
-const KALSHI_TIMELINE = `Markdown Content:
-## Kalshi’s posts
-
-[![Image 7: Square profile picture](https://pbs.twimg.com/profile_images/2026716397598867456/cTZJLMxV_normal.jpg)](https://x.com/Kalshi)
-JUST IN: North Carolina introduces bill to establish strategic Bitcoin reserve
-`
+const KALSHI_POSTS: FeedFetchPost[] = [
+  {
+    postId: "2034976360163107270",
+    content: "JUST IN: North Carolina introduces bill to establish strategic Bitcoin reserve",
+    mediaUrls: [],
+    canonicalUrl: "https://x.com/Kalshi/status/2034976360163107270",
+    publishedAt: 1779000000000,
+  },
+]
 
 function buildConfig(): AppConfig {
   return {
@@ -114,10 +122,10 @@ function buildConfig(): AppConfig {
   }
 }
 
-function buildClient(): FakeJinaReaderClient {
-  return new FakeJinaReaderClient({
-    polymarket: POLYMARKET_TIMELINE,
-    kalshi: KALSHI_TIMELINE,
+function buildClient(): FakeFeedFetchClient {
+  return new FakeFeedFetchClient({
+    polymarket: POLYMARKET_POSTS,
+    kalshi: KALSHI_POSTS,
   })
 }
 
@@ -129,6 +137,7 @@ describe("FeedSyncService", () => {
 
     const subscription = await service.getSubscription("polymarket")
     expect(subscription.enabled).toBe(true)
+    expect(subscription.pollIntervalMinutes).toBe(30)
 
     const firstSync = await service.syncNow("polymarket")
     expect(firstSync.insertedCount).toBe(2)
@@ -186,10 +195,10 @@ describe("FeedSyncService", () => {
   it("retries a failed sync attempt before surfacing success", async () => {
     const repository = new MemoryAppRepository()
     const translator = new FakeFeedTranslator()
-    const client = new FlakyJinaReaderClient(
+    const client = new FlakyFeedFetchClient(
       {
-        polymarket: POLYMARKET_TIMELINE,
-        kalshi: KALSHI_TIMELINE,
+        polymarket: POLYMARKET_POSTS,
+        kalshi: KALSHI_POSTS,
       },
       1
     )
@@ -210,13 +219,13 @@ describe("FeedSyncService", () => {
   it("keeps the final error after exhausting sync retries", async () => {
     const repository = new MemoryAppRepository()
     const translator = new FakeFeedTranslator()
-    const client = new FlakyJinaReaderClient(
+    const client = new FlakyFeedFetchClient(
       {
-        polymarket: POLYMARKET_TIMELINE,
-        kalshi: KALSHI_TIMELINE,
+        polymarket: POLYMARKET_POSTS,
+        kalshi: KALSHI_POSTS,
       },
       3,
-      "jina unavailable"
+      "feed unavailable"
     )
     const service = new FeedSyncService(repository, buildConfig(), client, translator, {
       syncRetryMaxAttempts: 3,
@@ -228,12 +237,12 @@ describe("FeedSyncService", () => {
       throw new Error("expected syncNow to fail")
     } catch (error) {
       expect(error).toBeInstanceOf(Error)
-      expect((error as Error).message).toBe("jina unavailable")
+      expect((error as Error).message).toBe("feed unavailable")
     }
     expect(client.calls).toBe(3)
 
     const subscription = await service.getSubscription("polymarket")
-    expect(subscription.lastError).toBe("jina unavailable")
+    expect(subscription.lastError).toBe("feed unavailable")
     expect(subscription.lastSuccessAt).toBeNull()
   })
 
@@ -253,5 +262,39 @@ describe("FeedSyncService", () => {
     expect(page.items).toHaveLength(1)
     expect(page.items[0]?.source).toBe("kalshi")
     expect(page.items[0]?.title).toContain("North Carolina")
+  })
+
+  it("deduplicates by post id even when the fetched content changes later", async () => {
+    const repository = new MemoryAppRepository()
+    const translator = new FakeFeedTranslator()
+    const client: FeedFetchClient = {
+      async fetchPosts() {
+        return [
+          {
+            postId: "2034991514116661465",
+            content: firstCall ? "Version A" : "Version B after edit",
+            mediaUrls: [],
+            canonicalUrl: "https://x.com/Kalshi/status/2034991514116661465",
+            publishedAt: 1779000000000,
+          },
+        ]
+      },
+    }
+    let firstCall = true
+    const wrappedClient: FeedFetchClient = {
+      async fetchPosts(source) {
+        const result = await client.fetchPosts(source)
+        firstCall = false
+        return result
+      },
+    }
+    const service = new FeedSyncService(repository, buildConfig(), wrappedClient, translator)
+
+    const firstSync = await service.syncNow("kalshi")
+    const secondSync = await service.syncNow("kalshi")
+
+    expect(firstSync.insertedCount).toBe(1)
+    expect(secondSync.insertedCount).toBe(0)
+    expect(translator.calls).toHaveLength(1)
   })
 })

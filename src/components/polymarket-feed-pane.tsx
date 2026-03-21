@@ -154,7 +154,7 @@ export function FeedPane({
             </span>
           </div>
           <p className="mt-1 text-sm text-muted-foreground">
-            同步 X 上的最新动态。应用运行期间每 10 分钟自动同步一次。
+            同步 X 上的最新动态。应用运行期间每 30 分钟自动同步一次。
           </p>
           <p
             className={cn(

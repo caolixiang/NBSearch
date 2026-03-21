@@ -2041,7 +2041,7 @@ export function ChatShell({ runtime }: { runtime: AppRuntime }) {
               <p className="mt-0.5 text-xs text-muted-foreground">
                 {activeFeedView?.subscription?.enabled
                   ? "X 订阅流"
-                  : "在设置中开启后，每 10 分钟同步一次"}
+                  : "在设置中开启后，每 30 分钟同步一次"}
               </p>
             </div>
           ) : (
