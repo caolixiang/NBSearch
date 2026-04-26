@@ -21,6 +21,7 @@ import { executeGatewayStreamTransport } from "./gateway-stream-transport"
 import { buildGatewayTurnRequestPayload } from "./gateway-turn-request-builder"
 import { createGatewayStreamEventEmitter } from "./gateway-stream-event-emitter"
 import { bootstrapGatewayTurn } from "./gateway-turn-bootstrap"
+import { resolvePostCompletionConversationTitle } from "./gateway-title-generation"
 import {
   createConversationRecord,
   fallbackConversationTitleFromPrompt,
@@ -74,7 +75,7 @@ export class GrokChatService implements ChatService {
 
   constructor(
     private readonly repository: AppRepository,
-    config: AppConfig
+    private readonly config: AppConfig
   ) {
     this.apiUrl = normalizeGatewayResponsesUrl(config.apiBaseUrl)
     this.apiKey = config.apiKey || ""
@@ -137,6 +138,23 @@ export class GrokChatService implements ChatService {
       completionFetchMaxAttempts: PENDING_RECOVERY_COMPLETION_FETCH_MAX_ATTEMPTS,
       completionFetchDelayMs: PENDING_RECOVERY_COMPLETION_FETCH_DELAY_MS,
       missingMessageRetryAfterMs: PENDING_RECOVERY_MESSAGE_MISSING_RETRY_AFTER_MS,
+    })
+  }
+
+  private async resolveCompletionTitle(input: {
+    resolvedTitle: string
+    model: string
+    prompt: string
+  }): Promise<string> {
+    const currentTitle = input.resolvedTitle.trim()
+    if (currentTitle) {
+      return currentTitle
+    }
+    return resolvePostCompletionConversationTitle({
+      model: input.model,
+      prompt: input.prompt,
+      config: this.config,
+      fetchFn: this.runtimeFetch,
     })
   }
 
@@ -367,11 +385,16 @@ export class GrokChatService implements ChatService {
         streamStartedAt,
         commitTime,
       })
+      const resolvedTitle = await this.resolveCompletionTitle({
+        resolvedTitle: completion.resolvedTitle,
+        model: input.model,
+        prompt: input.text,
+      })
       await this.persistAssistantTurnResult({
         conversationId,
         assistantMessage: completion.result.assistantMessage,
         anchors: completion.result.anchors,
-        resolvedTitle: completion.resolvedTitle,
+        resolvedTitle,
         commitTime,
         regenerateTargetResponseId: isRegenerate ? regenerateTargetResponseId : undefined,
       })
