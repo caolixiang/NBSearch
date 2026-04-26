@@ -5,20 +5,34 @@ import { ChevronDown, Check, Zap, Brain, Sparkles, Cpu, Bot } from "lucide-react
 import { cn } from "@/lib/utils"
 import type { ModelOption } from "@/domain/models/types"
 
-function resolveModelDisplayName(model: ModelOption): string {
+export function resolveModelDisplayName(model: ModelOption): string {
   const id = model.id.trim().toLowerCase()
   const name = model.name.trim().toLowerCase()
+  const description = model.description.trim().toLowerCase()
+  const isGrokModel = id.includes("grok") || name.includes("grok")
 
   if (id.includes("grok-4.1-fast") || name.includes("grok 4.1 fast")) {
     return "NBSearch Fast"
   }
-  if (id.includes("grok-4.1-expert") || name.includes("grok 4.1 expert")) {
-    return "NBSearch Thinker"
+  if (
+    isGrokModel &&
+    (id.includes("grok-4.1-expert") ||
+      name.includes("grok 4.1 expert") ||
+      id.includes("reasoning") ||
+      name.includes("reasoning") ||
+      model.visualKind === "reasoning" ||
+      description.includes("推理") ||
+      description.includes("complex"))
+  ) {
+    return "NBSearch Expert"
   }
   if (
-    id.includes("grok-4.20") ||
-    id.includes("grok-4-20") ||
-    name.includes("grok 4.20 beta")
+    isGrokModel &&
+    (id.includes("grok-4.20") ||
+      id.includes("grok-4-20") ||
+      name.includes("grok 4.20 beta") ||
+      description.includes("最新实验") ||
+      description.includes("latest"))
   ) {
     return "NBSearch Max"
   }
